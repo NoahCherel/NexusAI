@@ -6,26 +6,45 @@ import { MessageCircle, Settings2, Sparkles } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { ChatBubble, ChatInput, WorldStatePanel, PersonaSelector } from '@/components/chat';
-import { Sidebar, SettingsPanel } from '@/components/layout';
-import { useCharacterStore, useSettingsStore } from '@/stores';
+import { Sidebar, SettingsPanel, MobileSidebar } from '@/components/layout';
+import { useCharacterStore, useSettingsStore, useChatStore, useLorebookStore } from '@/stores';
+import { useWorldStateAnalyzer } from '@/hooks';
 import { decryptApiKey } from '@/lib/crypto';
-import type { CharacterCard } from '@/types';
-
-interface ChatMessage {
-    id: string;
-    role: 'user' | 'assistant';
-    content: string;
-    thought?: string;
-}
+import { parseStreamingChunk, normalizeCoT } from '@/lib/ai/cot-middleware';
+import { buildSystemPrompt, getActiveLorebookEntries } from '@/lib/ai/context-builder';
+import { LorebookEditor } from '@/components/lorebook';
+import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
+import { Book } from 'lucide-react';
+import type { CharacterCard, Message } from '@/types';
 
 export default function ChatPage() {
     const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+    const [isLorebookOpen, setIsLorebookOpen] = useState(false);
     const [currentApiKey, setCurrentApiKey] = useState<string | null>(null);
-    const [messages, setMessages] = useState<ChatMessage[]>([]);
+
     const [isLoading, setIsLoading] = useState(false);
     const scrollRef = useRef<HTMLDivElement>(null);
+    const abortControllerRef = useRef<AbortController | null>(null);
 
     const { getActiveCharacter } = useCharacterStore();
+    const {
+        conversations,
+        activeConversationId,
+        createConversation,
+        updateWorldState,
+        addMessage,
+        updateMessage,
+        getActiveBranchMessages,
+        getMessageSiblingsInfo,
+        navigateToSibling,
+        setActiveConversation,
+        deleteMessage
+    } = useChatStore();
+    const { activeLorebook, setActiveLorebook } = useLorebookStore();
+
+    // Get active messages from store
+    const messages = activeConversationId ? getActiveBranchMessages(activeConversationId) : [];
+    const { analyzeMessage } = useWorldStateAnalyzer();
     const {
         apiKeys,
         activeProvider,
@@ -35,9 +54,14 @@ export default function ChatPage() {
         showWorldState,
         activePersonaId,
         personas,
-        enableReasoning
+        enableReasoning,
+        immersiveMode
     } = useSettingsStore();
     const character = getActiveCharacter();
+
+    // Get current world state from active conversation
+    const currentConversation = conversations.find(c => c.id === activeConversationId);
+    const worldState = currentConversation?.worldState || { inventory: [], location: '', relationships: {} };
 
     // Get decrypted API key on mount/change
     useEffect(() => {
@@ -57,33 +81,37 @@ export default function ChatPage() {
         loadApiKey();
     }, [apiKeys, activeProvider]);
 
-    // Initialize with first message when character changes
+    // Sync lorebook when character changes
     useEffect(() => {
-        if (character?.first_mes) {
-            setMessages([{
-                id: 'first-message',
-                role: 'assistant',
-                content: character.first_mes,
-            }]);
-        } else {
-            setMessages([]);
+        if (character) {
+            if (character.character_book) {
+                setActiveLorebook(character.character_book);
+            } else {
+                setActiveLorebook({ entries: [] });
+            }
         }
-    }, [character?.id, character?.first_mes]);
+    }, [character?.id, setActiveLorebook]);
 
-    // Build system prompt from character
-    const buildSystemPrompt = useCallback((char: CharacterCard) => {
-        let prompt = char.system_prompt || '';
+    // Initialize conversation when character changes
+    useEffect(() => {
+        if (character && (!activeConversationId || conversations.find(c => c.id === activeConversationId)?.characterId !== character.id)) {
+            // Check if there's an existing conversation for this character? 
+            // For now, always create new for simplicity or find last used.
+            const newId = createConversation(character.id, `Chat with ${character.name}`);
 
-        if (!prompt) {
-            prompt = `You are ${char.name}. ${char.description}\n\nPersonality: ${char.personality}\n\nScenario: ${char.scenario}`;
+            if (character.first_mes) {
+                addMessage({
+                    id: crypto.randomUUID(),
+                    conversationId: newId,
+                    parentId: null,
+                    role: 'assistant',
+                    content: character.first_mes,
+                    isActiveBranch: true,
+                    createdAt: new Date(),
+                });
+            }
         }
-
-        if (char.mes_example) {
-            prompt += `\n\nExample dialogue:\n${char.mes_example}`;
-        }
-
-        return prompt;
-    }, []);
+    }, [character?.id, character?.first_mes, activeConversationId, createConversation, addMessage, conversations]);
 
     // Auto-scroll to bottom
     useEffect(() => {
@@ -96,7 +124,37 @@ export default function ChatPage() {
         if (!currentApiKey || !character) return;
         setIsLoading(true);
 
+
+        // Stop any previous request
+        if (abortControllerRef.current) {
+            abortControllerRef.current.abort();
+        }
+        abortControllerRef.current = new AbortController();
+
         const activePersona = personas.find(p => p.id === activePersonaId);
+
+        // 1. Calculate Active Lorebook Entries (World Info) using STORE data
+        const activeEntries = getActiveLorebookEntries(
+            history.map(m => ({ ...m, conversationId: '', parentId: null, isActiveBranch: true, createdAt: new Date() })),
+            activeLorebook || undefined
+        );
+
+        // 2. Build Enhanced System Prompt (Char + World + Lore)
+        const systemPrompt = buildSystemPrompt(character, worldState, activeEntries);
+
+        // PRE-EMPTIVELY Add empty assistant message to store (Instant UI feedback)
+        const assistantId = crypto.randomUUID();
+        if (activeConversationId) {
+            addMessage({
+                id: assistantId,
+                conversationId: activeConversationId,
+                parentId: history[history.length - 1]?.id || null,
+                role: 'assistant',
+                content: '',
+                isActiveBranch: true,
+                createdAt: new Date(),
+            });
+        }
 
         try {
             const response = await fetch('/api/chat', {
@@ -106,12 +164,13 @@ export default function ChatPage() {
                     messages: history.map(({ id, role, content }) => ({ role, content })), // Clean message objects
                     provider: activeProvider,
                     model: activeModel,
-                    temperature,
                     apiKey: currentApiKey,
-                    systemPrompt: buildSystemPrompt(character),
+                    temperature,
+                    systemPrompt, // We pass the fully constructed prompt here
                     userPersona: activePersona,
-                    enableReasoning,
+                    enableReasoning
                 }),
+                signal: abortControllerRef.current.signal
             });
 
             if (!response.ok) {
@@ -124,89 +183,122 @@ export default function ChatPage() {
             const decoder = new TextDecoder();
             let assistantContent = '';
             let assistantThought = '';
-            const assistantId = crypto.randomUUID();
-
-            // Add empty assistant message
-            setMessages(prev => [...prev, {
-                id: assistantId,
-                role: 'assistant',
-                content: '',
-            }]);
 
             while (true) {
                 const { done, value } = await reader.read();
                 if (done) break;
 
                 const chunk = decoder.decode(value, { stream: true });
-
-                // Simple parsing for thoughts if they come mixed in text (rare with SDK but possible)
-                // Actually with exclude_reasoning: false (SDK default if not specified), logical thinking might be in separate field or regular delta.
-                // The API route handles calling .toTextStreamResponse() or .toDataStreamResponse().
-                // If using data stream, we need to handle data protocol.
-                // But current implementation uses simple text stream.
-                // DeepSeek R1 via OpenRouter often sends <think> tags content.
-
                 assistantContent += chunk;
 
-                // Update the assistant message
-                setMessages(prev => prev.map(m =>
-                    m.id === assistantId ? { ...m, content: assistantContent } : m
-                ));
+                // Parse for thoughts in real-time using CoT middleware
+                const { visibleContent, thoughtContent, inThought } = parseStreamingChunk(
+                    assistantContent,
+                    activeProvider
+                );
+
+                assistantThought = thoughtContent;
+
+                // Update the assistant message in store
+                updateMessage(assistantId, {
+                    content: visibleContent,
+                    thought: assistantThought || undefined
+                });
             }
-        } catch (error) {
+
+            // Final parse to ensure thoughts are fully extracted
+            const finalResult = normalizeCoT(assistantContent, activeProvider);
+            updateMessage(assistantId, {
+                content: finalResult.content,
+                thought: finalResult.thought || undefined
+            });
+
+            // Analyze messages for world state changes (background)
+            if (character) {
+                // Analyze the last user message
+                const lastUserMsg = history[history.length - 1];
+                if (lastUserMsg && lastUserMsg.role === 'user') {
+                    analyzeMessage(lastUserMsg.content, character.name);
+                }
+                // Also analyze AI response for state changes it describes
+                if (assistantContent) {
+                    analyzeMessage(assistantContent, character.name);
+                }
+            }
+        } catch (error: any) {
+            if (error.name === 'AbortError') {
+                console.log('Request aborted');
+                return;
+            }
             console.error('Chat error:', error);
-            setMessages(prev => [...prev, {
-                id: crypto.randomUUID(),
-                role: 'assistant',
-                content: 'Erreur: Impossible d\'obtenir une réponse. Vérifiez votre clé API.',
-            }]);
+            // Update the message with error info instead of adding new one, or just leave as is/delete
+            if (activeConversationId) {
+                updateMessage(assistantId, {
+                    content: 'Error: Failed to get response. Check API Key or Network.',
+                });
+            }
         } finally {
+            setIsLoading(false);
+            abortControllerRef.current = null;
+        }
+    };
+
+    const handleStop = () => {
+        if (abortControllerRef.current) {
+            abortControllerRef.current.abort();
             setIsLoading(false);
         }
     };
 
     const handleSend = async (userMessage: string) => {
-        const newUserMessage: ChatMessage = {
+        if (!activeConversationId) return;
+
+        const lastParams = messages.length > 0 ? messages[messages.length - 1] : null;
+
+        const newUserMessage: Message = {
             id: crypto.randomUUID(),
+            conversationId: activeConversationId,
+            parentId: lastParams?.id || null,
             role: 'user',
             content: userMessage,
+            isActiveBranch: true,
+            createdAt: new Date(),
         };
 
-        const newHistory = [...messages, newUserMessage];
-        setMessages(newHistory);
-        await triggerAiReponse(newHistory);
+        addMessage(newUserMessage);
+
+        // Construct history for API (include the new message)
+        const history = [...messages, newUserMessage];
+        await triggerAiReponse(history);
     };
 
-    const handleRegenerate = (id: string) => {
-        // Find the message index
+    const handleRegenerate = async (id: string) => {
+        if (!activeConversationId) return;
+
+        // Find the message
         const msgIndex = messages.findIndex(m => m.id === id);
         if (msgIndex === -1) return;
 
-        // If it's an assistant message, regenerate it based on history up to that point
-        if (messages[msgIndex].role === 'assistant') {
-            // Get history up to the previous user message
+        const msgToRegen = messages[msgIndex];
+
+        // If regening an assistant message, we use history UP TO that message (excluding it)
+        // If regening a user message -> not typically supported unless we fork conversation there.
+        // Let's support regening assistant response.
+
+        if (msgToRegen.role === 'assistant') {
+            // Create a sibling!
+            // Just trigger AI with history up to parent
             const history = messages.slice(0, msgIndex);
-
-            // Delete this message and all after
-            setMessages(prev => prev.slice(0, msgIndex));
-
-            // Trigger AI
-            triggerAiReponse(history);
+            await triggerAiReponse(history);
         }
     };
 
     const handleEditMessage = (id: string, newContent: string) => {
-        setMessages(prev => prev.map(m =>
-            m.id === id ? { ...m, content: newContent } : m
-        ));
+        updateMessage(id, { content: newContent });
     };
 
     const handleDeleteMessage = (id: string) => {
-        setMessages(prev => {
-            const index = prev.findIndex(m => m.id === id);
-            if (index === -1) return prev;
-            return prev.slice(0, index);
-        });
+        deleteMessage(id);
     };
 
     const handleBranch = (id: string) => {
@@ -226,43 +318,70 @@ export default function ChatPage() {
 
     return (
         <div className="flex h-screen bg-background overflow-hidden">
-            <Sidebar onSettingsClick={() => setIsSettingsOpen(true)} />
+            {/* Desktop Sidebar - hidden on mobile */}
+            <div className="hidden lg:block">
+                <Sidebar onSettingsClick={() => setIsSettingsOpen(true)} />
+            </div>
 
             <main className="flex-1 flex flex-col min-w-0">
                 {character ? (
                     <>
-                        {/* Header */}
-                        <header className="h-14 border-b flex items-center px-4 justify-between bg-card/50 backdrop-blur supports-[backdrop-filter]:bg-background/60 shrink-0">
-                            <div className="flex items-center gap-3 min-w-0">
-                                <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center overflow-hidden shrink-0">
-                                    {character.avatar ? (
-                                        <img
-                                            src={character.avatar}
-                                            alt={character.name}
-                                            className="w-full h-full object-cover"
+                        {/* Header - Hidden in immersive mode */}
+                        <AnimatePresence>
+                            {!immersiveMode && (
+                                <motion.header
+                                    initial={{ y: -60, opacity: 0 }}
+                                    animate={{ y: 0, opacity: 1 }}
+                                    exit={{ y: -60, opacity: 0 }}
+                                    transition={{ type: 'spring' as const, stiffness: 300, damping: 30 }}
+                                    className="h-14 border-b border-white/5 flex items-center px-4 justify-between glass-heavy sticky top-0 z-30 shrink-0"
+                                >
+                                    <div className="flex items-center gap-3 min-w-0">
+                                        {/* Mobile Menu Button */}
+                                        <MobileSidebar
+                                            onCharacterSelect={() => { }}
+                                            onSettingsClick={() => setIsSettingsOpen(true)}
                                         />
-                                    ) : (
-                                        <span className="font-semibold text-xs text-primary">
-                                            {character.name.slice(0, 2).toUpperCase()}
-                                        </span>
-                                    )}
-                                </div>
-                                <div className="flex flex-col min-w-0">
-                                    <h2 className="font-semibold text-sm truncate">{character.name}</h2>
-                                    <p className="text-[10px] text-muted-foreground truncate opacity-80">
-                                        {activeModel}
-                                    </p>
-                                </div>
-                            </div>
-                            <Button
-                                variant="ghost"
-                                size="icon"
-                                onClick={() => setIsSettingsOpen(true)}
-                                className="shrink-0"
-                            >
-                                <Settings2 className="h-4 w-4" />
-                            </Button>
-                        </header>
+                                        <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center overflow-hidden shrink-0">
+                                            {character.avatar ? (
+                                                <img
+                                                    src={character.avatar}
+                                                    alt={character.name}
+                                                    className="w-full h-full object-cover"
+                                                />
+                                            ) : (
+                                                <span className="font-semibold text-xs text-primary">
+                                                    {character.name.slice(0, 2).toUpperCase()}
+                                                </span>
+                                            )}
+                                        </div>
+                                        <div className="flex flex-col min-w-0">
+                                            <h2 className="font-semibold text-sm truncate">{character.name}</h2>
+                                            <p className="text-[10px] text-muted-foreground truncate opacity-80">
+                                                {activeModel}
+                                            </p>
+                                        </div>
+                                    </div>
+                                    <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        onClick={() => setIsLorebookOpen(true)}
+                                        className="shrink-0"
+                                        title="Lorebook"
+                                    >
+                                        <Book className="h-4 w-4" />
+                                    </Button>
+                                    <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        onClick={() => setIsSettingsOpen(true)}
+                                        className="shrink-0"
+                                    >
+                                        <Settings2 className="h-4 w-4" />
+                                    </Button>
+                                </motion.header>
+                            )}
+                        </AnimatePresence>
 
                         <div className="flex-1 flex flex-col min-h-0 relative">
                             {/* Messages Area */}
@@ -273,40 +392,33 @@ export default function ChatPage() {
                                             <div className="p-4 rounded-full bg-muted/50">
                                                 <Sparkles className="h-8 w-8" />
                                             </div>
-                                            <p>L'histoire commence ici...</p>
+                                            <p>The story begins here...</p>
                                         </div>
                                     ) : (
-                                        messages.map((msg) => (
-                                            <ChatBubble
-                                                key={msg.id}
-                                                id={msg.id}
-                                                role={msg.role}
-                                                content={msg.content}
-                                                thought={msg.thought}
-                                                avatar={msg.role === 'user' ? (personas.find(p => p.id === activePersonaId)?.avatar) : character.avatar}
-                                                name={msg.role === 'user' ? (personas.find(p => p.id === activePersonaId)?.name || 'Vous') : character.name}
-                                                showThoughts={showThoughts}
-                                                onEdit={handleEditMessage}
-                                                onRegenerate={handleRegenerate}
-                                                onBranch={handleBranch}
-                                                onDelete={handleDeleteMessage}
-                                            />
-                                        ))
+                                        messages.map((msg) => {
+                                            const siblingsInfo = getMessageSiblingsInfo(msg.id);
+                                            return (
+                                                <ChatBubble
+                                                    key={msg.id}
+                                                    id={msg.id}
+                                                    role={msg.role}
+                                                    content={msg.content}
+                                                    thought={msg.thought}
+                                                    avatar={msg.role === 'user' ? (personas.find(p => p.id === activePersonaId)?.avatar) : character.avatar}
+                                                    name={msg.role === 'user' ? (personas.find(p => p.id === activePersonaId)?.name || 'Vous') : character.name}
+                                                    showThoughts={showThoughts}
+                                                    onEdit={handleEditMessage}
+                                                    onRegenerate={handleRegenerate}
+                                                    onBranch={handleBranch}
+                                                    onDelete={handleDeleteMessage}
+                                                    currentBranchIndex={siblingsInfo.currentIndex}
+                                                    totalBranches={siblingsInfo.total}
+                                                    onNavigateBranch={navigateToSibling}
+                                                />
+                                            );
+                                        })
                                     )}
-                                    {isLoading && (
-                                        <div className="flex gap-4 max-w-[85%]">
-                                            <div className="w-8 h-8 rounded-full bg-primary/10 shrink-0 overflow-hidden mt-1">
-                                                {character.avatar && <img src={character.avatar} className="w-full h-full object-cover" />}
-                                            </div>
-                                            <div className="bg-muted/50 rounded-2xl rounded-tl-none px-4 py-3">
-                                                <div className="flex gap-1">
-                                                    <span className="w-1.5 h-1.5 bg-foreground/30 rounded-full animate-bounce" />
-                                                    <span className="w-1.5 h-1.5 bg-foreground/30 rounded-full animate-bounce [animation-delay:0.1s]" />
-                                                    <span className="w-1.5 h-1.5 bg-foreground/30 rounded-full animate-bounce [animation-delay:0.2s]" />
-                                                </div>
-                                            </div>
-                                        </div>
-                                    )}
+
                                     <div ref={scrollRef} />
                                 </div>
                             </div>
@@ -315,31 +427,53 @@ export default function ChatPage() {
                             {showWorldState && (
                                 <div className="hidden lg:block absolute right-0 top-0 bottom-0 w-64 border-l bg-background/95 backdrop-blur p-4 z-10">
                                     <WorldStatePanel
-                                        inventory={['Épée rouillée', 'Potion de soin']}
-                                        location="Forêt sombre"
-                                        relationships={{ [character.name]: 50 }}
+                                        inventory={worldState.inventory}
+                                        location={worldState.location}
+                                        relationships={worldState.relationships}
                                     />
                                 </div>
                             )}
                         </div>
 
-                        {/* Input Area */}
-                        <div className="p-4 border-t bg-background/80 backdrop-blur z-20">
-                            <div className="max-w-4xl mx-auto w-full space-y-2">
-                                <PersonaSelector />
+                        {/* Input Area - Floating in immersive mode */}
+                        <motion.div
+                            layout
+                            className={`z-20 ${immersiveMode
+                                ? 'absolute bottom-4 left-4 right-4 rounded-2xl glass-heavy shadow-2xl'
+                                : 'p-4 border-t border-white/5 glass-heavy'
+                                }`}
+                        >
+                            <div className={`mx-auto w-full space-y-2 ${immersiveMode ? 'p-4 max-w-3xl' : 'max-w-4xl'}`}>
+                                {!immersiveMode && <PersonaSelector />}
                                 <ChatInput
                                     onSend={handleSend}
+                                    onStop={handleStop}
                                     isLoading={isLoading}
                                     disabled={!currentApiKey}
-                                    placeholder={!currentApiKey ? 'Clé API manquante...' : `Message pour ${character.name}...`}
+                                    placeholder={!currentApiKey ? 'Missing API Key...' : `Message for ${character.name}...`}
                                 />
-                                <div className="text-center">
-                                    <span className="text-[10px] text-muted-foreground/40 font-mono">
-                                        {enableReasoning ? 'THINKING MODE ON' : 'STANDARD MODE'}
-                                    </span>
-                                </div>
+                                {!immersiveMode && (
+                                    <div className="text-center">
+                                        <span className="text-[10px] text-muted-foreground/40 font-mono">
+                                            {enableReasoning ? 'THINKING MODE ON' : 'STANDARD MODE'}
+                                        </span>
+                                    </div>
+                                )}
+                                {immersiveMode && (
+                                    <div className="absolute top-2 right-2">
+                                        <Button
+                                            variant="ghost"
+                                            size="icon"
+                                            className="h-6 w-6 opacity-30 hover:opacity-100 transition-opacity"
+                                            onClick={() => setIsSettingsOpen(true)}
+                                            title="Settings"
+                                        >
+                                            <Settings2 className="h-3 w-3" />
+                                        </Button>
+                                    </div>
+                                )}
                             </div>
-                        </div>
+                        </motion.div>
                     </>
                 ) : (
                     /* Empty State - No Character Selected */
@@ -353,9 +487,9 @@ export default function ChatPage() {
                                 <MessageCircle className="w-12 h-12 text-primary/40" />
                             </div>
                             <div className="space-y-2">
-                                <h2 className="text-2xl font-bold tracking-tight">Bienvenue sur NexusAI</h2>
+                                <h2 className="text-2xl font-bold tracking-tight">Welcome to NexusAI</h2>
                                 <p className="text-muted-foreground">
-                                    Sélectionnez ou importez un personnage dans le menu latéral pour commencer votre aventure.
+                                    Select or import a character from the sidebar to begin your adventure.
                                 </p>
                             </div>
                         </motion.div>
@@ -364,6 +498,13 @@ export default function ChatPage() {
             </main>
 
             <SettingsPanel open={isSettingsOpen} onOpenChange={setIsSettingsOpen} />
+
+            <Dialog open={isLorebookOpen} onOpenChange={setIsLorebookOpen}>
+                <DialogContent className="max-w-4xl h-[80vh] p-0 overflow-hidden [&>button]:hidden">
+                    <DialogTitle className="sr-only">Lorebook Editor</DialogTitle>
+                    <LorebookEditor onClose={() => setIsLorebookOpen(false)} />
+                </DialogContent>
+            </Dialog>
         </div>
     );
 }

@@ -123,3 +123,84 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* Premium Glassmorphism Utilities */
+@layer utilities {
+  .glass {
+    @apply bg-background/60 backdrop-blur-xl border border-white/5;
+  }
+  
+  .glass-heavy {
+    @apply bg-background/80 backdrop-blur-2xl border border-white/10;
+  }
+  
+  .glass-card {
+    @apply bg-card/60 backdrop-blur-xl border border-white/5 shadow-xl;
+  }
+}
+
+/* Custom Scrollbar - Premium Dark Theme */
+@layer base {
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: hsl(var(--muted)) transparent;
+  }
+  
+  *::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  
+  *::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  
+  *::-webkit-scrollbar-thumb {
+    background-color: hsl(var(--muted));
+    border-radius: 9999px;
+  }
+  
+  *::-webkit-scrollbar-thumb:hover {
+    background-color: hsl(var(--muted-foreground));
+  }
+}
+
+/* Smooth Scroll Behavior */
+@layer base {
+  html {
+    scroll-behavior: smooth;
+  }
+}
+
+/* Focus Ring Animation */
+@layer utilities {
+  .focus-ring-animated {
+    @apply transition-shadow duration-200;
+  }
+  
+  .focus-ring-animated:focus-within {
+    box-shadow: 0 0 0 2px hsl(var(--primary) / 0.3);
+  }
+}
+
+/* Subtle Hover Lift Effect */
+@layer utilities {
+  .hover-lift {
+    @apply transition-transform duration-200;
+  }
+  
+  .hover-lift:hover {
+    transform: translateY(-2px);
+  }
+}
+
+/* Message Loading Animation */
+@keyframes pulse-soft {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 0.8; }
+}
+
+.animate-pulse-soft {
+  animation: pulse-soft 1.5s ease-in-out infinite;
+}
+

@@ -33,6 +33,7 @@ interface SettingsState {
     theme: 'dark' | 'light' | 'system';
     showThoughts: boolean;
     showWorldState: boolean;
+    immersiveMode: boolean;
 
     // Actions
     setApiKey: (config: ApiKeyConfig) => void;
@@ -52,6 +53,7 @@ interface SettingsState {
     setTheme: (theme: 'dark' | 'light' | 'system') => void;
     setShowThoughts: (show: boolean) => void;
     setShowWorldState: (show: boolean) => void;
+    setImmersiveMode: (immersive: boolean) => void;
 }
 
 export const useSettingsStore = create<SettingsState>()(
@@ -69,6 +71,7 @@ export const useSettingsStore = create<SettingsState>()(
             theme: 'dark',
             showThoughts: true,
             showWorldState: true,
+            immersiveMode: false,
 
             // Actions
             setApiKey: (config) =>
@@ -106,6 +109,7 @@ export const useSettingsStore = create<SettingsState>()(
             setTheme: (theme) => set({ theme }),
             setShowThoughts: (showThoughts) => set({ showThoughts }),
             setShowWorldState: (showWorldState) => set({ showWorldState }),
+            setImmersiveMode: (immersiveMode) => set({ immersiveMode }),
         }),
         {
             name: 'nexusai-settings',

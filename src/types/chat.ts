@@ -7,6 +7,7 @@ export interface Message {
     content: string;
     thought?: string;
     isActiveBranch: boolean;
+    childrenIds?: string[];
     createdAt: Date;
 }
 

@@ -37,6 +37,7 @@ export function SettingsPanel({ open, onOpenChange }: SettingsPanelProps) {
         showThoughts,
         showWorldState,
         enableReasoning,
+        immersiveMode,
         personas,
         setApiKey,
         setActiveProvider,
@@ -45,6 +46,7 @@ export function SettingsPanel({ open, onOpenChange }: SettingsPanelProps) {
         setShowThoughts,
         setShowWorldState,
         setEnableReasoning,
+        setImmersiveMode,
         addPersona,
         deletePersona,
     } = useSettingsStore();
@@ -278,6 +280,22 @@ export function SettingsPanel({ open, onOpenChange }: SettingsPanelProps) {
                                     onClick={() => setShowWorldState(!showWorldState)}
                                 >
                                     {showWorldState ? 'Activé' : 'Désactivé'}
+                                </Button>
+                            </div>
+
+                            <div className="flex items-center justify-between">
+                                <div>
+                                    <p className="text-sm">Mode Immersif</p>
+                                    <p className="text-xs text-muted-foreground">
+                                        Masque l'interface pour une immersion totale
+                                    </p>
+                                </div>
+                                <Button
+                                    variant={immersiveMode ? 'default' : 'outline'}
+                                    size="sm"
+                                    onClick={() => setImmersiveMode(!immersiveMode)}
+                                >
+                                    {immersiveMode ? 'Activé' : 'Désactivé'}
                                 </Button>
                             </div>
                         </div>
