@@ -34,7 +34,7 @@ export function WorldStatePanel({
                 onClick={onToggle}
                 className="w-full flex items-center justify-between p-3 hover:bg-muted/50 transition-colors"
             >
-                <span className="font-semibold text-sm">🌍 État du Monde</span>
+                <span className="font-semibold text-sm">🌍 World State</span>
                 <ChevronUp
                     className={`w-4 h-4 transition-transform ${isCollapsed ? 'rotate-180' : ''
                         }`}
@@ -49,10 +49,10 @@ export function WorldStatePanel({
                     <div className="space-y-1">
                         <div className="flex items-center gap-2 text-xs text-muted-foreground">
                             <MapPin className="w-3 h-3" />
-                            <span>Lieu</span>
+                            <span>Location</span>
                         </div>
                         <p className="text-sm font-medium">
-                            {location || 'Lieu inconnu'}
+                            {location || 'Unknown location'}
                         </p>
                     </div>
 
@@ -60,7 +60,7 @@ export function WorldStatePanel({
                     <div className="space-y-2">
                         <div className="flex items-center gap-2 text-xs text-muted-foreground">
                             <Package className="w-3 h-3" />
-                            <span>Inventaire ({inventory.length})</span>
+                            <span>Inventory ({inventory.length})</span>
                         </div>
                         <div className="flex flex-wrap gap-1">
                             {inventory.length > 0 ? (
@@ -71,7 +71,7 @@ export function WorldStatePanel({
                                 ))
                             ) : (
                                 <span className="text-xs text-muted-foreground italic">
-                                    Inventaire vide
+                                    Empty inventory
                                 </span>
                             )}
                         </div>
@@ -82,7 +82,7 @@ export function WorldStatePanel({
                         <div className="space-y-2">
                             <div className="flex items-center gap-2 text-xs text-muted-foreground">
                                 <Heart className="w-3 h-3" />
-                                <span>Relations</span>
+                                <span>Relationships</span>
                             </div>
                             <div className="space-y-2">
                                 {relationshipEntries.map(([name, level]) => (
@@ -97,10 +97,10 @@ export function WorldStatePanel({
                                                 animate={{ width: `${level}%` }}
                                                 transition={{ duration: 0.5, ease: 'easeOut' }}
                                                 className={`h-full rounded-full ${level < 30
-                                                        ? 'bg-red-500'
-                                                        : level < 60
-                                                            ? 'bg-yellow-500'
-                                                            : 'bg-green-500'
+                                                    ? 'bg-red-500'
+                                                    : level < 60
+                                                        ? 'bg-yellow-500'
+                                                        : 'bg-green-500'
                                                     }`}
                                             />
                                         </div>
@@ -110,7 +110,8 @@ export function WorldStatePanel({
                         </div>
                     )}
                 </div>
-            )}
-        </motion.div>
+            )
+            }
+        </motion.div >
     );
 }

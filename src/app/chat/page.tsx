@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { MessageCircle, Settings2, Sparkles } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { ChatBubble, ChatInput, WorldStatePanel, PersonaSelector } from '@/components/chat';
+import { ChatBubble, ChatInput, WorldStatePanel, PersonaSelector, ModelSelector, ThinkingModeToggle } from '@/components/chat';
 import { Sidebar, SettingsPanel, MobileSidebar } from '@/components/layout';
 import { useCharacterStore, useSettingsStore, useChatStore, useLorebookStore } from '@/stores';
 import { useWorldStateAnalyzer } from '@/hooks';
@@ -19,6 +19,7 @@ import type { CharacterCard, Message } from '@/types';
 
 export default function ChatPage() {
     const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+    const [isWorldStateCollapsed, setIsWorldStateCollapsed] = useState(false);
     const [isLorebookOpen, setIsLorebookOpen] = useState(false);
     const [currentApiKey, setCurrentApiKey] = useState<string | null>(null);
 
@@ -110,12 +111,19 @@ export default function ChatPage() {
                     createdAt: new Date(),
                 });
                 // Analyze first message for initial world state (delay to allow store to update)
+                const firstMes = character.first_mes;
+                const charName = character.name;
+                // Capture newId for the closure
+                const targetConversationId = newId;
+
                 setTimeout(() => {
-                    analyzeMessage(character.first_mes!, character.name);
+                    if (firstMes) {
+                        analyzeMessage(firstMes, charName, targetConversationId);
+                    }
                 }, 500);
             }
         }
-    }, [character?.id, character?.first_mes, activeConversationId, createConversation, addMessage, conversations]);
+    }, [character?.id, character?.first_mes, activeConversationId, createConversation, addMessage, conversations, analyzeMessage]);
 
     // Auto-scroll to bottom
     useEffect(() => {
@@ -366,15 +374,7 @@ export default function ChatPage() {
                                             </p>
                                         </div>
                                     </div>
-                                    <Button
-                                        variant="ghost"
-                                        size="icon"
-                                        onClick={() => setIsLorebookOpen(true)}
-                                        className="shrink-0"
-                                        title="Lorebook"
-                                    >
-                                        <Book className="h-4 w-4" />
-                                    </Button>
+
                                     <Button
                                         variant="ghost"
                                         size="icon"
@@ -401,15 +401,18 @@ export default function ChatPage() {
                                     ) : (
                                         messages.map((msg) => {
                                             const siblingsInfo = getMessageSiblingsInfo(msg.id);
+                                            // Replace {{user}} with persona name for display
+                                            const displayContent = msg.content.replace(/{{user}}/gi, personas.find(p => p.id === activePersonaId)?.name || 'You');
+
                                             return (
                                                 <ChatBubble
                                                     key={msg.id}
                                                     id={msg.id}
                                                     role={msg.role}
-                                                    content={msg.content}
+                                                    content={displayContent}
                                                     thought={msg.thought}
                                                     avatar={msg.role === 'user' ? (personas.find(p => p.id === activePersonaId)?.avatar) : character.avatar}
-                                                    name={msg.role === 'user' ? (personas.find(p => p.id === activePersonaId)?.name || 'Vous') : character.name}
+                                                    name={msg.role === 'user' ? (personas.find(p => p.id === activePersonaId)?.name || 'You') : character.name}
                                                     showThoughts={showThoughts}
                                                     onEdit={handleEditMessage}
                                                     onRegenerate={handleRegenerate}
@@ -429,11 +432,13 @@ export default function ChatPage() {
 
                             {/* World State Panel (Overlay or Side) */}
                             {showWorldState && (
-                                <div className="hidden lg:block absolute right-0 top-0 bottom-0 w-64 border-l bg-background/95 backdrop-blur p-4 z-10">
+                                <div className={`hidden lg:block absolute right-0 top-0 bottom-0 border-l bg-background/95 backdrop-blur z-10 transition-all duration-300 ${isWorldStateCollapsed ? 'w-[50px] overflow-hidden' : 'w-64 p-4'}`}>
                                     <WorldStatePanel
-                                        inventory={worldState.inventory}
-                                        location={worldState.location}
+                                        inventory={worldState.inventory.map(i => i.replace(/{{user}}/gi, personas.find(p => p.id === activePersonaId)?.name || 'You'))}
+                                        location={worldState.location.replace(/{{user}}/gi, personas.find(p => p.id === activePersonaId)?.name || 'You')}
                                         relationships={worldState.relationships}
+                                        isCollapsed={isWorldStateCollapsed}
+                                        onToggle={() => setIsWorldStateCollapsed(!isWorldStateCollapsed)}
                                     />
                                 </div>
                             )}
@@ -448,7 +453,22 @@ export default function ChatPage() {
                                 }`}
                         >
                             <div className={`mx-auto w-full space-y-2 ${immersiveMode ? 'p-4 max-w-3xl' : 'max-w-4xl'}`}>
-                                {!immersiveMode && <PersonaSelector />}
+                                {!immersiveMode && (
+                                    <div className="flex items-center gap-2">
+                                        <PersonaSelector />
+                                        <ModelSelector />
+                                        <ThinkingModeToggle />
+                                        <Button
+                                            variant="ghost"
+                                            size="sm"
+                                            className="h-8 w-8 p-0 text-muted-foreground hover:text-foreground"
+                                            onClick={() => setIsLorebookOpen(true)}
+                                            title="Lorebook"
+                                        >
+                                            <Book className="h-4 w-4" />
+                                        </Button>
+                                    </div>
+                                )}
                                 <ChatInput
                                     onSend={handleSend}
                                     onStop={handleStop}
@@ -456,13 +476,6 @@ export default function ChatPage() {
                                     disabled={!currentApiKey}
                                     placeholder={!currentApiKey ? 'Missing API Key...' : `Message for ${character.name}...`}
                                 />
-                                {!immersiveMode && (
-                                    <div className="text-center">
-                                        <span className="text-[10px] text-muted-foreground/40 font-mono">
-                                            {enableReasoning ? 'THINKING MODE ON' : 'STANDARD MODE'}
-                                        </span>
-                                    </div>
-                                )}
                                 {immersiveMode && (
                                     <div className="absolute top-2 right-2">
                                         <Button

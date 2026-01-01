@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Settings, Key, Sliders, Eye, EyeOff, Check, X, UserCircle } from 'lucide-react';
+import { Settings, Key, Sliders, Eye, EyeOff, Check, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -18,10 +18,9 @@ import {
     TabsTrigger,
 } from '@/components/ui/tabs';
 import { Separator } from '@/components/ui/separator';
-import { Badge } from '@/components/ui/badge';
 import { useSettingsStore } from '@/stores';
 import { encryptApiKey, validateApiKey } from '@/lib/crypto';
-import { MODELS, PRESETS, type Provider } from '@/lib/ai';
+import { PRESETS, type Provider } from '@/lib/ai';
 
 interface SettingsPanelProps {
     open: boolean;
@@ -32,23 +31,18 @@ export function SettingsPanel({ open, onOpenChange }: SettingsPanelProps) {
     const {
         apiKeys,
         activeProvider,
-        activeModel,
         temperature,
         showThoughts,
         showWorldState,
         enableReasoning,
         immersiveMode,
-        personas,
         setApiKey,
         setActiveProvider,
-        setActiveModel,
         setTemperature,
         setShowThoughts,
         setShowWorldState,
         setEnableReasoning,
         setImmersiveMode,
-        addPersona,
-        deletePersona,
     } = useSettingsStore();
 
     const [newKey, setNewKey] = useState('');
@@ -91,10 +85,10 @@ export function SettingsPanel({ open, onOpenChange }: SettingsPanelProps) {
                 <SheetHeader>
                     <SheetTitle className="flex items-center gap-2">
                         <Settings className="h-5 w-5" />
-                        Paramètres
+                        Settings
                     </SheetTitle>
                     <SheetDescription>
-                        Configurez vos clés API et préférences de chat.
+                        Configure your API keys and chat preferences.
                     </SheetDescription>
                 </SheetHeader>
 
@@ -108,17 +102,13 @@ export function SettingsPanel({ open, onOpenChange }: SettingsPanelProps) {
                             <Sliders className="h-4 w-4" />
                             Chat
                         </TabsTrigger>
-                        <TabsTrigger value="personas" className="flex-1 gap-2">
-                            <UserCircle className="h-4 w-4" />
-                            Personas
-                        </TabsTrigger>
                     </TabsList>
 
                     {/* API Keys Tab */}
                     <TabsContent value="api" className="space-y-6 mt-4">
                         {/* Provider Selection */}
                         <div className="space-y-3">
-                            <label className="text-sm font-medium">Fournisseur</label>
+                            <label className="text-sm font-medium">Provider</label>
                             <div className="flex gap-2">
                                 {(['openrouter', 'openai', 'anthropic'] as Provider[]).map((provider) => {
                                     const key = getKeyForProvider(provider);
@@ -148,14 +138,14 @@ export function SettingsPanel({ open, onOpenChange }: SettingsPanelProps) {
 
                         {/* API Key Input */}
                         <div className="space-y-3">
-                            <label className="text-sm font-medium">Clé API {selectedProvider}</label>
+                            <label className="text-sm font-medium">{selectedProvider} API Key</label>
                             <div className="flex gap-2">
                                 <div className="relative flex-1">
                                     <Input
                                         type={showKey ? 'text' : 'password'}
                                         value={newKey}
                                         onChange={(e) => setNewKey(e.target.value)}
-                                        placeholder={`sk-... ou votre clé ${selectedProvider}`}
+                                        placeholder={`sk-... or your ${selectedProvider} key`}
                                         className="pr-10"
                                     />
                                     <Button
@@ -169,36 +159,12 @@ export function SettingsPanel({ open, onOpenChange }: SettingsPanelProps) {
                                     </Button>
                                 </div>
                                 <Button onClick={handleSaveKey} disabled={!newKey.trim() || isValidating}>
-                                    {isValidating ? 'Validation...' : 'Sauvegarder'}
+                                    {isValidating ? 'Validating...' : 'Save'}
                                 </Button>
                             </div>
                             <p className="text-xs text-muted-foreground">
-                                🔒 Votre clé est chiffrée localement et jamais envoyée à nos serveurs.
+                                🔒 Your key is encrypted locally and never sent to our servers.
                             </p>
-                        </div>
-
-                        <Separator />
-
-                        {/* Model Selection */}
-                        <div className="space-y-3">
-                            <label className="text-sm font-medium">Modèle actif</label>
-                            <div className="grid gap-2">
-                                {MODELS[activeProvider]?.map((model) => (
-                                    <Button
-                                        key={model.id}
-                                        variant={activeModel === model.id ? 'secondary' : 'ghost'}
-                                        className="justify-between h-auto py-2"
-                                        onClick={() => setActiveModel(model.id)}
-                                    >
-                                        <span>{model.name}</span>
-                                        {model.free && (
-                                            <Badge variant="outline" className="text-xs">
-                                                Gratuit
-                                            </Badge>
-                                        )}
-                                    </Button>
-                                ))}
-                            </div>
                         </div>
                     </TabsContent>
 
@@ -208,9 +174,9 @@ export function SettingsPanel({ open, onOpenChange }: SettingsPanelProps) {
                         <div className="space-y-4">
                             <div className="flex items-center justify-between">
                                 <div>
-                                    <p className="text-sm">Mode Pensée (Reasoning)</p>
+                                    <p className="text-sm">Thinking Mode (Reasoning)</p>
                                     <p className="text-xs text-muted-foreground">
-                                        Active les tokens de raisonnement (pour modèles compatibles)
+                                        Enables reasoning tokens (for compatible models)
                                     </p>
                                 </div>
                                 <Button
@@ -218,7 +184,7 @@ export function SettingsPanel({ open, onOpenChange }: SettingsPanelProps) {
                                     size="sm"
                                     onClick={() => setEnableReasoning(!enableReasoning)}
                                 >
-                                    {enableReasoning ? 'Activé' : 'Désactivé'}
+                                    {enableReasoning ? 'On' : 'Off'}
                                 </Button>
                             </div>
                         </div>
@@ -249,13 +215,13 @@ export function SettingsPanel({ open, onOpenChange }: SettingsPanelProps) {
 
                         {/* UI Options */}
                         <div className="space-y-4">
-                            <label className="text-sm font-medium">Affichage</label>
+                            <label className="text-sm font-medium">Display</label>
 
                             <div className="flex items-center justify-between">
                                 <div>
-                                    <p className="text-sm">Afficher les pensées (CoT)</p>
+                                    <p className="text-sm">Show Thoughts (CoT)</p>
                                     <p className="text-xs text-muted-foreground">
-                                        Montre le raisonnement des modèles avancés
+                                        Shows reasoning from advanced models
                                     </p>
                                 </div>
                                 <Button
@@ -263,15 +229,15 @@ export function SettingsPanel({ open, onOpenChange }: SettingsPanelProps) {
                                     size="sm"
                                     onClick={() => setShowThoughts(!showThoughts)}
                                 >
-                                    {showThoughts ? 'Activé' : 'Désactivé'}
+                                    {showThoughts ? 'On' : 'Off'}
                                 </Button>
                             </div>
 
                             <div className="flex items-center justify-between">
                                 <div>
-                                    <p className="text-sm">Panneau État du Monde</p>
+                                    <p className="text-sm">World State Panel</p>
                                     <p className="text-xs text-muted-foreground">
-                                        Inventaire, lieu, relations
+                                        Inventory, location, relationships
                                     </p>
                                 </div>
                                 <Button
@@ -279,15 +245,15 @@ export function SettingsPanel({ open, onOpenChange }: SettingsPanelProps) {
                                     size="sm"
                                     onClick={() => setShowWorldState(!showWorldState)}
                                 >
-                                    {showWorldState ? 'Activé' : 'Désactivé'}
+                                    {showWorldState ? 'On' : 'Off'}
                                 </Button>
                             </div>
 
                             <div className="flex items-center justify-between">
                                 <div>
-                                    <p className="text-sm">Mode Immersif</p>
+                                    <p className="text-sm">Immersive Mode</p>
                                     <p className="text-xs text-muted-foreground">
-                                        Masque l'interface pour une immersion totale
+                                        Hide interface for total immersion
                                     </p>
                                 </div>
                                 <Button
@@ -295,73 +261,8 @@ export function SettingsPanel({ open, onOpenChange }: SettingsPanelProps) {
                                     size="sm"
                                     onClick={() => setImmersiveMode(!immersiveMode)}
                                 >
-                                    {immersiveMode ? 'Activé' : 'Désactivé'}
+                                    {immersiveMode ? 'On' : 'Off'}
                                 </Button>
-                            </div>
-                        </div>
-                    </TabsContent>
-
-                    {/* Personas Tab */}
-                    <TabsContent value="personas" className="space-y-6 mt-4">
-                        <div className="space-y-4">
-                            <div className="flex items-center justify-between">
-                                <label className="text-sm font-medium">Mes Identités</label>
-                            </div>
-
-                            {/* Simple Add Form */}
-                            <div className="grid gap-3 p-4 border rounded-lg bg-muted/20">
-                                <p className="text-sm font-medium">Créer un nouveau persona</p>
-                                <Input
-                                    placeholder="Nom (ex: Aventurier)"
-                                    id="new-persona-name"
-                                />
-                                <textarea
-                                    className="flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                                    placeholder="Biographie / Description (ex: Je suis un guerrier solitaire...)"
-                                    id="new-persona-bio"
-                                />
-                                <Button
-                                    onClick={() => {
-                                        const nameInput = document.getElementById('new-persona-name') as HTMLInputElement;
-                                        const bioInput = document.getElementById('new-persona-bio') as HTMLTextAreaElement;
-                                        if (nameInput.value.trim()) {
-                                            addPersona({
-                                                id: crypto.randomUUID(),
-                                                name: nameInput.value,
-                                                bio: bioInput.value,
-                                                avatar: '' // TODO: Avatar upload
-                                            });
-                                            nameInput.value = '';
-                                            bioInput.value = '';
-                                        }
-                                    }}
-                                >
-                                    Ajouter
-                                </Button>
-                            </div>
-
-                            <div className="space-y-2">
-                                {personas.map((persona) => (
-                                    <div key={persona.id} className="flex items-center justify-between p-3 border rounded-lg">
-                                        <div>
-                                            <p className="font-medium text-sm">{persona.name}</p>
-                                            <p className="text-xs text-muted-foreground line-clamp-1">{persona.bio || 'Aucune description'}</p>
-                                        </div>
-                                        <Button
-                                            variant="ghost"
-                                            size="icon"
-                                            className="text-destructive hover:bg-destructive/10"
-                                            onClick={() => deletePersona(persona.id)}
-                                        >
-                                            <X className="h-4 w-4" />
-                                        </Button>
-                                    </div>
-                                ))}
-                                {personas.length === 0 && (
-                                    <p className="text-sm text-muted-foreground text-center py-4">
-                                        Aucun persona créé.
-                                    </p>
-                                )}
                             </div>
                         </div>
                     </TabsContent>

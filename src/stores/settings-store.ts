@@ -14,6 +14,24 @@ export interface Persona {
     avatar?: string;
 }
 
+export interface CustomModel {
+    id: string;
+    name: string;
+    modelId: string;
+    provider: 'openrouter' | 'openai' | 'anthropic';
+    isFree: boolean;
+}
+
+// Default models available out of the box
+export const DEFAULT_MODELS: CustomModel[] = [
+    { id: 'gemini-flash', name: 'Gemini 2.0 Flash (Free)', modelId: 'google/gemini-2.0-flash-exp:free', provider: 'openrouter', isFree: true },
+    { id: 'deepseek-r1', name: 'DeepSeek R1 (Free)', modelId: 'deepseek/deepseek-r1-0528:free', provider: 'openrouter', isFree: true },
+    { id: 'deepseek-chimera', name: 'DeepSeek Chimera (Free)', modelId: 'tngtech/deepseek-r1t2-chimera:free', provider: 'openrouter', isFree: true },
+    { id: 'llama-maverick', name: 'Llama 4 Maverick (Free)', modelId: 'meta-llama/llama-4-maverick:free', provider: 'openrouter', isFree: true },
+    { id: 'gpt-4o', name: 'GPT-4o', modelId: 'openai/gpt-4o', provider: 'openrouter', isFree: false },
+    { id: 'claude-sonnet', name: 'Claude 3.5 Sonnet', modelId: 'anthropic/claude-3.5-sonnet', provider: 'openrouter', isFree: false },
+];
+
 interface SettingsState {
     // API Keys (encrypted)
     apiKeys: ApiKeyConfig[];
@@ -21,6 +39,7 @@ interface SettingsState {
 
     // Model settings
     activeModel: string;
+    customModels: CustomModel[];
     temperature: number;
     maxTokens: number;
     enableReasoning: boolean;
@@ -40,6 +59,8 @@ interface SettingsState {
     removeApiKey: (provider: string) => void;
     setActiveProvider: (provider: 'openrouter' | 'openai' | 'anthropic') => void;
     setActiveModel: (model: string) => void;
+    addCustomModel: (model: CustomModel) => void;
+    removeCustomModel: (id: string) => void;
     setTemperature: (temp: number) => void;
     setMaxTokens: (tokens: number) => void;
     setEnableReasoning: (enabled: boolean) => void;
@@ -63,6 +84,7 @@ export const useSettingsStore = create<SettingsState>()(
             apiKeys: [],
             activeProvider: 'openrouter',
             activeModel: 'google/gemini-2.0-flash-exp:free',
+            customModels: [],
             temperature: 0.8,
             maxTokens: 2048,
             enableReasoning: false,
@@ -89,6 +111,16 @@ export const useSettingsStore = create<SettingsState>()(
 
             setActiveProvider: (provider) => set({ activeProvider: provider }),
             setActiveModel: (model) => set({ activeModel: model }),
+
+            addCustomModel: (model) =>
+                set((state) => ({
+                    customModels: [...state.customModels, model],
+                })),
+            removeCustomModel: (id) =>
+                set((state) => ({
+                    customModels: state.customModels.filter((m) => m.id !== id),
+                })),
+
             setTemperature: (temperature) => set({ temperature }),
             setMaxTokens: (maxTokens) => set({ maxTokens }),
             setEnableReasoning: (enableReasoning) => set({ enableReasoning }),

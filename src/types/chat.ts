@@ -9,6 +9,7 @@ export interface Message {
     isActiveBranch: boolean;
     childrenIds?: string[];
     createdAt: Date;
+    worldStateSnapshot?: WorldState;
 }
 
 export interface Conversation {

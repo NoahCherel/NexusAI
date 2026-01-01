@@ -91,7 +91,25 @@ export const useChatStore = create<ChatState>()((set, get) => ({
                 }
             }
 
-            return { messages: newMessages };
+            // Restore World State from updated active branch
+            const conversationId = msgToDelete.conversationId;
+            const activeMsgs = newMessages
+                .filter(m => m.conversationId === conversationId && m.isActiveBranch)
+                .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+
+            let stateToRestore: WorldState = { inventory: [], location: '', relationships: {} };
+            for (const msg of activeMsgs) {
+                if (msg.worldStateSnapshot) {
+                    stateToRestore = msg.worldStateSnapshot;
+                    break;
+                }
+            }
+
+            const newConversations = state.conversations.map(c =>
+                c.id === conversationId ? { ...c, worldState: stateToRestore } : c
+            );
+
+            return { messages: newMessages, conversations: newConversations };
         }),
 
     getConversationMessages: (conversationId) => {
@@ -121,17 +139,40 @@ export const useChatStore = create<ChatState>()((set, get) => ({
     setStreaming: (isStreaming) => set({ isStreaming }),
 
     updateWorldState: (conversationId, worldStateUpdates) =>
-        set((state) => ({
-            conversations: state.conversations.map((c) =>
+        set((state) => {
+            // 1. Calculate new global state
+            const conversation = state.conversations.find(c => c.id === conversationId);
+            if (!conversation) return state;
+
+            const oldState = conversation.worldState;
+            const newState = { ...oldState, ...worldStateUpdates };
+
+            // 2. Update conversation global state
+            const newConversations = state.conversations.map((c) =>
                 c.id === conversationId
                     ? {
                         ...c,
-                        worldState: { ...c.worldState, ...worldStateUpdates },
+                        worldState: newState,
                         updatedAt: new Date(),
                     }
                     : c
-            ),
-        })),
+            );
+
+            // 3. Snapshot to the latest active message (so it persists for this branch)
+            const activeMessages = state.messages
+                .filter(m => m.conversationId === conversationId && m.isActiveBranch)
+                .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+
+            let newMessages = state.messages;
+            if (activeMessages.length > 0) {
+                const lastMsg = activeMessages[0];
+                newMessages = state.messages.map(m =>
+                    m.id === lastMsg.id ? { ...m, worldStateSnapshot: newState } : m
+                );
+            }
+
+            return { conversations: newConversations, messages: newMessages };
+        }),
 
     clearConversation: (conversationId) =>
         set((state) => ({
@@ -173,7 +214,24 @@ export const useChatStore = create<ChatState>()((set, get) => ({
             return m;
         });
 
-        return { messages: newMessages };
+        // Restore World State from active branch
+        const activeMsgs = newMessages
+            .filter(m => m.conversationId === currentMsg.conversationId && m.isActiveBranch)
+            .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+
+        let stateToRestore: WorldState = { inventory: [], location: '', relationships: {} };
+        for (const msg of activeMsgs) {
+            if (msg.worldStateSnapshot) {
+                stateToRestore = msg.worldStateSnapshot;
+                break;
+            }
+        }
+
+        const newConversations = state.conversations.map(c =>
+            c.id === currentMsg.conversationId ? { ...c, worldState: stateToRestore } : c
+        );
+
+        return { messages: newMessages, conversations: newConversations };
     }),
 
     // Selectors
