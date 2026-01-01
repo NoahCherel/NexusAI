@@ -69,8 +69,8 @@ export function Sidebar({ onCharacterSelect, onSettingsClick }: SidebarProps) {
             </div>
 
             {/* Character List */}
-            <ScrollArea className="flex-1 px-3">
-                <div className="space-y-2 pb-4">
+            <ScrollArea className="flex-1 px-4 pr-5">
+                <div className="space-y-3 pb-6">
                     {characters.length === 0 ? (
                         !isCollapsed && (
                             <div className="text-center py-8 text-muted-foreground text-sm">

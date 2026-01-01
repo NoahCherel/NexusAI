@@ -111,7 +111,7 @@ export function useWorldStateAnalyzer(): UseWorldStateAnalyzerReturn {
                                 { role: 'system', content: ANALYST_PROMPT },
                                 {
                                     role: 'user',
-                                    content: `Current state:\n- Inventory: ${JSON.stringify(currentWorldState.inventory).replace(/{{user}}/gi, userName)}\n- Location: "${processedLocation}"\n- Relationships: ${JSON.stringify(currentWorldState.relationships).replace(/{{user}}/gi, userName)}\n\nNPC Character: ${characterName}\n\nMessage to analyze: "${processedMessage}"`
+                                    content: `Current state:\n- Inventory: ${JSON.stringify(currentWorldState.inventory).replace(/{{user}}/gi, userName)}\n- Location: "${processedLocation}"\n- Relationships: ${JSON.stringify(currentWorldState.relationships).replace(/{{user}}/gi, userName)}\n\nUser Reference:\n- Name: ${userName}\n- Bio: ${activePersona?.bio || 'Unknown'}\n\nNPC Character: ${characterName}\n\nMessage to analyze: "${processedMessage}"`
                                 }
                             ],
                             max_tokens: 1000, // Increased for reasoning models

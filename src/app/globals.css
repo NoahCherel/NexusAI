@@ -1,5 +1,6 @@
 @import "tailwindcss";
 @import "tw-animate-css";
+@import "tw-animate-css";
 
 @custom-variant dark (&:is(.dark *));
 
@@ -119,6 +120,7 @@
   * {
     @apply border-border outline-ring/50;
   }
+
   body {
     @apply bg-background text-foreground;
   }
@@ -129,11 +131,11 @@
   .glass {
     @apply bg-background/60 backdrop-blur-xl border border-white/5;
   }
-  
+
   .glass-heavy {
     @apply bg-background/80 backdrop-blur-2xl border border-white/10;
   }
-  
+
   .glass-card {
     @apply bg-card/60 backdrop-blur-xl border border-white/5 shadow-xl;
   }
@@ -145,21 +147,21 @@
     scrollbar-width: thin;
     scrollbar-color: hsl(var(--muted)) transparent;
   }
-  
+
   *::-webkit-scrollbar {
     width: 6px;
     height: 6px;
   }
-  
+
   *::-webkit-scrollbar-track {
     background: transparent;
   }
-  
+
   *::-webkit-scrollbar-thumb {
     background-color: hsl(var(--muted));
     border-radius: 9999px;
   }
-  
+
   *::-webkit-scrollbar-thumb:hover {
     background-color: hsl(var(--muted-foreground));
   }
@@ -177,7 +179,7 @@
   .focus-ring-animated {
     @apply transition-shadow duration-200;
   }
-  
+
   .focus-ring-animated:focus-within {
     box-shadow: 0 0 0 2px hsl(var(--primary) / 0.3);
   }
@@ -188,7 +190,7 @@
   .hover-lift {
     @apply transition-transform duration-200;
   }
-  
+
   .hover-lift:hover {
     transform: translateY(-2px);
   }
@@ -196,11 +198,17 @@
 
 /* Message Loading Animation */
 @keyframes pulse-soft {
-  0%, 100% { opacity: 0.4; }
-  50% { opacity: 0.8; }
+
+  0%,
+  100% {
+    opacity: 0.4;
+  }
+
+  50% {
+    opacity: 0.8;
+  }
 }
 
 .animate-pulse-soft {
   animation: pulse-soft 1.5s ease-in-out infinite;
 }
-

@@ -105,11 +105,11 @@ export function SettingsPanel({ open, onOpenChange }: SettingsPanelProps) {
                     </TabsList>
 
                     {/* API Keys Tab */}
-                    <TabsContent value="api" className="space-y-6 mt-4">
+                    <TabsContent value="api" className="space-y-8 mt-6 px-1 pb-10">
                         {/* Provider Selection */}
-                        <div className="space-y-3">
+                        <div className="space-y-4">
                             <label className="text-sm font-medium">Provider</label>
-                            <div className="flex gap-2">
+                            <div className="flex gap-3">
                                 {(['openrouter', 'openai', 'anthropic'] as Provider[]).map((provider) => {
                                     const key = getKeyForProvider(provider);
                                     return (
@@ -118,7 +118,7 @@ export function SettingsPanel({ open, onOpenChange }: SettingsPanelProps) {
                                             variant={selectedProvider === provider ? 'default' : 'outline'}
                                             size="sm"
                                             onClick={() => setSelectedProvider(provider)}
-                                            className="flex-1 gap-1"
+                                            className="flex-1 gap-2 h-10"
                                         >
                                             {provider === 'openrouter' && 'OpenRouter'}
                                             {provider === 'openai' && 'OpenAI'}
@@ -137,52 +137,53 @@ export function SettingsPanel({ open, onOpenChange }: SettingsPanelProps) {
                         </div>
 
                         {/* API Key Input */}
-                        <div className="space-y-3">
+                        <div className="space-y-4">
                             <label className="text-sm font-medium">{selectedProvider} API Key</label>
-                            <div className="flex gap-2">
+                            <div className="flex gap-3">
                                 <div className="relative flex-1">
                                     <Input
                                         type={showKey ? 'text' : 'password'}
                                         value={newKey}
                                         onChange={(e) => setNewKey(e.target.value)}
                                         placeholder={`sk-... or your ${selectedProvider} key`}
-                                        className="pr-10"
+                                        className="pr-10 h-10"
                                     />
                                     <Button
                                         type="button"
                                         variant="ghost"
                                         size="icon"
-                                        className="absolute right-0 top-0 h-full"
+                                        className="absolute right-0 top-0 h-full hover:bg-transparent"
                                         onClick={() => setShowKey(!showKey)}
                                     >
-                                        {showKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                                        {showKey ? <EyeOff className="h-4 w-4 text-muted-foreground" /> : <Eye className="h-4 w-4 text-muted-foreground" />}
                                     </Button>
                                 </div>
-                                <Button onClick={handleSaveKey} disabled={!newKey.trim() || isValidating}>
+                                <Button onClick={handleSaveKey} disabled={!newKey.trim() || isValidating} className="h-10 px-6">
                                     {isValidating ? 'Validating...' : 'Save'}
                                 </Button>
                             </div>
-                            <p className="text-xs text-muted-foreground">
-                                🔒 Your key is encrypted locally and never sent to our servers.
+                            <p className="text-xs text-muted-foreground leading-relaxed">
+                                🔒 Your key is encrypted locally using AES-256-GCM and stored only in your browser's LocalStorage. It is never sent to our servers.
                             </p>
                         </div>
                     </TabsContent>
 
                     {/* Chat Settings Tab */}
-                    <TabsContent value="chat" className="space-y-6 mt-4">
+                    <TabsContent value="chat" className="space-y-8 mt-6 px-1 pb-10">
                         {/* Reasoning Mode Toggle */}
                         <div className="space-y-4">
-                            <div className="flex items-center justify-between">
+                            <div className="flex items-center justify-between p-1">
                                 <div>
-                                    <p className="text-sm">Thinking Mode (Reasoning)</p>
-                                    <p className="text-xs text-muted-foreground">
-                                        Enables reasoning tokens (for compatible models)
+                                    <p className="text-sm font-medium">Thinking Mode (Reasoning)</p>
+                                    <p className="text-xs text-muted-foreground mt-1">
+                                        Enables reasoning tokens for compatible models (e.g. DeepSeek R1)
                                     </p>
                                 </div>
                                 <Button
-                                    variant={enableReasoning ? 'default' : 'outline'}
+                                    variant={enableReasoning ? 'default' : 'secondary'}
                                     size="sm"
                                     onClick={() => setEnableReasoning(!enableReasoning)}
+                                    className="w-16"
                                 >
                                     {enableReasoning ? 'On' : 'Off'}
                                 </Button>
@@ -192,18 +193,21 @@ export function SettingsPanel({ open, onOpenChange }: SettingsPanelProps) {
                         <Separator />
 
                         {/* Presets */}
-                        <div className="space-y-3">
-                            <label className="text-sm font-medium">Preset</label>
-                            <div className="grid grid-cols-2 gap-2">
+                        <div className="space-y-4">
+                            <label className="text-sm font-medium">Creativity Preset</label>
+                            <div className="grid grid-cols-2 gap-3">
                                 {Object.entries(PRESETS).map(([key, preset]) => (
                                     <Button
                                         key={key}
-                                        variant={temperature === preset.temperature ? 'secondary' : 'outline'}
-                                        className="h-auto py-3 flex-col items-start"
+                                        variant={temperature === preset.temperature ? 'default' : 'outline'}
+                                        className={`h-auto py-4 px-4 flex-col items-start gap-1 transition-all ${temperature === preset.temperature ? 'border-primary' : ''}`}
                                         onClick={() => setTemperature(preset.temperature)}
                                     >
-                                        <span className="font-medium capitalize">{key}</span>
-                                        <span className="text-xs text-muted-foreground">
+                                        <div className="flex items-center justify-between w-full">
+                                            <span className="font-semibold capitalize text-sm">{key}</span>
+                                            {temperature === preset.temperature && <Check className="h-3 w-3" />}
+                                        </div>
+                                        <span className="text-[10px] text-muted-foreground text-left leading-tight opacity-90">
                                             {preset.description}
                                         </span>
                                     </Button>
@@ -214,52 +218,55 @@ export function SettingsPanel({ open, onOpenChange }: SettingsPanelProps) {
                         <Separator />
 
                         {/* UI Options */}
-                        <div className="space-y-4">
-                            <label className="text-sm font-medium">Display</label>
+                        <div className="space-y-5">
+                            <label className="text-sm font-medium">Interface Preferences</label>
 
-                            <div className="flex items-center justify-between">
+                            <div className="flex items-center justify-between p-1">
                                 <div>
                                     <p className="text-sm">Show Thoughts (CoT)</p>
-                                    <p className="text-xs text-muted-foreground">
-                                        Shows reasoning from advanced models
+                                    <p className="text-xs text-muted-foreground mt-0.5">
+                                        Expand/collapse AI reasoning chains
                                     </p>
                                 </div>
                                 <Button
-                                    variant={showThoughts ? 'default' : 'outline'}
+                                    variant={showThoughts ? 'default' : 'secondary'}
                                     size="sm"
                                     onClick={() => setShowThoughts(!showThoughts)}
+                                    className="w-16"
                                 >
                                     {showThoughts ? 'On' : 'Off'}
                                 </Button>
                             </div>
 
-                            <div className="flex items-center justify-between">
+                            <div className="flex items-center justify-between p-1">
                                 <div>
                                     <p className="text-sm">World State Panel</p>
-                                    <p className="text-xs text-muted-foreground">
-                                        Inventory, location, relationships
+                                    <p className="text-xs text-muted-foreground mt-0.5">
+                                        Show Inventory, Location & Relationships
                                     </p>
                                 </div>
                                 <Button
-                                    variant={showWorldState ? 'default' : 'outline'}
+                                    variant={showWorldState ? 'default' : 'secondary'}
                                     size="sm"
                                     onClick={() => setShowWorldState(!showWorldState)}
+                                    className="w-16"
                                 >
                                     {showWorldState ? 'On' : 'Off'}
                                 </Button>
                             </div>
 
-                            <div className="flex items-center justify-between">
+                            <div className="flex items-center justify-between p-1">
                                 <div>
                                     <p className="text-sm">Immersive Mode</p>
-                                    <p className="text-xs text-muted-foreground">
-                                        Hide interface for total immersion
+                                    <p className="text-xs text-muted-foreground mt-0.5">
+                                        Hide headers/sidebars for focused reading
                                     </p>
                                 </div>
                                 <Button
-                                    variant={immersiveMode ? 'default' : 'outline'}
+                                    variant={immersiveMode ? 'default' : 'secondary'}
                                     size="sm"
                                     onClick={() => setImmersiveMode(!immersiveMode)}
+                                    className="w-16"
                                 >
                                     {immersiveMode ? 'On' : 'Off'}
                                 </Button>

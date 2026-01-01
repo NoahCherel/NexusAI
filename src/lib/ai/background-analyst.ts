@@ -15,13 +15,22 @@ export interface WorldStateChanges {
     relationship_changes: Record<string, number>;
 }
 
-export const ANALYST_PROMPT = `You are a narrative analyzer. Your role is to extract world state changes from a roleplay message.
+export const ANALYST_PROMPT = `You are a narrative analyzer tracking the state of a roleplay game.
+Your task is to analyze the latest message/action and determine if it changes the world state.
+
+CRITICAL INSTRUCTIONS FOR RELATIONSHIPS:
+- You must consider the User's Persona (Role) and the context provided in "User Reference".
+- Hostile/Aggressive actions (attacking, insulting, threatening, declaring war) MUST result in NEGATIVE relationship changes (e.g., -10, -20).
+- Friendly/Helpful actions (giving gifts, saving, complimenting, allied speech) result in POSITIVE changes (e.g., +5, +10).
+- If NPCs are rallying AGAINST the User (e.g., "We shall vanquish him!"), this represents a NEGATIVE shift in their affinity towards the User (they hate the user more).
+- Do NOT assume interaction implies friendship. Use the context.
 
 RULES:
 - Analyze ONLY the CONCRETE ACTIONS described in the message
-- Do NOT infer what might happen, only what IS described
-- For relationships, use relative values: +5 (small), +10 (medium), -10 (negative)
-- location = null if no explicit location change
+- inventory_add: Items clearly acquired.
+- inventory_remove: Items lost/consumed/given away.
+- location: Only if clearly moved to a new place.
+- relationship_changes: Delta values. Default is 0.
 
 Respond ONLY in valid JSON, no comments:
 {
@@ -32,14 +41,14 @@ Respond ONLY in valid JSON, no comments:
 }
 
 EXAMPLES:
-Message: "*I take the sword from the table*"
-→ {"inventory_add": ["sword"], "inventory_remove": [], "location": null, "relationship_changes": {}}
+Message: "I draw my sword and attack the guard."
+→ { "inventory_add": [], "inventory_remove": [], "location": null, "relationship_changes": {"Guard": -15} }
 
-Message: "*I give the potion to Aria and she smiles*"
-→ {"inventory_add": [], "inventory_remove": ["potion"], "location": null, "relationship_changes": {"Aria": 5}}
+Message: "I heal the wounded soldier."
+→ { "inventory_add": [], "inventory_remove": [], "location": null, "relationship_changes": {"Soldier": +10} }
 
-Message: "*I enter the dark forest*"
-→ {"inventory_add": [], "inventory_remove": [], "location": "Dark forest", "relationship_changes": {}}`;;
+Message: "The King shouts: 'Seize him! He is our enemy!'"
+→ { "inventory_add": [], "inventory_remove": [], "location": null, "relationship_changes": {"King": -10} }`;
 
 /**
  * Check if a message contains action verbs that warrant analysis
@@ -102,8 +111,9 @@ export function mergeWorldState(
     // Update relationships (additive)
     const newRelationships = { ...current.relationships };
     for (const [name, delta] of Object.entries(changes.relationship_changes)) {
-        const currentValue = newRelationships[name] || 50; // Default 50 (neutral)
-        newRelationships[name] = Math.max(0, Math.min(100, currentValue + delta));
+        const currentValue = newRelationships[name] ?? 0; // Default 0 (neutral) - changed from 50
+        // Clamp between -100 (Hated) and 100 (Devotion)
+        newRelationships[name] = Math.max(-100, Math.min(100, currentValue + delta));
     }
 
     return {

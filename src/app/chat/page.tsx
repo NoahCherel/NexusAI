@@ -2,7 +2,7 @@
 
 import { useRef, useEffect, useState, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { MessageCircle, Settings2, Sparkles } from 'lucide-react';
+import { MessageCircle, Settings2, Sparkles, GitBranch } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { ChatBubble, ChatInput, WorldStatePanel, PersonaSelector, ModelSelector, ThinkingModeToggle } from '@/components/chat';
@@ -15,12 +15,14 @@ import { buildSystemPrompt, getActiveLorebookEntries } from '@/lib/ai/context-bu
 import { LorebookEditor } from '@/components/lorebook';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { Book } from 'lucide-react';
+import { TreeVisualization } from '@/components/chat/TreeVisualization';
 import type { CharacterCard, Message } from '@/types';
 
 export default function ChatPage() {
     const [isSettingsOpen, setIsSettingsOpen] = useState(false);
     const [isWorldStateCollapsed, setIsWorldStateCollapsed] = useState(false);
     const [isLorebookOpen, setIsLorebookOpen] = useState(false);
+    const [isTreeOpen, setIsTreeOpen] = useState(false);
     const [currentApiKey, setCurrentApiKey] = useState<string | null>(null);
 
     const [isLoading, setIsLoading] = useState(false);
@@ -467,6 +469,15 @@ export default function ChatPage() {
                                         >
                                             <Book className="h-4 w-4" />
                                         </Button>
+                                        <Button
+                                            variant="ghost"
+                                            size="sm"
+                                            className="h-8 w-8 p-0 text-muted-foreground hover:text-foreground"
+                                            onClick={() => setIsTreeOpen(true)}
+                                            title="View Branch Tree"
+                                        >
+                                            <GitBranch className="h-4 w-4" />
+                                        </Button>
                                     </div>
                                 )}
                                 <ChatInput
@@ -522,6 +533,8 @@ export default function ChatPage() {
                     <LorebookEditor onClose={() => setIsLorebookOpen(false)} />
                 </DialogContent>
             </Dialog>
+
+            <TreeVisualization isOpen={isTreeOpen} onClose={() => setIsTreeOpen(false)} />
         </div>
     );
 }

@@ -68,7 +68,7 @@ export function ModelSelector() {
                         <ChevronDown className="w-3 h-3 opacity-50" />
                     </Button>
                 </DropdownMenuTrigger>
-                <DropdownMenuContent align="start" className="w-56">
+                <DropdownMenuContent align="start" className="w-56 max-h-[300px] overflow-y-auto">
                     {/* Free Models */}
                     <div className="px-2 py-1.5 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
                         Free Models
