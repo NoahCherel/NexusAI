@@ -73,9 +73,26 @@ export const useChatStore = create<ChatState>()((set, get) => ({
         })),
 
     deleteMessage: (id) =>
-        set((state) => ({
-            messages: state.messages.filter((m) => m.id !== id),
-        })),
+        set((state) => {
+            const msgToDelete = state.messages.find(m => m.id === id);
+            if (!msgToDelete) return state;
+
+            // If deleting an active message, try to activate a sibling
+            let newMessages = state.messages.filter(m => m.id !== id);
+
+            if (msgToDelete.isActiveBranch && msgToDelete.parentId) {
+                const siblings = newMessages.filter(m => m.parentId === msgToDelete.parentId);
+                if (siblings.length > 0) {
+                    // Activate the first sibling
+                    const siblingToActivate = siblings[0];
+                    newMessages = newMessages.map(m =>
+                        m.id === siblingToActivate.id ? { ...m, isActiveBranch: true } : m
+                    );
+                }
+            }
+
+            return { messages: newMessages };
+        }),
 
     getConversationMessages: (conversationId) => {
         return get().messages.filter((m) => m.conversationId === conversationId);

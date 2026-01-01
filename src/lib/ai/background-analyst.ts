@@ -5,8 +5,8 @@
  * Uses a free-tier model (Gemini Flash) to extract state changes.
  */
 
-// Regex patterns to detect action verbs in messages
-export const ACTION_TRIGGERS = /\b(prends?|donne|ramasse|récupère|pose|dépose|jette|lâche|va\s+[àa]|entre|sors?|part|arrive|attaque|frappe|tue|blesse|soigne|parle|dis|crie|mange|bois|achète|vends|ouvre|ferme|utilise|équipe|porte|retire|enlève)\b/i;
+// Regex patterns to detect action verbs in messages (English)
+export const ACTION_TRIGGERS = /\b(take|give|pick\s*up|grab|drop|put\s*down|throw|go\s+to|enter|exit|leave|arrive|attack|hit|kill|wound|heal|speak|say|shout|eat|drink|buy|sell|open|close|use|equip|wear|remove)\b/i;
 
 export interface WorldStateChanges {
     inventory_add: string[];
@@ -15,15 +15,15 @@ export interface WorldStateChanges {
     relationship_changes: Record<string, number>;
 }
 
-export const ANALYST_PROMPT = `Tu es un analyseur de récit. Ton rôle est d'extraire les changements d'état du monde depuis un message de roleplay.
+export const ANALYST_PROMPT = `You are a narrative analyzer. Your role is to extract world state changes from a roleplay message.
 
-RÈGLES:
-- Analyse UNIQUEMENT les ACTIONS CONCRÈTES décrites dans le message
-- Ne déduis PAS ce qui pourrait arriver, seulement ce qui EST décrit
-- Pour les relations, utilise des valeurs relatives: +5 (petit), +10 (moyen), -10 (négatif)
-- location = null si pas de changement de lieu explicite
+RULES:
+- Analyze ONLY the CONCRETE ACTIONS described in the message
+- Do NOT infer what might happen, only what IS described
+- For relationships, use relative values: +5 (small), +10 (medium), -10 (negative)
+- location = null if no explicit location change
 
-Réponds UNIQUEMENT en JSON valide, sans commentaires:
+Respond ONLY in valid JSON, no comments:
 {
   "inventory_add": [],
   "inventory_remove": [],
@@ -31,15 +31,15 @@ Réponds UNIQUEMENT en JSON valide, sans commentaires:
   "relationship_changes": {}
 }
 
-EXEMPLES:
-Message: "*Je prends l'épée sur la table*"
-→ {"inventory_add": ["épée"], "inventory_remove": [], "location": null, "relationship_changes": {}}
+EXAMPLES:
+Message: "*I take the sword from the table*"
+→ {"inventory_add": ["sword"], "inventory_remove": [], "location": null, "relationship_changes": {}}
 
-Message: "*Je donne la potion à Aria et elle sourit*"
+Message: "*I give the potion to Aria and she smiles*"
 → {"inventory_add": [], "inventory_remove": ["potion"], "location": null, "relationship_changes": {"Aria": 5}}
 
-Message: "*J'entre dans la forêt sombre*"
-→ {"inventory_add": [], "inventory_remove": [], "location": "Forêt sombre", "relationship_changes": {}}`;
+Message: "*I enter the dark forest*"
+→ {"inventory_add": [], "inventory_remove": [], "location": "Dark forest", "relationship_changes": {}}`;;
 
 /**
  * Check if a message contains action verbs that warrant analysis

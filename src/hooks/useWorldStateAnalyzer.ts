@@ -57,33 +57,59 @@ export function useWorldStateAnalyzer(): UseWorldStateAnalyzerReturn {
         try {
             const apiKey = await decryptApiKey(openRouterKeyConfig.encryptedKey);
 
-            // Use Gemini Flash (free) for analysis via OpenRouter
-            const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-                method: 'POST',
-                headers: {
-                    'Authorization': `Bearer ${apiKey}`,
-                    'Content-Type': 'application/json',
-                    'HTTP-Referer': window.location.origin,
-                    'X-Title': 'NexusAI World Analyzer',
-                },
-                body: JSON.stringify({
-                    model: 'google/gemini-2.0-flash-exp:free',
-                    messages: [
-                        { role: 'system', content: ANALYST_PROMPT },
-                        {
-                            role: 'user',
-                            content: `État actuel:\n- Inventaire: ${JSON.stringify(currentWorldState.inventory)}\n- Lieu: "${currentWorldState.location || 'Inconnu'}"\n- Relations: ${JSON.stringify(currentWorldState.relationships)}\n\nPersonnage PNJ: ${characterName}\n\nMessage à analyser: "${message}"`
-                        }
-                    ],
-                    max_tokens: 300,
-                    temperature: 0.1, // Low temp for consistent parsing
-                }),
-            });
+            // Models to try (primary and fallback)
+            const models = [
+                'google/gemini-2.0-flash-exp:free',
+                'deepseek/deepseek-r1-0528:free'
+            ];
 
-            if (!response.ok) {
+            let response: Response | null = null;
+            let usedModel = '';
+
+            for (const model of models) {
+                response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${apiKey}`,
+                        'Content-Type': 'application/json',
+                        'HTTP-Referer': window.location.origin,
+                        'X-Title': 'NexusAI World Analyzer',
+                    },
+                    body: JSON.stringify({
+                        model,
+                        messages: [
+                            { role: 'system', content: ANALYST_PROMPT },
+                            {
+                                role: 'user',
+                                content: `Current state:\n- Inventory: ${JSON.stringify(currentWorldState.inventory)}\n- Location: "${currentWorldState.location || 'Unknown'}"\n- Relationships: ${JSON.stringify(currentWorldState.relationships)}\n\nNPC Character: ${characterName}\n\nMessage to analyze: "${message}"`
+                            }
+                        ],
+                        max_tokens: 300,
+                        temperature: 0.1,
+                    }),
+                });
+
+                if (response.ok) {
+                    usedModel = model;
+                    break;
+                }
+
+                if (response.status === 429) {
+                    console.log(`[WorldStateAnalyzer] ${model} rate limited, trying fallback...`);
+                    continue;
+                }
+
+                // Other error, stop trying
                 console.error('[WorldStateAnalyzer] API error:', response.statusText);
                 return;
             }
+
+            if (!response || !response.ok) {
+                console.log('[WorldStateAnalyzer] All models rate limited, skipping');
+                return;
+            }
+
+            console.log(`[WorldStateAnalyzer] Using model: ${usedModel}`);
 
             const data = await response.json();
             const content = data.choices?.[0]?.message?.content;

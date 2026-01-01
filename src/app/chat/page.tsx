@@ -109,6 +109,10 @@ export default function ChatPage() {
                     isActiveBranch: true,
                     createdAt: new Date(),
                 });
+                // Analyze first message for initial world state (delay to allow store to update)
+                setTimeout(() => {
+                    analyzeMessage(character.first_mes!, character.name);
+                }, 500);
             }
         }
     }, [character?.id, character?.first_mes, activeConversationId, createConversation, addMessage, conversations]);

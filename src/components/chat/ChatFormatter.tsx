@@ -73,8 +73,8 @@ function FormattedContent({ text }: { text: string }) {
                     return <strong key={index} className="font-bold">{part.slice(2, -2)}</strong>;
                 }
                 if (part.startsWith('*') && part.endsWith('*')) {
-                    // Actions usually look better slightly grayed out or distinct color in RPG context
-                    return <em key={index} className="italic text-muted-foreground/90">{part.slice(1, -1)}</em>;
+                    // Actions usually look better slightly distinct in RPG context
+                    return <em key={index} className="italic opacity-80">{part.slice(1, -1)}</em>;
                 }
                 return <span key={index}>{part}</span>;
             })}
