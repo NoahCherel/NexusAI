@@ -1,145 +1,122 @@
 'use client';
 
 import { useState } from 'react';
-import { motion } from 'framer-motion';
-import {
-    MessageCircle,
-    Settings,
-    Upload,
-    ChevronLeft,
-    ChevronRight,
-    Sparkles,
-} from 'lucide-react';
+import { useCharacterStore } from '@/stores';
+import { CharacterCard } from '@/components/character/CharacterCard';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
-import { CharacterCard } from '@/components/character/CharacterCard';
+import { Search, Plus, PanelLeftClose, PanelLeftOpen, Settings, Users } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { CharacterImporter } from '@/components/character/CharacterImporter';
-import { useCharacterStore } from '@/stores';
+import { cn } from '@/lib/utils';
 
-interface SidebarProps {
-    onCharacterSelect?: (characterId: string) => void;
-    onSettingsClick?: () => void;
-}
-
-export function Sidebar({ onCharacterSelect, onSettingsClick }: SidebarProps) {
+export function Sidebar() {
+    const { characters, activeCharacterId, setActiveCharacterId } = useCharacterStore();
+    const [searchTerm, setSearchTerm] = useState('');
     const [isCollapsed, setIsCollapsed] = useState(false);
-    const { characters, activeCharacterId, setActiveCharacter, removeCharacter } =
-        useCharacterStore();
+
+    const filteredCharacters = characters.filter(c =>
+        c.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        c.tags.some(t => t.toLowerCase().includes(searchTerm.toLowerCase()))
+    );
 
     return (
-        <motion.aside
-            initial={false}
-            animate={{ width: isCollapsed ? 72 : 320 }}
-            transition={{ duration: 0.2, ease: 'easeInOut' }}
-            className="relative h-full bg-card border-r border-border flex flex-col"
+        <div
+            className={cn(
+                "relative h-full bg-card/60 backdrop-blur-lg border-r border-border/40 flex flex-col transition-all duration-300 ease-in-out",
+                isCollapsed ? "w-20" : "w-80"
+            )}
         >
             {/* Header */}
-            <div className="p-4 flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary to-primary/60 flex items-center justify-center shrink-0">
-                    <Sparkles className="w-5 h-5 text-primary-foreground" />
-                </div>
+            <div className={cn(
+                "p-4 flex items-center h-16",
+                isCollapsed ? "justify-center" : "justify-between"
+            )}>
                 {!isCollapsed && (
-                    <motion.div
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        exit={{ opacity: 0 }}
-                    >
-                        <h1 className="font-bold text-lg">NexusAI</h1>
-                        <p className="text-xs text-muted-foreground">Roleplay Platform</p>
-                    </motion.div>
+                    <div className="flex items-center gap-2">
+                        <div className="p-1.5 bg-primary/10 rounded-md">
+                            <Users className="w-5 h-5 text-primary" />
+                        </div>
+                        <span className="font-bold text-lg tracking-tight">NexusAI</span>
+                    </div>
                 )}
+                <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => setIsCollapsed(!isCollapsed)}
+                    className="h-8 w-8 text-muted-foreground hover:text-foreground"
+                >
+                    {isCollapsed ? <PanelLeftOpen className="w-4 h-4" /> : <PanelLeftClose className="w-4 h-4" />}
+                </Button>
             </div>
 
-            <Separator />
+            {/* Search & Actions */}
+            {!isCollapsed ? (
+                <div className="px-4 pb-4 space-y-3">
+                    <div className="relative">
+                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                        <Input
+                            placeholder="Filter characters..."
+                            value={searchTerm}
+                            onChange={(e) => setSearchTerm(e.target.value)}
+                            className="pl-9 bg-background/40 border-border/40 focus-visible:ring-primary/20 backdrop-blur-sm h-9"
+                        />
+                    </div>
+                    <CharacterImporter />
+                </div>
+            ) : (
+                <div className="px-2 pb-4 flex flex-col items-center gap-2">
+                    <Button variant="ghost" size="icon" className="h-9 w-9 text-muted-foreground hover:bg-primary/5">
+                        <Search className="w-4 h-4" />
+                    </Button>
+                    <div className="w-8 h-px bg-border/40 my-1" />
+                    <CharacterImporter isCollapsed={true} />
+                </div>
+            )}
 
-            {/* Import Button */}
-            <div className="p-3">
-                <CharacterImporter
-                    trigger={
-                        <Button
-                            variant="outline"
-                            className={`w-full gap-2 ${isCollapsed ? 'px-0' : ''}`}
-                        >
-                            <Upload className="h-4 w-4" />
-                            {!isCollapsed && 'Importer'}
-                        </Button>
-                    }
-                />
-            </div>
+            <Separator className="bg-border/40" />
 
-            {/* Character List */}
-            <ScrollArea className="flex-1 px-4 pr-5">
-                <div className="space-y-3 pb-6">
-                    {characters.length === 0 ? (
+            {/* List */}
+            <ScrollArea className="flex-1">
+                <div className={cn(
+                    "space-y-3 pb-10 transition-all duration-300",
+                    isCollapsed ? "px-2 pt-4" : "px-4 pt-4"
+                )}>
+                    {filteredCharacters.length === 0 ? (
                         !isCollapsed && (
-                            <div className="text-center py-8 text-muted-foreground text-sm">
-                                <MessageCircle className="w-12 h-12 mx-auto mb-3 opacity-50" />
-                                <p>Aucun personnage</p>
-                                <p className="text-xs mt-1">
-                                    Importez un Character Card pour commencer
-                                </p>
+                            <div className="text-center py-12 px-4">
+                                <p className="text-muted-foreground text-sm">No characters found</p>
                             </div>
                         )
                     ) : (
-                        characters.map((character) =>
-                            isCollapsed ? (
-                                <Button
-                                    key={character.id}
-                                    variant={activeCharacterId === character.id ? 'secondary' : 'ghost'}
-                                    size="icon"
-                                    className="w-full"
-                                    onClick={() => {
-                                        setActiveCharacter(character.id);
-                                        onCharacterSelect?.(character.id);
-                                    }}
-                                    title={character.name}
-                                >
-                                    {character.name.slice(0, 2).toUpperCase()}
-                                </Button>
-                            ) : (
-                                <CharacterCard
-                                    key={character.id}
-                                    character={character}
-                                    isActive={activeCharacterId === character.id}
-                                    onClick={() => {
-                                        setActiveCharacter(character.id);
-                                        onCharacterSelect?.(character.id);
-                                    }}
-                                    onDelete={() => removeCharacter(character.id)}
-                                />
-                            )
-                        )
+                        filteredCharacters.map((char) => (
+                            <CharacterCard
+                                key={char.id}
+                                character={char}
+                                isActive={char.id === activeCharacterId}
+                                onClick={() => setActiveCharacterId(char.id)}
+                                isCollapsed={isCollapsed}
+                            />
+                        ))
                     )}
                 </div>
             </ScrollArea>
 
-            {/* Footer - Settings */}
-            <Separator />
-            <div className="p-3">
+            {/* Footer */}
+            <div className="p-4 border-t border-border/40 bg-muted/5">
                 <Button
                     variant="ghost"
-                    className={`w-full gap-2 justify-start ${isCollapsed ? 'px-0 justify-center' : ''}`}
-                    onClick={onSettingsClick}
+                    className={cn(
+                        "w-full justify-start gap-2 text-muted-foreground hover:text-foreground hover:bg-primary/5",
+                        isCollapsed ? "px-0 justify-center h-10 w-10 mx-auto" : "h-10 px-3"
+                    )}
                 >
-                    <Settings className="h-4 w-4" />
-                    {!isCollapsed && 'Paramètres'}
+                    <Settings className="w-5 h-5" />
+                    {!isCollapsed && <span className="text-sm font-medium">Settings</span>}
                 </Button>
             </div>
-
-            {/* Collapse Toggle */}
-            <Button
-                variant="ghost"
-                size="icon"
-                className="absolute -right-3 top-1/2 -translate-y-1/2 h-6 w-6 rounded-full border bg-background shadow-sm"
-                onClick={() => setIsCollapsed(!isCollapsed)}
-            >
-                {isCollapsed ? (
-                    <ChevronRight className="h-3 w-3" />
-                ) : (
-                    <ChevronLeft className="h-3 w-3" />
-                )}
-            </Button>
-        </motion.aside>
+        </div>
     );
 }

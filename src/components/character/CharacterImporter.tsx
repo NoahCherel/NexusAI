@@ -3,7 +3,7 @@
 import { useCallback, useState } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Upload, FileImage, AlertCircle, CheckCircle } from 'lucide-react';
+import { Upload, FileImage, AlertCircle, CheckCircle, Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
     Dialog,
@@ -16,13 +16,15 @@ import {
 import { importCharacterCard } from '@/lib/character-parser';
 import { useCharacterStore } from '@/stores';
 import type { CharacterCard } from '@/types';
+import { cn } from '@/lib/utils';
 
 interface CharacterImporterProps {
     trigger?: React.ReactNode;
     onImported?: (character: CharacterCard) => void;
+    isCollapsed?: boolean;
 }
 
-export function CharacterImporter({ trigger, onImported }: CharacterImporterProps) {
+export function CharacterImporter({ trigger, onImported, isCollapsed }: CharacterImporterProps) {
     const [isOpen, setIsOpen] = useState(false);
     const [status, setStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
     const [error, setError] = useState<string | null>(null);
@@ -70,28 +72,33 @@ export function CharacterImporter({ trigger, onImported }: CharacterImporterProp
         <Dialog open={isOpen} onOpenChange={setIsOpen}>
             <DialogTrigger asChild>
                 {trigger || (
-                    <Button variant="outline" className="gap-2">
-                        <Upload className="h-4 w-4" />
-                        Importer un personnage
-                    </Button>
+                    isCollapsed ? (
+                        <Button variant="ghost" size="icon" className="h-10 w-10 text-primary bg-primary/10 hover:bg-primary/20">
+                            <Plus className="w-5 h-5" />
+                        </Button>
+                    ) : (
+                        <Button variant="outline" className="w-full gap-2 border-primary/20 bg-primary/5 text-primary hover:bg-primary/10 h-10">
+                            <Upload className="h-4 w-4" />
+                            <span className="text-sm font-medium">Import Character</span>
+                        </Button>
+                    )
                 )}
             </DialogTrigger>
             <DialogContent className="sm:max-w-md">
                 <DialogHeader>
-                    <DialogTitle>Importer un personnage</DialogTitle>
+                    <DialogTitle>Import Character</DialogTitle>
                     <DialogDescription>
-                        Glissez-déposez un fichier Character Card V2 (PNG ou JSON) depuis Chub, JanitorAI, ou SillyTavern.
+                        Drag & drop a Character Card V2 (PNG or JSON) from Chub, JanitorAI, or SillyTavern.
                     </DialogDescription>
                 </DialogHeader>
 
                 <div
                     {...getRootProps()}
-                    className={`
-            relative mt-4 p-8 border-2 border-dashed rounded-xl
-            transition-all cursor-pointer
-            ${isDragActive ? 'border-primary bg-primary/5' : 'border-muted-foreground/25 hover:border-primary/50'}
-            ${status === 'loading' ? 'opacity-50 pointer-events-none' : ''}
-          `}
+                    className={cn(
+                        "relative mt-4 p-8 border-2 border-dashed rounded-xl transition-all cursor-pointer",
+                        isDragActive ? "border-primary bg-primary/5" : "border-muted-foreground/25 hover:border-primary/50",
+                        status === 'loading' ? "opacity-50 pointer-events-none" : ""
+                    )}
                 >
                     <input {...getInputProps()} />
 
@@ -109,14 +116,14 @@ export function CharacterImporter({ trigger, onImported }: CharacterImporterProp
                                 </div>
                                 <div>
                                     <p className="font-medium">
-                                        {isDragActive ? 'Déposez le fichier ici' : 'Glissez un fichier ici'}
+                                        {isDragActive ? 'Drop file here' : 'Drag file here'}
                                     </p>
                                     <p className="text-sm text-muted-foreground mt-1">
-                                        ou cliquez pour parcourir
+                                        or click to browse
                                     </p>
                                 </div>
                                 <p className="text-xs text-muted-foreground">
-                                    PNG (Character Card V2) ou JSON
+                                    PNG (Character Card V2) or JSON
                                 </p>
                             </motion.div>
                         )}
@@ -137,7 +144,7 @@ export function CharacterImporter({ trigger, onImported }: CharacterImporterProp
                                         <Upload className="w-8 h-8 text-muted-foreground" />
                                     </motion.div>
                                 </div>
-                                <p className="font-medium">Import en cours...</p>
+                                <p className="font-medium">Importing...</p>
                             </motion.div>
                         )}
 
@@ -154,7 +161,7 @@ export function CharacterImporter({ trigger, onImported }: CharacterImporterProp
                                 </div>
                                 <div className="text-center">
                                     <p className="font-medium">{importedChar.name}</p>
-                                    <p className="text-sm text-muted-foreground">Importé avec succès !</p>
+                                    <p className="text-sm text-muted-foreground">Imported successfully!</p>
                                 </div>
                             </motion.div>
                         )}
@@ -171,7 +178,7 @@ export function CharacterImporter({ trigger, onImported }: CharacterImporterProp
                                     <AlertCircle className="w-8 h-8 text-destructive" />
                                 </div>
                                 <div className="text-center">
-                                    <p className="font-medium text-destructive">Erreur</p>
+                                    <p className="font-medium text-destructive">Error</p>
                                     <p className="text-sm text-muted-foreground">{error}</p>
                                 </div>
                                 <Button
@@ -183,7 +190,7 @@ export function CharacterImporter({ trigger, onImported }: CharacterImporterProp
                                         setError(null);
                                     }}
                                 >
-                                    Réessayer
+                                    Retry
                                 </Button>
                             </motion.div>
                         )}
