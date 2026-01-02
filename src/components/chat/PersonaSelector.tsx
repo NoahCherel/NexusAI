@@ -25,6 +25,8 @@ export function PersonaSelector() {
     const { personas, activePersonaId, setActivePersonaId, addPersona, updatePersona, deletePersona } = useSettingsStore();
     const [open, setOpen] = useState(false);
     const [dialogOpen, setDialogOpen] = useState(false);
+    const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
+    const [personaToDelete, setPersonaToDelete] = useState<{ id: string; name: string } | null>(null);
     const [editingPersona, setEditingPersona] = useState<{ id?: string; name: string; bio: string; avatar: string } | null>(null);
 
     const activePersona = personas.find((p) => p.id === activePersonaId);
@@ -68,10 +70,19 @@ export function PersonaSelector() {
         setEditingPersona(null);
     };
 
-    const handleDelete = (id: string) => {
-        deletePersona(id);
-        if (activePersonaId === id) {
-            setActivePersonaId(null);
+    const handleDelete = (id: string, name: string) => {
+        setPersonaToDelete({ id, name });
+        setConfirmDeleteOpen(true);
+    };
+
+    const confirmDelete = () => {
+        if (personaToDelete) {
+            deletePersona(personaToDelete.id);
+            if (activePersonaId === personaToDelete.id) {
+                setActivePersonaId(null);
+            }
+            setConfirmDeleteOpen(false);
+            setPersonaToDelete(null);
         }
     };
 
@@ -86,8 +97,8 @@ export function PersonaSelector() {
                                 {displayName[0].toUpperCase()}
                             </AvatarFallback>
                         </Avatar>
-                        <span className="max-w-[80px] truncate">{displayName}</span>
-                        <ChevronUp className="h-3 w-3 opacity-50" />
+                        <span className="max-w-[80px] truncate hidden sm:inline-block">{displayName}</span>
+                        <ChevronUp className="h-3 w-3 opacity-50 hidden sm:block" />
                     </Button>
                 </PopoverTrigger>
                 <PopoverContent className="w-[220px] p-2" align="start" side="top" sideOffset={8}>
@@ -116,11 +127,19 @@ export function PersonaSelector() {
                                         {persona.bio && <span className="text-[10px] text-muted-foreground truncate block">{persona.bio}</span>}
                                     </div>
                                 </div>
-                                <div className="hidden group-hover:flex items-center gap-0.5">
+                                <div className="sm:hidden flex items-center gap-2 pr-1">
+                                    <Button variant="ghost" size="icon" className="h-9 w-9 bg-muted/50 rounded-full" onClick={() => openEditDialog(persona)}>
+                                        <Edit2 className="h-3.5 w-3.5" />
+                                    </Button>
+                                    <Button variant="ghost" size="icon" className="h-9 w-9 bg-destructive/10 text-destructive rounded-full" onClick={() => handleDelete(persona.id, persona.name)}>
+                                        <Trash2 className="h-3.5 w-3.5" />
+                                    </Button>
+                                </div>
+                                <div className="hidden sm:flex group-hover:flex items-center gap-0.5">
                                     <Button variant="ghost" size="icon" className="h-5 w-5" onClick={() => openEditDialog(persona)}>
                                         <Edit2 className="h-2.5 w-2.5" />
                                     </Button>
-                                    <Button variant="ghost" size="icon" className="h-5 w-5 hover:text-destructive" onClick={() => handleDelete(persona.id)}>
+                                    <Button variant="ghost" size="icon" className="h-5 w-5 hover:text-destructive" onClick={() => handleDelete(persona.id, persona.name)}>
                                         <Trash2 className="h-2.5 w-2.5" />
                                     </Button>
                                 </div>
@@ -183,6 +202,36 @@ export function PersonaSelector() {
                         </Button>
                         <Button onClick={handleSave} disabled={!editingPersona?.name.trim()}>
                             {editingPersona?.id ? 'Save Changes' : 'Create'}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+            {/* Delete Confirmation Dialog */}
+            <Dialog open={confirmDeleteOpen} onOpenChange={setConfirmDeleteOpen}>
+                <DialogContent className="sm:max-w-[400px] border-destructive/20 glass-heavy">
+                    <DialogHeader>
+                        <div className="w-12 h-12 bg-destructive/10 rounded-full flex items-center justify-center mx-auto mb-4">
+                            <Trash2 className="w-6 h-6 text-destructive" />
+                        </div>
+                        <DialogTitle className="text-center">Delete Persona?</DialogTitle>
+                        <DialogDescription className="text-center pt-2">
+                            This action cannot be undone. You are about to delete <span className="font-bold text-foreground">"{personaToDelete?.name}"</span>.
+                        </DialogDescription>
+                    </DialogHeader>
+                    <DialogFooter className="flex-row gap-2 mt-4">
+                        <Button
+                            variant="ghost"
+                            className="flex-1"
+                            onClick={() => setConfirmDeleteOpen(false)}
+                        >
+                            Cancel
+                        </Button>
+                        <Button
+                            variant="destructive"
+                            className="flex-1 shadow-lg shadow-destructive/20"
+                            onClick={confirmDelete}
+                        >
+                            Delete Persona
                         </Button>
                     </DialogFooter>
                 </DialogContent>

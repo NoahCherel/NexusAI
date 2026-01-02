@@ -62,10 +62,10 @@ export function ModelSelector() {
                         ) : (
                             <Zap className="w-3 h-3 text-yellow-500" />
                         )}
-                        <span className="max-w-[120px] truncate">
+                        <span className="max-w-[120px] truncate hidden sm:inline-block">
                             {currentModel?.name || 'Select Model'}
                         </span>
-                        <ChevronDown className="w-3 h-3 opacity-50" />
+                        <ChevronDown className="w-3 h-3 opacity-50 hidden sm:block" />
                     </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="start" className="w-56 max-h-[300px] overflow-y-auto">

@@ -350,7 +350,7 @@ export default function ChatPage() {
                                     transition={{ type: 'spring' as const, stiffness: 300, damping: 30 }}
                                     className="h-14 border-b border-white/5 flex items-center px-4 justify-between glass-heavy sticky top-0 z-30 shrink-0"
                                 >
-                                    <div className="flex items-center gap-3 min-w-0">
+                                    <div className="flex items-center gap-2 sm:gap-3 min-w-0">
                                         {/* Mobile Menu Button */}
                                         <MobileSidebar
                                             onCharacterSelect={() => { }}
@@ -370,21 +370,23 @@ export default function ChatPage() {
                                             )}
                                         </div>
                                         <div className="flex flex-col min-w-0">
-                                            <h2 className="font-semibold text-sm truncate">{character.name}</h2>
+                                            <h2 className="font-semibold text-xs sm:text-sm truncate">{character.name}</h2>
                                             <p className="text-[10px] text-muted-foreground truncate opacity-80">
                                                 {activeModel}
                                             </p>
                                         </div>
                                     </div>
 
-                                    <Button
-                                        variant="ghost"
-                                        size="icon"
-                                        onClick={() => setIsSettingsOpen(true)}
-                                        className="shrink-0"
-                                    >
-                                        <Settings2 className="h-4 w-4" />
-                                    </Button>
+                                    <div className="flex items-center gap-1 sm:gap-2">
+                                        <Button
+                                            variant="ghost"
+                                            size="icon"
+                                            onClick={() => setIsSettingsOpen(true)}
+                                            className="shrink-0 h-8 w-8"
+                                        >
+                                            <Settings2 className="h-4 w-4" />
+                                        </Button>
+                                    </div>
                                 </motion.header>
                             )}
                         </AnimatePresence>
@@ -456,14 +458,14 @@ export default function ChatPage() {
                         >
                             <div className={`mx-auto w-full space-y-2 ${immersiveMode ? 'p-4 max-w-3xl' : 'max-w-4xl'}`}>
                                 {!immersiveMode && (
-                                    <div className="flex items-center gap-2">
+                                    <div className="flex items-center gap-1 sm:gap-2 overflow-x-auto no-scrollbar pb-1">
                                         <PersonaSelector />
                                         <ModelSelector />
                                         <ThinkingModeToggle />
                                         <Button
                                             variant="ghost"
                                             size="sm"
-                                            className="h-8 w-8 p-0 text-muted-foreground hover:text-foreground"
+                                            className="h-8 w-8 p-0 text-muted-foreground hover:text-foreground shrink-0"
                                             onClick={() => setIsLorebookOpen(true)}
                                             title="Lorebook"
                                         >
@@ -472,7 +474,7 @@ export default function ChatPage() {
                                         <Button
                                             variant="ghost"
                                             size="sm"
-                                            className="h-8 w-8 p-0 text-muted-foreground hover:text-foreground"
+                                            className="h-8 w-8 p-0 text-muted-foreground hover:text-foreground shrink-0"
                                             onClick={() => setIsTreeOpen(true)}
                                             title="View Branch Tree"
                                         >

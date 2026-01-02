@@ -99,7 +99,7 @@ export function ChatInput({
             variants={containerVariants}
             initial="initial"
             animate="animate"
-            className="flex gap-3 items-end"
+            className="flex gap-2 sm:gap-3 items-end"
         >
             {/* Textarea with focus ring animation */}
             <motion.div
