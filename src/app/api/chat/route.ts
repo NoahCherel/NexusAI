@@ -86,15 +86,15 @@ export async function POST(req: NextRequest) {
             // For OpenRouter, we will try commonly used keys.
             experimental_providerMetadata: enableReasoning
                 ? {
-                    openrouter: {
-                        includeReasoning: true,
-                        include_reasoning: true, // Try both snake_case and camelCase
-                        reasoning: { effort: 'medium' }, // Try new standard just in case
-                    },
-                    openai: {
-                        include_reasoning: true,
-                    },
-                }
+                      openrouter: {
+                          includeReasoning: true,
+                          include_reasoning: true, // Try both snake_case and camelCase
+                          reasoning: { effort: 'medium' }, // Try new standard just in case
+                      },
+                      openai: {
+                          include_reasoning: true,
+                      },
+                  }
                 : {},
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
         } as any);

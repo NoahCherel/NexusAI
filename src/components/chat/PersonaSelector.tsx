@@ -225,8 +225,8 @@ export function PersonaSelector() {
                             {editingPersona?.id ? 'Edit Persona' : 'Create Persona'}
                         </DialogTitle>
                         <DialogDescription>
-                            Configure your persona&apos;s identity. The AI will adopt this persona during
-                            the conversation.
+                            Configure your persona&apos;s identity. The AI will adopt this persona
+                            during the conversation.
                         </DialogDescription>
                     </DialogHeader>
                     <div className="space-y-4 py-4">

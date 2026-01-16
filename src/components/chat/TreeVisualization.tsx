@@ -29,11 +29,7 @@ interface TreeNode {
 }
 
 export function TreeVisualization({ isOpen, onClose }: TreeVisualizationProps) {
-    const {
-        activeConversationId,
-        messages: allMessages,
-        navigateToMessage,
-    } = useChatStore();
+    const { activeConversationId, messages: allMessages, navigateToMessage } = useChatStore();
 
     // Viewport State
     const [view, setView] = useState({ x: 0, y: 50, scale: 1 });

@@ -96,7 +96,10 @@ export async function initDB(): Promise<IDBPDatabase<NexusAIDB>> {
                     let cursor = curs;
 
                     while (cursor) {
-                        const conv = cursor.value as { messages?: Message[]; id: string } & Record<string, unknown>; // Old conversation type
+                        const conv = cursor.value as { messages?: Message[]; id: string } & Record<
+                            string,
+                            unknown
+                        >; // Old conversation type
                         if (conv.messages && Array.isArray(conv.messages)) {
                             console.log(
                                 `[DB Migration] Migrating ${conv.messages.length} messages for conversation ${conv.id}`
@@ -166,7 +169,9 @@ export async function saveConversation(conversation: Conversation): Promise<void
     const db = await initDB();
     // Ensure we don't save messages in the conversation object if they accidentally leak in
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    const { messages, ...convData } = conversation as unknown as { messages?: unknown } & Conversation;
+    const { messages, ...convData } = conversation as unknown as {
+        messages?: unknown;
+    } & Conversation;
     await db.put('conversations', convData);
 }
 

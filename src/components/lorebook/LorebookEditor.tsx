@@ -19,8 +19,7 @@ import {
 } from '@/components/ui/dialog';
 
 export function LorebookEditor({ onClose }: { onClose: () => void }) {
-    const { activeLorebook, addEntry, updateEntry, deleteEntry } =
-        useLorebookStore();
+    const { activeLorebook, addEntry, updateEntry, deleteEntry } = useLorebookStore();
 
     const [selectedEntryIndex, setSelectedEntryIndex] = useState<number | null>(null);
     const [searchQuery, setSearchQuery] = useState('');
