@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
-import { Search, Plus, PanelLeftClose, PanelLeftOpen, Settings, Users } from 'lucide-react';
+import { Search, Plus, PanelLeftClose, PanelLeftOpen, Settings, Users, Upload } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { CharacterImporter } from '@/components/character/CharacterImporter';
 import { cn } from '@/lib/utils';
@@ -85,11 +85,17 @@ export function Sidebar() {
                             />
                         </div>
                         <div className="flex gap-2">
-                            <CharacterImporter />
+                            <CharacterImporter
+                                trigger={
+                                    <Button variant="outline" size="sm" className="gap-1.5 flex-1 h-9 border-primary/20 bg-primary/5 text-primary hover:bg-primary/10">
+                                        <Upload className="w-4 h-4" /> Import
+                                    </Button>
+                                }
+                            />
                             <Button
                                 variant="outline"
                                 size="sm"
-                                className="gap-1.5 flex-1"
+                                className="gap-1.5 flex-1 h-9 border-primary/20 bg-primary/5 text-primary hover:bg-primary/10"
                                 onClick={handleCreateNew}
                             >
                                 <Plus className="w-4 h-4" /> New

@@ -32,10 +32,12 @@ export const useCharacterStore = create<CharacterState>()((set, get) => ({
     // Load all characters from IndexedDB on init
     loadCharacters: async () => {
         try {
+            console.log('[CharacterStore] Loading characters from IndexedDB...');
             const characters = await getAllCharacters();
+            console.log('[CharacterStore] Loaded characters:', characters.length, characters.map(c => c.name));
             set({ characters, isLoading: false });
         } catch (error) {
-            console.error('Failed to load characters:', error);
+            console.error('[CharacterStore] Failed to load characters:', error);
             set({ isLoading: false });
         }
     },

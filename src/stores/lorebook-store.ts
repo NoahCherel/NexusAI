@@ -142,14 +142,27 @@ export const useLorebookStore = create<LorebookState>()((set, get) => ({
         // Persist to IndexedDB first (immutable append)
         await addLorebookHistoryEntry(historyEntry);
 
+        // Create updated lorebook
+        const updatedLorebook = {
+            ...state.activeLorebook,
+            entries: [...state.activeLorebook.entries, entry]
+        };
+
         // Update local state
         set((s) => ({
-            activeLorebook: s.activeLorebook ? {
-                ...s.activeLorebook,
-                entries: [...s.activeLorebook.entries, entry]
-            } : null,
+            activeLorebook: updatedLorebook,
             history: [...s.history, historyEntry]
         }));
+
+        // IMPORTANT: Also update the character's character_book in IndexedDB for persistence
+        // We import dynamically to avoid circular dependency
+        const { useCharacterStore } = await import('@/stores/character-store');
+        const charStore = useCharacterStore.getState();
+        if (state.activeCharacterId) {
+            await charStore.updateCharacter(state.activeCharacterId, {
+                character_book: updatedLorebook
+            });
+        }
     },
 
     importLorebook: (json) => {

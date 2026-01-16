@@ -119,7 +119,7 @@ export function CharacterEditor({ isOpen, onClose, character }: CharacterEditorP
 
     return (
         <Dialog open={isOpen} onOpenChange={onClose}>
-            <DialogContent className="w-[calc(100%-2rem)] max-w-2xl h-[90vh] sm:h-[85vh] p-0 overflow-hidden flex flex-col mx-auto">
+            <DialogContent className="w-[calc(100vw-2rem)] max-w-2xl max-h-[90vh] p-0 overflow-hidden flex flex-col">
                 <DialogHeader className="p-4 border-b bg-muted/30 shrink-0">
                     <div className="flex items-center justify-between">
                         <div className="flex items-center gap-3">
@@ -133,7 +133,7 @@ export function CharacterEditor({ isOpen, onClose, character }: CharacterEditorP
                     </div>
                 </DialogHeader>
 
-                <ScrollArea className="flex-1 px-4">
+                <div className="flex-1 overflow-y-auto px-4">
                     <div className="space-y-4 py-4">
                         {/* Name */}
                         <div className="space-y-2">
@@ -253,7 +253,7 @@ export function CharacterEditor({ isOpen, onClose, character }: CharacterEditorP
                             />
                         </div>
                     </div>
-                </ScrollArea>
+                </div>
 
                 {/* Footer */}
                 <div className="p-4 border-t bg-muted/10 flex gap-2 shrink-0">

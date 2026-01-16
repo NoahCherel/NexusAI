@@ -19,6 +19,7 @@ import { TreeVisualization } from '@/components/chat/TreeVisualization';
 import { MemoryPanel } from '@/components/chat/MemoryPanel';
 import { useAppInitialization } from '@/hooks/useAppInitialization';
 import { extractLorebookEntries } from '@/lib/lorebook-extractor';
+import { APINotificationToast, notifyAPIStart, notifyAPISuccess, notifyAPIError } from '@/components/ui/api-notification';
 import type { CharacterCard, Message } from '@/types';
 
 export default function ChatPage() {
@@ -564,7 +565,7 @@ export default function ChatPage() {
             <SettingsPanel open={isSettingsOpen} onOpenChange={setIsSettingsOpen} />
 
             <Dialog open={isLorebookOpen} onOpenChange={setIsLorebookOpen}>
-                <DialogContent className="max-w-4xl h-[80vh] p-0 overflow-hidden [&>button]:hidden">
+                <DialogContent className="w-[calc(100vw-2rem)] max-w-5xl h-[90vh] p-0 overflow-hidden [&>button]:hidden">
                     <DialogTitle className="sr-only">Lorebook Editor</DialogTitle>
                     <LorebookEditor onClose={() => setIsLorebookOpen(false)} />
                 </DialogContent>
@@ -573,6 +574,8 @@ export default function ChatPage() {
             <TreeVisualization isOpen={isTreeOpen} onClose={() => setIsTreeOpen(false)} />
 
             <MemoryPanel isOpen={isMemoryOpen} onClose={() => setIsMemoryOpen(false)} />
+
+            <APINotificationToast />
         </div>
     );
 }
