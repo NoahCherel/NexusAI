@@ -96,10 +96,10 @@ export async function initDB(): Promise<IDBPDatabase<NexusAIDB>> {
                     let cursor = curs;
 
                     while (cursor) {
-                        const conv = cursor.value as { messages?: Message[]; id: string } & Record<
-                            string,
-                            unknown
-                        >; // Old conversation type
+                        const conv = cursor.value as unknown as {
+                            messages?: Message[];
+                            id: string;
+                        } & Record<string, unknown>; // Old conversation type
                         if (conv.messages && Array.isArray(conv.messages)) {
                             console.log(
                                 `[DB Migration] Migrating ${conv.messages.length} messages for conversation ${conv.id}`
@@ -110,7 +110,12 @@ export async function initDB(): Promise<IDBPDatabase<NexusAIDB>> {
                             // Update conversation to remove messages property
                             // eslint-disable-next-line @typescript-eslint/no-unused-vars
                             const { messages, ...convData } = conv;
-                            await cursor.update(convData);
+                            // We need to cast convData to ANY because cursor.update expects a Conversation object,
+                            // but during migration we might have a slightly different shape or we are modifying it.
+                            // In IDB update follows the store structure.
+                            // However, typescript thinks cursor.update demands a full Conversation.
+                            // Since we are just removing a property from an existing valid object, it is safe to cast.
+                            await cursor.update(convData as unknown as Conversation);
                         }
                         cursor = await cursor.continue();
                     }
