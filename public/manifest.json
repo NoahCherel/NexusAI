@@ -1,8 +1,9 @@
 {
-  "name": "NexusAI - Roleplay AI Platform",
+  "name": "NexusAI - Personal RP Platform",
   "short_name": "NexusAI",
-  "description": "La plateforme de Roleplay AI la plus puissante et accessible. BYOK, Character Cards V2, et fonctionnalités avancées.",
+  "description": "Personal AI Roleplay Platform with full offline support, branching conversations, and AI-augmented memory.",
   "start_url": "/chat",
+  "scope": "/",
   "display": "standalone",
   "orientation": "portrait",
   "background_color": "#000000",
@@ -21,7 +22,9 @@
       "purpose": "any maskable"
     }
   ],
-  "categories": ["entertainment", "social"],
-  "screenshots": [],
+  "categories": [
+    "entertainment",
+    "productivity"
+  ],
   "prefer_related_applications": false
 }

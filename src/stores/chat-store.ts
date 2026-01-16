@@ -1,14 +1,22 @@
 import { create } from 'zustand';
 import type { Message, Conversation, WorldState } from '@/types';
+import {
+    saveConversation,
+    getConversation,
+    getConversationsByCharacter,
+    deleteConversation as dbDeleteConversation
+} from '@/lib/db';
 
 interface ChatState {
     conversations: Conversation[];
     activeConversationId: string | null;
     messages: Message[];
     isStreaming: boolean;
+    isLoading: boolean;
 
     // Actions
-    createConversation: (characterId: string, title: string) => string;
+    loadConversations: (characterId: string) => Promise<void>;
+    createConversation: (characterId: string, title: string) => Promise<string>;
     setActiveConversation: (id: string | null) => void;
     addMessage: (message: Message) => void;
     updateMessage: (id: string, updates: Partial<Message>) => void;
@@ -20,17 +28,64 @@ interface ChatState {
     clearConversation: (conversationId: string) => void;
     navigateToSibling: (messageId: string, direction: 'prev' | 'next') => void;
     getMessageSiblingsInfo: (messageId: string) => { currentIndex: number; total: number };
+    persistConversation: (conversationId: string) => Promise<void>;
 }
 
 const generateId = () => crypto.randomUUID();
+
+// Helper to serialize dates for IndexedDB
+const serializeMessages = (messages: Message[]): Message[] => messages.map(m => ({
+    ...m,
+    createdAt: new Date(m.createdAt),
+}));
 
 export const useChatStore = create<ChatState>()((set, get) => ({
     conversations: [],
     activeConversationId: null,
     messages: [],
     isStreaming: false,
+    isLoading: true,
 
-    createConversation: (characterId, title) => {
+    // Load all conversations for a character from IndexedDB
+    loadConversations: async (characterId) => {
+        try {
+            const convs = await getConversationsByCharacter(characterId);
+            const allMessages: Message[] = [];
+            const conversations: Conversation[] = [];
+
+            for (const conv of convs) {
+                conversations.push({
+                    id: conv.id,
+                    characterId: conv.characterId,
+                    title: conv.title,
+                    worldState: conv.worldState,
+                    createdAt: new Date(conv.createdAt),
+                    updatedAt: new Date(conv.updatedAt),
+                });
+                allMessages.push(...serializeMessages(conv.messages || []));
+            }
+
+            set({ conversations, messages: allMessages, isLoading: false });
+        } catch (error) {
+            console.error('Failed to load conversations:', error);
+            set({ isLoading: false });
+        }
+    },
+
+    // Persist a single conversation to IndexedDB
+    persistConversation: async (conversationId) => {
+        const state = get();
+        const conv = state.conversations.find(c => c.id === conversationId);
+        if (!conv) return;
+
+        const messages = state.messages.filter(m => m.conversationId === conversationId);
+        await saveConversation({
+            ...conv,
+            messages,
+        });
+    },
+
+    createConversation: async (characterId, title) => {
         const id = generateId();
         const conversation: Conversation = {
             id,
@@ -44,10 +99,15 @@ export const useChatStore = create<ChatState>()((set, get) => ({
             createdAt: new Date(),
             updatedAt: new Date(),
         };
+
         set((state) => ({
             conversations: [...state.conversations, conversation],
             activeConversationId: id,
         }));
+
+        // Persist immediately
+        await saveConversation({ ...conversation, messages: [] });
+
         return id;
     },
 
@@ -123,13 +183,6 @@ export const useChatStore = create<ChatState>()((set, get) => ({
 
         if (messages.length === 0) return [];
 
-        // Build a map for O(1) access
-        const msgMap = new Map(messages.map(m => [m.id, m]));
-
-        // Find the leaf node of the active branch
-        // For simplicity, we assume there's one "active" leaf or we track the path.
-        // Current implementation uses isActiveBranch flag.
-
         // Filter by isActiveBranch manually
         return messages
             .filter(m => m.isActiveBranch)
@@ -198,15 +251,6 @@ export const useChatStore = create<ChatState>()((set, get) => ({
         if (targetIndex < 0 || targetIndex >= siblings.length) return state;
 
         const targetMsg = siblings[targetIndex];
-
-        // 1. Deactivate current branch recursively downwards
-        // (This is complex, for MVP we just toggle the sibling pair active status if they are leaves or switch the path)
-        // A simpler approach for MVP:
-        // Set all siblings to inactive, set target to active.
-        // And ensure all children of the new active one that were previously active become active?
-        // No, we just need to switch the "active pointer" at this node.
-
-        // Let's implement a recursive "setActivePath" helper if needed, but for now:
 
         const newMessages = state.messages.map(m => {
             if (m.id === currentMessageId) return { ...m, isActiveBranch: false };

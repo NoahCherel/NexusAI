@@ -2,7 +2,7 @@
 
 import { useRef, useEffect, useState, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { MessageCircle, Settings2, Sparkles, GitBranch } from 'lucide-react';
+import { MessageCircle, Settings2, Sparkles, GitBranch, Brain } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { ChatBubble, ChatInput, WorldStatePanel, PersonaSelector, ModelSelector, ThinkingModeToggle } from '@/components/chat';
@@ -16,6 +16,9 @@ import { LorebookEditor } from '@/components/lorebook';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { Book } from 'lucide-react';
 import { TreeVisualization } from '@/components/chat/TreeVisualization';
+import { MemoryPanel } from '@/components/chat/MemoryPanel';
+import { useAppInitialization } from '@/hooks/useAppInitialization';
+import { extractLorebookEntries } from '@/lib/lorebook-extractor';
 import type { CharacterCard, Message } from '@/types';
 
 export default function ChatPage() {
@@ -23,7 +26,11 @@ export default function ChatPage() {
     const [isWorldStateCollapsed, setIsWorldStateCollapsed] = useState(false);
     const [isLorebookOpen, setIsLorebookOpen] = useState(false);
     const [isTreeOpen, setIsTreeOpen] = useState(false);
+    const [isMemoryOpen, setIsMemoryOpen] = useState(false);
     const [currentApiKey, setCurrentApiKey] = useState<string | null>(null);
+
+    // Initialize IndexedDB and load data
+    useAppInitialization();
 
     const [isLoading, setIsLoading] = useState(false);
     const scrollRef = useRef<HTMLDivElement>(null);
@@ -97,34 +104,37 @@ export default function ChatPage() {
 
     // Initialize conversation when character changes
     useEffect(() => {
-        if (character && (!activeConversationId || conversations.find(c => c.id === activeConversationId)?.characterId !== character.id)) {
-            // Check if there's an existing conversation for this character? 
-            // For now, always create new for simplicity or find last used.
-            const newId = createConversation(character.id, `Chat with ${character.name}`);
+        const initConversation = async () => {
+            if (character && (!activeConversationId || conversations.find(c => c.id === activeConversationId)?.characterId !== character.id)) {
+                // Check if there's an existing conversation for this character? 
+                // For now, always create new for simplicity or find last used.
+                const newId = await createConversation(character.id, `Chat with ${character.name}`);
 
-            if (character.first_mes) {
-                addMessage({
-                    id: crypto.randomUUID(),
-                    conversationId: newId,
-                    parentId: null,
-                    role: 'assistant',
-                    content: character.first_mes,
-                    isActiveBranch: true,
-                    createdAt: new Date(),
-                });
-                // Analyze first message for initial world state (delay to allow store to update)
-                const firstMes = character.first_mes;
-                const charName = character.name;
-                // Capture newId for the closure
-                const targetConversationId = newId;
+                if (character.first_mes) {
+                    addMessage({
+                        id: crypto.randomUUID(),
+                        conversationId: newId,
+                        parentId: null,
+                        role: 'assistant',
+                        content: character.first_mes,
+                        isActiveBranch: true,
+                        createdAt: new Date(),
+                    });
+                    // Analyze first message for initial world state (delay to allow store to update)
+                    const firstMes = character.first_mes;
+                    const charName = character.name;
+                    // Capture newId for the closure
+                    const targetConversationId = newId;
 
-                setTimeout(() => {
-                    if (firstMes) {
-                        analyzeMessage(firstMes, charName, targetConversationId);
-                    }
-                }, 500);
+                    setTimeout(() => {
+                        if (firstMes) {
+                            analyzeMessage(firstMes, charName, targetConversationId);
+                        }
+                    }, 500);
+                }
             }
-        }
+        };
+        initConversation();
     }, [character?.id, character?.first_mes, activeConversationId, createConversation, addMessage, conversations, analyzeMessage]);
 
     // Auto-scroll to bottom
@@ -237,6 +247,21 @@ export default function ChatPage() {
                 // Also analyze AI response for state changes it describes
                 if (assistantContent) {
                     analyzeMessage(assistantContent, character.name);
+                }
+
+                // Auto-extract lorebook entries from AI response
+                if (activeLorebook && assistantContent) {
+                    const existingKeys = activeLorebook.entries.flatMap(e => e.keys);
+                    extractLorebookEntries(assistantContent, existingKeys)
+                        .then(newEntries => {
+                            if (newEntries.length > 0) {
+                                console.log('Extracted new lorebook entries:', newEntries);
+                                // Add each entry through the store (blockchain-style)
+                                const { addAIEntry } = useLorebookStore.getState();
+                                newEntries.forEach(entry => addAIEntry(entry));
+                            }
+                        })
+                        .catch(err => console.error('Lorebook extraction failed:', err));
                 }
             }
         } catch (error: any) {
@@ -480,6 +505,15 @@ export default function ChatPage() {
                                         >
                                             <GitBranch className="h-4 w-4" />
                                         </Button>
+                                        <Button
+                                            variant="ghost"
+                                            size="sm"
+                                            className="h-8 w-8 p-0 text-muted-foreground hover:text-foreground shrink-0"
+                                            onClick={() => setIsMemoryOpen(true)}
+                                            title="Long-Term Memory"
+                                        >
+                                            <Brain className="h-4 w-4" />
+                                        </Button>
                                     </div>
                                 )}
                                 <ChatInput
@@ -537,6 +571,8 @@ export default function ChatPage() {
             </Dialog>
 
             <TreeVisualization isOpen={isTreeOpen} onClose={() => setIsTreeOpen(false)} />
+
+            <MemoryPanel isOpen={isMemoryOpen} onClose={() => setIsMemoryOpen(false)} />
         </div>
     );
 }

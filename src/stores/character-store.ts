@@ -1,55 +1,102 @@
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
 import type { CharacterCard } from '@/types';
+import {
+    saveCharacter,
+    getCharacter,
+    getAllCharacters,
+    deleteCharacter as dbDeleteCharacter,
+    type CharacterWithMemory
+} from '@/lib/db';
 
 interface CharacterState {
-    characters: CharacterCard[];
+    characters: CharacterWithMemory[];
     activeCharacterId: string | null;
+    isLoading: boolean;
 
     // Actions
-    addCharacter: (character: CharacterCard) => void;
-    updateCharacter: (id: string, updates: Partial<CharacterCard>) => void;
-    removeCharacter: (id: string) => void;
+    loadCharacters: () => Promise<void>;
+    addCharacter: (character: CharacterCard) => Promise<void>;
+    updateCharacter: (id: string, updates: Partial<CharacterWithMemory>) => Promise<void>;
+    removeCharacter: (id: string) => Promise<void>;
     setActiveCharacter: (id: string | null) => void;
-    getActiveCharacter: () => CharacterCard | null;
+    setActiveCharacterId: (id: string | null) => void; // Alias for compatibility
+    getActiveCharacter: () => CharacterWithMemory | null;
+    updateLongTermMemory: (id: string, memory: string[]) => Promise<void>;
 }
 
-export const useCharacterStore = create<CharacterState>()(
-    persist(
-        (set, get) => ({
-            characters: [],
-            activeCharacterId: null,
+export const useCharacterStore = create<CharacterState>()((set, get) => ({
+    characters: [],
+    activeCharacterId: null,
+    isLoading: true,
 
-            addCharacter: (character) =>
-                set((state) => ({
-                    characters: [...state.characters, character],
-                })),
-
-            updateCharacter: (id, updates) =>
-                set((state) => ({
-                    characters: state.characters.map((c) =>
-                        c.id === id ? { ...c, ...updates } : c
-                    ),
-                })),
-
-            removeCharacter: (id) =>
-                set((state) => ({
-                    characters: state.characters.filter((c) => c.id !== id),
-                    activeCharacterId:
-                        state.activeCharacterId === id ? null : state.activeCharacterId,
-                })),
-
-            setActiveCharacter: (id) => set({ activeCharacterId: id }),
-
-            getActiveCharacter: () => {
-                const state = get();
-                return (
-                    state.characters.find((c) => c.id === state.activeCharacterId) ?? null
-                );
-            },
-        }),
-        {
-            name: 'nexusai-characters',
+    // Load all characters from IndexedDB on init
+    loadCharacters: async () => {
+        try {
+            const characters = await getAllCharacters();
+            set({ characters, isLoading: false });
+        } catch (error) {
+            console.error('Failed to load characters:', error);
+            set({ isLoading: false });
         }
-    )
-);
+    },
+
+    addCharacter: async (character) => {
+        const charWithMemory: CharacterWithMemory = {
+            ...character,
+            longTermMemory: [],
+        };
+
+        await saveCharacter(charWithMemory);
+        set((state) => ({
+            characters: [...state.characters, charWithMemory],
+        }));
+    },
+
+    updateCharacter: async (id, updates) => {
+        const existingChar = get().characters.find((c) => c.id === id);
+        if (!existingChar) return;
+
+        const updatedChar = { ...existingChar, ...updates };
+        await saveCharacter(updatedChar);
+
+        set((state) => ({
+            characters: state.characters.map((c) =>
+                c.id === id ? updatedChar : c
+            ),
+        }));
+    },
+
+    removeCharacter: async (id) => {
+        await dbDeleteCharacter(id);
+        set((state) => ({
+            characters: state.characters.filter((c) => c.id !== id),
+            activeCharacterId:
+                state.activeCharacterId === id ? null : state.activeCharacterId,
+        }));
+    },
+
+    setActiveCharacter: (id) => set({ activeCharacterId: id }),
+    setActiveCharacterId: (id) => set({ activeCharacterId: id }), // Alias
+
+    getActiveCharacter: () => {
+        const state = get();
+        return (
+            state.characters.find((c) => c.id === state.activeCharacterId) ?? null
+        );
+    },
+
+    // Long-term memory helpers
+    updateLongTermMemory: async (id, memory) => {
+        const existingChar = get().characters.find((c) => c.id === id);
+        if (!existingChar) return;
+
+        const updatedChar = { ...existingChar, longTermMemory: memory };
+        await saveCharacter(updatedChar);
+
+        set((state) => ({
+            characters: state.characters.map((c) =>
+                c.id === id ? updatedChar : c
+            ),
+        }));
+    },
+}));
