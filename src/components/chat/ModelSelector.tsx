@@ -2,8 +2,7 @@
 
 import { useState } from 'react';
 import { ChevronDown, Plus, Sparkles, Zap, X } from 'lucide-react';
-import { motion, AnimatePresence } from 'framer-motion';
-import { useSettingsStore, DEFAULT_MODELS, type CustomModel } from '@/stores/settings-store';
+import { useSettingsStore, DEFAULT_MODELS } from '@/stores/settings-store';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {

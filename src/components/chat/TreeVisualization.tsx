@@ -30,12 +30,10 @@ interface TreeNode {
 
 export function TreeVisualization({ isOpen, onClose }: TreeVisualizationProps) {
     const {
-        conversations,
         activeConversationId,
         messages: allMessages,
         navigateToMessage,
     } = useChatStore();
-    const activeConversation = conversations.find((c) => c.id === activeConversationId);
 
     // Viewport State
     const [view, setView] = useState({ x: 0, y: 50, scale: 1 });
@@ -186,7 +184,6 @@ export function TreeVisualization({ isOpen, onClose }: TreeVisualizationProps) {
     useEffect(() => {
         if (isOpen && hasData && svgRef.current) {
             const containerWidth = svgRef.current.clientWidth;
-            const containerHeight = svgRef.current.clientHeight;
             // Try to center active node, otherwise first node
             const targetNode = treeData!.nodes[0]; // Simple fallback
             setView({
@@ -195,7 +192,7 @@ export function TreeVisualization({ isOpen, onClose }: TreeVisualizationProps) {
                 scale: 1,
             });
         }
-    }, [isOpen, hasData]);
+    }, [isOpen, hasData, treeData]);
 
     if (!isOpen) return null;
 

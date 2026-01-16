@@ -2,7 +2,6 @@ import { create } from 'zustand';
 import type { CharacterCard } from '@/types';
 import {
     saveCharacter,
-    getCharacter,
     getAllCharacters,
     deleteCharacter as dbDeleteCharacter,
     type CharacterWithMemory,

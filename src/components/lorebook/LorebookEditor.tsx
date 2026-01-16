@@ -19,7 +19,7 @@ import {
 } from '@/components/ui/dialog';
 
 export function LorebookEditor({ onClose }: { onClose: () => void }) {
-    const { activeLorebook, addEntry, updateEntry, deleteEntry, setActiveLorebook } =
+    const { activeLorebook, addEntry, updateEntry, deleteEntry } =
         useLorebookStore();
 
     const [selectedEntryIndex, setSelectedEntryIndex] = useState<number | null>(null);
@@ -295,7 +295,7 @@ export function LorebookEditor({ onClose }: { onClose: () => void }) {
                         <DialogDescription className="text-center pt-2">
                             This action cannot be undone. You are about to delete{' '}
                             <span className="font-bold text-foreground">
-                                "{currentEntry?.keys[0] || 'this entry'}"
+                                &quot;{currentEntry?.keys[0] || 'this entry'}&quot;
                             </span>
                             .
                         </DialogDescription>

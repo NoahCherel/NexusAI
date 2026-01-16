@@ -12,7 +12,7 @@ import { initDB } from '@/lib/db';
 export function useAppInitialization() {
     const initialized = useRef(false);
     const { loadCharacters, isLoading: isLoadingCharacters } = useCharacterStore();
-    const { loadConversations, activeConversationId } = useChatStore();
+    const { loadConversations } = useChatStore();
     const { activeCharacterId } = useCharacterStore();
 
     useEffect(() => {

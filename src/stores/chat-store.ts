@@ -2,7 +2,6 @@ import { create } from 'zustand';
 import type { Message, Conversation, WorldState } from '@/types';
 import {
     saveConversation,
-    getConversation,
     getConversationsByCharacter,
     saveMessage,
     getConversationMessages,

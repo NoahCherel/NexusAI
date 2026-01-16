@@ -87,7 +87,6 @@ export function parseStreamingChunk(
     let visibleContent = '';
 
     // Simple state machine to track tag nesting
-    const currentPos = 0;
     const lowerAccum = accumulated.toLowerCase();
 
     for (const openTag of openTags) {

@@ -94,7 +94,7 @@ export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
                         <div>
                             <h2 className="font-bold text-sm">Long-Term Memory</h2>
                             <p className="text-xs text-muted-foreground">
-                                {character.name}'s persistent context
+                                {character.name}&apos;s persistent context
                             </p>
                         </div>
                     </div>

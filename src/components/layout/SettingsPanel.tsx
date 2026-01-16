@@ -25,7 +25,6 @@ interface SettingsPanelProps {
 export function SettingsPanel({ open, onOpenChange }: SettingsPanelProps) {
     const {
         apiKeys,
-        activeProvider,
         temperature,
         showThoughts,
         showWorldState,
@@ -174,7 +173,7 @@ export function SettingsPanel({ open, onOpenChange }: SettingsPanelProps) {
                             </div>
                             <p className="text-xs text-muted-foreground leading-relaxed">
                                 🔒 Your key is encrypted locally using AES-256-GCM and stored only
-                                in your browser's LocalStorage. It is never sent to our servers.
+                                in your browser&apos;s LocalStorage. It is never sent to our servers.
                             </p>
                         </div>
                     </TabsContent>

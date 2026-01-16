@@ -112,7 +112,7 @@ Output format (JSON array only, nothing else):
                     enabled: true,
                     priority: e.priority || 10,
                 }));
-        } catch (parseError) {
+        } catch {
             console.error('Failed to parse lorebook extraction response:', cleanContent);
             return [];
         }

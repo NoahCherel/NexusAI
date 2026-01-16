@@ -1,10 +1,9 @@
 'use client';
 
-import { useRef, useEffect, useState, useCallback } from 'react';
+import { useRef, useEffect, useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { MessageCircle, Settings2, Sparkles, GitBranch, Brain } from 'lucide-react';
+import { Settings2, Sparkles, GitBranch, Brain } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { ScrollArea } from '@/components/ui/scroll-area';
 import type { Message as CAMessage } from '@/types';
 import {
     ChatBubble,
@@ -30,11 +29,8 @@ import { useAppInitialization } from '@/hooks/useAppInitialization';
 import { extractLorebookEntries } from '@/lib/lorebook-extractor';
 import {
     APINotificationToast,
-    notifyAPIStart,
-    notifyAPISuccess,
-    notifyAPIError,
 } from '@/components/ui/api-notification';
-import type { CharacterCard, Message } from '@/types';
+import type { Message } from '@/types';
 
 export default function ChatPage() {
     const [isSettingsOpen, setIsSettingsOpen] = useState(false);
@@ -57,7 +53,7 @@ export default function ChatPage() {
         conversations,
         activeConversationId,
         createConversation,
-        updateWorldState,
+        // updateWorldState,
         addMessage,
         updateMessage,
         getActiveBranchMessages,
@@ -70,8 +66,11 @@ export default function ChatPage() {
     } = useChatStore();
     const { activeLorebook, setActiveLorebook } = useLorebookStore();
 
-    // Get active messages from store
-    const messages = activeConversationId ? getActiveBranchMessages(activeConversationId) : [];
+    // Get active messages from store - stabilized
+    const messages = useMemo(
+        () => (activeConversationId ? getActiveBranchMessages(activeConversationId) : []),
+        [activeConversationId, getActiveBranchMessages]
+    );
     const { analyzeMessage } = useWorldStateAnalyzer();
     const {
         apiKeys,
@@ -122,7 +121,7 @@ export default function ChatPage() {
                 setActiveLorebook({ entries: [] });
             }
         }
-    }, [character?.id, setActiveLorebook]);
+    }, [character, setActiveLorebook]);
 
     // Initialize conversation when character changes
     useEffect(() => {
@@ -191,8 +190,7 @@ export default function ChatPage() {
         };
         initConversation();
     }, [
-        character?.id,
-        character?.first_mes,
+        character, // Added dependency
         activeConversationId,
         createConversation,
         addMessage,
@@ -200,6 +198,7 @@ export default function ChatPage() {
         analyzeMessage,
         loadedCharacterId,
         isLoadingConversations,
+        setActiveConversation,
     ]);
 
     // Auto-scroll to bottom
@@ -255,7 +254,7 @@ export default function ChatPage() {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    messages: history.map(({ id, role, content }) => ({ role, content })), // Clean message objects
+                    messages: history.map(({ role, content }) => ({ role, content })), // Clean message objects
                     provider: activeProvider,
                     model: activeModel,
                     apiKey: currentApiKey,
@@ -286,7 +285,7 @@ export default function ChatPage() {
                 assistantContent += chunk;
 
                 // Parse for thoughts in real-time using CoT middleware
-                const { visibleContent, thoughtContent, inThought } = parseStreamingChunk(
+                const { visibleContent, thoughtContent } = parseStreamingChunk(
                     assistantContent,
                     activeProvider
                 );
@@ -334,8 +333,8 @@ export default function ChatPage() {
                         .catch((err) => console.error('Lorebook extraction failed:', err));
                 }
             }
-        } catch (error: any) {
-            if (error.name === 'AbortError') {
+        } catch (error) {
+            if (error instanceof Error && error.name === 'AbortError') {
                 console.log('Request aborted');
                 return;
             }
@@ -456,16 +455,19 @@ export default function ChatPage() {
                                     <div className="flex items-center gap-2 sm:gap-3 min-w-0">
                                         {/* Mobile Menu Button */}
                                         <MobileSidebar
-                                            onCharacterSelect={() => {}}
+                                            onCharacterSelect={() => { }}
                                             onSettingsClick={() => setIsSettingsOpen(true)}
                                         />
                                         <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center overflow-hidden shrink-0">
                                             {character.avatar ? (
-                                                <img
-                                                    src={character.avatar}
-                                                    alt={character.name}
-                                                    className="w-full h-full object-cover"
-                                                />
+                                                <div className="w-8 h-8 rounded-full overflow-hidden border border-border/50 shrink-0">
+                                                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                                                    <img
+                                                        src={character.avatar}
+                                                        alt={character.name}
+                                                        className="w-full h-full object-cover"
+                                                    />
+                                                </div>
                                             ) : (
                                                 <span className="font-semibold text-xs text-primary">
                                                     {character.name.slice(0, 2).toUpperCase()}
@@ -527,15 +529,15 @@ export default function ChatPage() {
                                                     avatar={
                                                         msg.role === 'user'
                                                             ? personas.find(
-                                                                  (p) => p.id === activePersonaId
-                                                              )?.avatar
+                                                                (p) => p.id === activePersonaId
+                                                            )?.avatar
                                                             : character.avatar
                                                     }
                                                     name={
                                                         msg.role === 'user'
                                                             ? personas.find(
-                                                                  (p) => p.id === activePersonaId
-                                                              )?.name || 'You'
+                                                                (p) => p.id === activePersonaId
+                                                            )?.name || 'You'
                                                             : character.name
                                                     }
                                                     showThoughts={showThoughts}
@@ -571,7 +573,7 @@ export default function ChatPage() {
                                         location={worldState.location.replace(
                                             /{{user}}/gi,
                                             personas.find((p) => p.id === activePersonaId)?.name ||
-                                                'You'
+                                            'You'
                                         )}
                                         relationships={worldState.relationships}
                                         isCollapsed={isWorldStateCollapsed}
@@ -586,11 +588,10 @@ export default function ChatPage() {
                         {/* Input Area - Floating in immersive mode */}
                         <motion.div
                             layout
-                            className={`z-20 ${
-                                immersiveMode
-                                    ? 'absolute bottom-4 left-4 right-4 rounded-2xl glass-heavy shadow-2xl'
-                                    : 'p-4 border-t border-white/5 glass-heavy'
-                            }`}
+                            className={`z-20 ${immersiveMode
+                                ? 'absolute bottom-4 left-4 right-4 rounded-2xl glass-heavy shadow-2xl'
+                                : 'p-4 border-t border-white/5 glass-heavy'
+                                }`}
                         >
                             <div
                                 className={`mx-auto w-full space-y-2 ${immersiveMode ? 'p-4 max-w-3xl' : 'max-w-4xl'}`}

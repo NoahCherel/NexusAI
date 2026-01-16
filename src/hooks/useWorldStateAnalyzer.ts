@@ -168,7 +168,7 @@ export function useWorldStateAnalyzer(): UseWorldStateAnalyzerReturn {
                 const content =
                     responseMessage?.content ||
                     responseMessage?.reasoning_content ||
-                    (responseMessage as any)?.reasoning ||
+                    (responseMessage as unknown as { reasoning: string })?.reasoning ||
                     '';
 
                 if (!content) {

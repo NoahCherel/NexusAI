@@ -54,7 +54,8 @@ Message: "The King shouts: 'Seize him! He is our enemy!'"
 /**
  * Check if a message contains action verbs that warrant analysis
  */
-export function shouldAnalyzeMessage(message: string): boolean {
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+export function shouldAnalyzeMessage(_message: string): boolean {
     return true; // Always analyze to catch all actions regardless of language/phrasing
 }
 

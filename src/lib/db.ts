@@ -96,7 +96,7 @@ export async function initDB(): Promise<IDBPDatabase<NexusAIDB>> {
                     let cursor = curs;
 
                     while (cursor) {
-                        const conv = cursor.value as any; // Old conversation type
+                        const conv = cursor.value as { messages?: Message[]; id: string } & Record<string, unknown>; // Old conversation type
                         if (conv.messages && Array.isArray(conv.messages)) {
                             console.log(
                                 `[DB Migration] Migrating ${conv.messages.length} messages for conversation ${conv.id}`
@@ -105,6 +105,7 @@ export async function initDB(): Promise<IDBPDatabase<NexusAIDB>> {
                                 await msgStore.put(msg);
                             }
                             // Update conversation to remove messages property
+                            // eslint-disable-next-line @typescript-eslint/no-unused-vars
                             const { messages, ...convData } = conv;
                             await cursor.update(convData);
                         }
@@ -164,7 +165,8 @@ export async function deleteCharacter(id: string): Promise<void> {
 export async function saveConversation(conversation: Conversation): Promise<void> {
     const db = await initDB();
     // Ensure we don't save messages in the conversation object if they accidentally leak in
-    const { messages, ...convData } = conversation as any;
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { messages, ...convData } = conversation as unknown as { messages?: unknown } & Conversation;
     await db.put('conversations', convData);
 }
 
@@ -228,7 +230,7 @@ export async function saveSetting(key: string, value: unknown): Promise<void> {
 export async function getSetting<T>(key: string): Promise<T | undefined> {
     const db = await initDB();
     const result = await db.get('settings', key);
-    return (result as any)?.value as T | undefined;
+    return (result as { value: unknown } | undefined)?.value as T | undefined;
 }
 
 // Utility: Export all data (for backup)

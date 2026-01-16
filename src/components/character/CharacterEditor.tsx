@@ -5,8 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
-import { ScrollArea } from '@/components/ui/scroll-area';
-import { X, Save, User, FileText, MessageSquare, Tags, Sparkles } from 'lucide-react';
+import { Save, User, FileText, MessageSquare, Tags, Sparkles } from 'lucide-react';
 import { useCharacterStore } from '@/stores/character-store';
 import type { CharacterCard } from '@/types';
 import {

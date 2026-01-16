@@ -14,7 +14,7 @@ import {
     DialogFooter,
 } from '@/components/ui/dialog';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { ChevronUp, Plus, Trash2, Edit2, User } from 'lucide-react';
+import { ChevronUp, Plus, Trash2, Edit2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 export function PersonaSelector() {
@@ -225,7 +225,7 @@ export function PersonaSelector() {
                             {editingPersona?.id ? 'Edit Persona' : 'Create Persona'}
                         </DialogTitle>
                         <DialogDescription>
-                            Configure your persona's identity. The AI will adopt this persona during
+                            Configure your persona&apos;s identity. The AI will adopt this persona during
                             the conversation.
                         </DialogDescription>
                     </DialogHeader>
@@ -289,7 +289,7 @@ export function PersonaSelector() {
                         <DialogDescription className="text-center pt-2">
                             This action cannot be undone. You are about to delete{' '}
                             <span className="font-bold text-foreground">
-                                "{personaToDelete?.name}"
+                                &quot;{personaToDelete?.name}&quot;
                             </span>
                             .
                         </DialogDescription>

@@ -9,7 +9,7 @@ import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
 import { Search, Plus, PanelLeftClose, PanelLeftOpen, Settings, Users, Upload } from 'lucide-react';
-import { motion, AnimatePresence } from 'framer-motion';
+
 import { CharacterImporter } from '@/components/character/CharacterImporter';
 import { cn } from '@/lib/utils';
 import type { CharacterCard as CharacterCardType } from '@/types';
@@ -20,7 +20,7 @@ interface SidebarProps {
     onSettingsClick: () => void;
 }
 
-export function Sidebar({ isCollapsed, onToggle, onSettingsClick }: SidebarProps) {
+export function Sidebar({ isCollapsed, onToggle }: SidebarProps) {
     const { characters, activeCharacterId, setActiveCharacterId, removeCharacter } =
         useCharacterStore();
     const [searchTerm, setSearchTerm] = useState('');
@@ -153,23 +153,23 @@ export function Sidebar({ isCollapsed, onToggle, onSettingsClick }: SidebarProps
                     >
                         {filteredCharacters.length === 0
                             ? !isCollapsed && (
-                                  <div className="text-center py-12 px-4">
-                                      <p className="text-muted-foreground text-sm">
-                                          No characters found
-                                      </p>
-                                  </div>
-                              )
+                                <div className="text-center py-12 px-4">
+                                    <p className="text-muted-foreground text-sm">
+                                        No characters found
+                                    </p>
+                                </div>
+                            )
                             : filteredCharacters.map((char) => (
-                                  <CharacterCard
-                                      key={char.id}
-                                      character={char}
-                                      isActive={char.id === activeCharacterId}
-                                      onClick={() => setActiveCharacterId(char.id)}
-                                      onEdit={() => handleEdit(char)}
-                                      onDelete={() => removeCharacter(char.id)}
-                                      isCollapsed={isCollapsed}
-                                  />
-                              ))}
+                                <CharacterCard
+                                    key={char.id}
+                                    character={char}
+                                    isActive={char.id === activeCharacterId}
+                                    onClick={() => setActiveCharacterId(char.id)}
+                                    onEdit={() => handleEdit(char)}
+                                    onDelete={() => removeCharacter(char.id)}
+                                    isCollapsed={isCollapsed}
+                                />
+                            ))}
                     </div>
                 </ScrollArea>
 

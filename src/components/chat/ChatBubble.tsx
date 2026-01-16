@@ -143,9 +143,8 @@ export function ChatBubble({
             </Avatar>
 
             <div
-                className={`flex flex-col gap-1 max-w-[85%] ${
-                    isUser ? 'items-end' : 'items-start'
-                }`}
+                className={`flex flex-col gap-1 max-w-[85%] ${isUser ? 'items-end' : 'items-start'
+                    }`}
             >
                 {/* Name */}
                 <div className="flex items-center gap-2 px-1">
@@ -154,11 +153,13 @@ export function ChatBubble({
                     )}
                     {/* Thought Button */}
                     {thought && showThoughts && (
-                        <button aria-label="Toggle thoughts">
+                        <button
+                            aria-label="Toggle thoughts"
+                            onClick={() => setIsThoughtOpen(!isThoughtOpen)}
+                        >
                             <ChevronDown
-                                className={`w-3 h-3 transition-transform duration-200 ${
-                                    isThoughtOpen ? 'rotate-180' : ''
-                                }`}
+                                className={`w-3 h-3 transition-transform duration-200 ${isThoughtOpen ? 'rotate-180' : ''
+                                    }`}
                             />
                             Thoughts
                         </button>
@@ -238,11 +239,10 @@ export function ChatBubble({
                         variants={contentVariants}
                         initial="rest"
                         whileHover="hover"
-                        className={`rounded-2xl px-4 py-3 whitespace-pre-wrap break-words cursor-default transition-colors ${
-                            isUser
+                        className={`rounded-2xl px-4 py-3 whitespace-pre-wrap break-words cursor-default transition-colors ${isUser
                                 ? 'bg-primary text-primary-foreground rounded-br-sm hover:bg-primary/95'
                                 : 'bg-card border border-border rounded-bl-sm hover:bg-card/80'
-                        }`}
+                            }`}
                     >
                         {!content && !isUser ? (
                             <div className="flex gap-1 py-2">
@@ -258,9 +258,8 @@ export function ChatBubble({
 
                 {/* Action buttons (always rendered to prevent layout shift, toggled via opacity) */}
                 <div
-                    className={`flex gap-1 mt-1 transition-opacity duration-200 ${
-                        !isEditing && isHovered ? 'opacity-100' : 'opacity-0'
-                    } ${isUser ? 'flex-row-reverse' : ''}`}
+                    className={`flex gap-1 mt-1 transition-opacity duration-200 ${!isEditing && isHovered ? 'opacity-100' : 'opacity-0'
+                        } ${isUser ? 'flex-row-reverse' : ''}`}
                     // Keep it physically present but allow pointer events only when visible
                     style={{ pointerEvents: !isEditing && isHovered ? 'auto' : 'none' }}
                 >
