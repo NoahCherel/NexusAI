@@ -9,7 +9,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { X, Save, User, FileText, MessageSquare, Tags, Sparkles } from 'lucide-react';
 import { useCharacterStore } from '@/stores/character-store';
 import type { CharacterCard } from '@/types';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 
 interface CharacterEditorProps {
     isOpen: boolean;
@@ -132,6 +132,9 @@ export function CharacterEditor({ isOpen, onClose, character }: CharacterEditorP
                         </div>
                     </div>
                 </DialogHeader>
+                <DialogDescription className="sr-only">
+                    {isEditing ? 'Make changes to your character card here.' : 'Create a new character card.'}
+                </DialogDescription>
 
                 <div className="flex-1 overflow-y-auto px-4">
                     <div className="space-y-4 py-4">

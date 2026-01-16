@@ -13,10 +13,11 @@ import { decryptApiKey } from '@/lib/crypto';
 import { parseStreamingChunk, normalizeCoT } from '@/lib/ai/cot-middleware';
 import { buildSystemPrompt, getActiveLorebookEntries } from '@/lib/ai/context-builder';
 import { LorebookEditor } from '@/components/lorebook';
-import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Book } from 'lucide-react';
 import { TreeVisualization } from '@/components/chat/TreeVisualization';
 import { MemoryPanel } from '@/components/chat/MemoryPanel';
+import { LandingPage } from '@/components/chat/LandingPage';
 import { useAppInitialization } from '@/hooks/useAppInitialization';
 import { extractLorebookEntries } from '@/lib/lorebook-extractor';
 import { APINotificationToast, notifyAPIStart, notifyAPISuccess, notifyAPIError } from '@/components/ui/api-notification';
@@ -24,6 +25,7 @@ import type { CharacterCard, Message } from '@/types';
 
 export default function ChatPage() {
     const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+    const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
     const [isWorldStateCollapsed, setIsWorldStateCollapsed] = useState(false);
     const [isLorebookOpen, setIsLorebookOpen] = useState(false);
     const [isTreeOpen, setIsTreeOpen] = useState(false);
@@ -49,7 +51,9 @@ export default function ChatPage() {
         getMessageSiblingsInfo,
         navigateToSibling,
         setActiveConversation,
-        deleteMessage
+        deleteMessage,
+        isLoading: isLoadingConversations,
+        loadedCharacterId
     } = useChatStore();
     const { activeLorebook, setActiveLorebook } = useLorebookStore();
 
@@ -106,9 +110,41 @@ export default function ChatPage() {
     // Initialize conversation when character changes
     useEffect(() => {
         const initConversation = async () => {
-            if (character && (!activeConversationId || conversations.find(c => c.id === activeConversationId)?.characterId !== character.id)) {
-                // Check if there's an existing conversation for this character? 
-                // For now, always create new for simplicity or find last used.
+            // Wait for store to be synced with current character
+            if (!character || isLoadingConversations || loadedCharacterId !== character.id) {
+                console.log('[ChatPage] Waiting for sync...', {
+                    char: character?.id,
+                    loaded: loadedCharacterId,
+                    loading: isLoadingConversations
+                });
+                return;
+            }
+
+            console.log('[ChatPage] initConversation checking...', {
+                hasCharacter: !!character,
+                isLoadingConversations: isLoadingConversations,
+                activeConversationId,
+                loadedConversationsCount: conversations.length
+            });
+
+            // Check if we already have a valid active conversation for this character
+            const currentConv = conversations.find(c => c.id === activeConversationId);
+            if (currentConv && currentConv.characterId === character.id) {
+                console.log('[ChatPage] Valid conversation already active:', activeConversationId);
+                return;
+            }
+
+            // Try to find an existing conversation for this character
+            // The store's loadConversations should have already tried to set activeConversationId from localStorage
+            // But if it failed or wasn't set, we pick the most recent one
+            const characterConvs = conversations.filter(c => c.characterId === character.id)
+                .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime());
+
+            if (characterConvs.length > 0) {
+                console.log('[ChatPage] Resuming existing conversation:', characterConvs[0].id);
+                setActiveConversation(characterConvs[0].id);
+            } else {
+                console.log('[ChatPage] Creating NEW conversation for', character.name);
                 const newId = await createConversation(character.id, `Chat with ${character.name}`);
 
                 if (character.first_mes) {
@@ -136,7 +172,7 @@ export default function ChatPage() {
             }
         };
         initConversation();
-    }, [character?.id, character?.first_mes, activeConversationId, createConversation, addMessage, conversations, analyzeMessage]);
+    }, [character?.id, character?.first_mes, activeConversationId, createConversation, addMessage, conversations, analyzeMessage, loadedCharacterId, isLoadingConversations]);
 
     // Auto-scroll to bottom
     useEffect(() => {
@@ -360,7 +396,11 @@ export default function ChatPage() {
         <div className="flex h-screen bg-background overflow-hidden">
             {/* Desktop Sidebar - hidden on mobile */}
             <div className="hidden lg:block">
-                <Sidebar onSettingsClick={() => setIsSettingsOpen(true)} />
+                <Sidebar
+                    isCollapsed={isSidebarCollapsed}
+                    onToggle={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
+                    onSettingsClick={() => setIsSettingsOpen(true)}
+                />
             </div>
 
             <main className="flex-1 flex flex-col min-w-0">
@@ -541,24 +581,7 @@ export default function ChatPage() {
                         </motion.div>
                     </>
                 ) : (
-                    /* Empty State - No Character Selected */
-                    <div className="flex-1 flex items-center justify-center p-4">
-                        <motion.div
-                            initial={{ opacity: 0, y: 20 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            className="text-center max-w-md space-y-6"
-                        >
-                            <div className="w-24 h-24 rounded-3xl bg-primary/5 flex items-center justify-center mx-auto rotate-3">
-                                <MessageCircle className="w-12 h-12 text-primary/40" />
-                            </div>
-                            <div className="space-y-2">
-                                <h2 className="text-2xl font-bold tracking-tight">Welcome to NexusAI</h2>
-                                <p className="text-muted-foreground">
-                                    Select or import a character from the sidebar to begin your adventure.
-                                </p>
-                            </div>
-                        </motion.div>
-                    </div>
+                    <LandingPage onImportClick={() => setIsSidebarCollapsed(false)} />
                 )}
             </main>
 
@@ -567,6 +590,7 @@ export default function ChatPage() {
             <Dialog open={isLorebookOpen} onOpenChange={setIsLorebookOpen}>
                 <DialogContent className="w-[calc(100vw-2rem)] max-w-5xl h-[90vh] p-0 overflow-hidden [&>button]:hidden">
                     <DialogTitle className="sr-only">Lorebook Editor</DialogTitle>
+                    <DialogDescription className="sr-only">Edit lorebook entries for this character.</DialogDescription>
                     <LorebookEditor onClose={() => setIsLorebookOpen(false)} />
                 </DialogContent>
             </Dialog>

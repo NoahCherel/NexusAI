@@ -2,7 +2,8 @@ import { openDB, DBSchema, IDBPDatabase } from 'idb';
 import type { CharacterCard, Conversation, Message, LorebookEntry } from '@/types';
 
 // Database version - increment when schema changes
-const DB_VERSION = 1;
+// Database version - increment when schema changes
+const DB_VERSION = 3;
 const DB_NAME = 'nexusai-db';
 
 // Lorebook history entry for blockchain-style tracking
@@ -29,8 +30,13 @@ interface NexusAIDB extends DBSchema {
     };
     conversations: {
         key: string;
-        value: Conversation & { messages: Message[] };
+        value: Conversation; // Messages are now stored separately
         indexes: { 'by-character': string };
+    };
+    messages: {
+        key: string;
+        value: Message;
+        indexes: { 'by-conversation': string };
     };
     lorebookHistory: {
         key: string;
@@ -50,20 +56,64 @@ export async function initDB(): Promise<IDBPDatabase<NexusAIDB>> {
     if (dbInstance) return dbInstance;
 
     dbInstance = await openDB<NexusAIDB>(DB_NAME, DB_VERSION, {
-        upgrade(db) {
+        async upgrade(db, oldVersion, newVersion, transaction) {
+            console.log(`[DB] Upgrading from ${oldVersion} to ${newVersion}`);
+
             // Characters store
             if (!db.objectStoreNames.contains('characters')) {
                 const charStore = db.createObjectStore('characters', { keyPath: 'id' });
                 charStore.createIndex('by-name', 'name');
             }
 
-            // Conversations store (includes all messages/branches)
+            // Conversations store
             if (!db.objectStoreNames.contains('conversations')) {
                 const convStore = db.createObjectStore('conversations', { keyPath: 'id' });
                 convStore.createIndex('by-character', 'characterId');
             }
 
-            // Lorebook history (append-only blockchain-style)
+            // Messages store (New in v3)
+            if (!db.objectStoreNames.contains('messages')) {
+                const msgStore = db.createObjectStore('messages', { keyPath: 'id' });
+                msgStore.createIndex('by-conversation', 'conversationId');
+            }
+
+            // Migration from v2 (embedded messages) to v3 (separate messages)
+            if (oldVersion >= 1 && oldVersion < 3) {
+                // We need to migrate messages from conversations to messages store
+                // Note: 'conversations' store might contain objects with 'messages' property
+                // We can't easily iterate and modify in 'upgrade' without transaction issues potentially,
+                // but IDB 'upgrade' transaction covers all stores.
+
+                // However, we can't use getAll on the *transaction* for the store being upgraded efficiently if we change schema
+                // Actually, we can just iterate the existing conversations store.
+
+                try {
+                    const convStore = transaction.objectStore('conversations');
+                    const msgStore = transaction.objectStore('messages');
+
+                    // We need to type cast because the old type had messages
+                    const curs = await convStore.openCursor();
+                    let cursor = curs;
+
+                    while (cursor) {
+                        const conv = cursor.value as any; // Old conversation type
+                        if (conv.messages && Array.isArray(conv.messages)) {
+                            console.log(`[DB Migration] Migrating ${conv.messages.length} messages for conversation ${conv.id}`);
+                            for (const msg of conv.messages) {
+                                await msgStore.put(msg);
+                            }
+                            // Update conversation to remove messages property
+                            const { messages, ...convData } = conv;
+                            await cursor.update(convData);
+                        }
+                        cursor = await cursor.continue();
+                    }
+                } catch (e) {
+                    console.error('[DB Migration] Error migrating messages:', e);
+                }
+            }
+
+            // Lorebook history
             if (!db.objectStoreNames.contains('lorebookHistory')) {
                 const loreStore = db.createObjectStore('lorebookHistory', { keyPath: 'id' });
                 loreStore.createIndex('by-character', 'characterId');
@@ -82,8 +132,13 @@ export async function initDB(): Promise<IDBPDatabase<NexusAIDB>> {
 
 // Character operations
 export async function saveCharacter(character: CharacterWithMemory): Promise<void> {
+    console.log(`[DB] Saving character: ${character.name} (${character.id})`);
+    if (character.character_book) {
+        console.log(`[DB] Character has lorebook with ${character.character_book.entries.length} entries`);
+    }
     const db = await initDB();
     await db.put('characters', character);
+    console.log(`[DB] Character saved successfully`);
 }
 
 export async function getCharacter(id: string): Promise<CharacterWithMemory | undefined> {
@@ -101,18 +156,20 @@ export async function deleteCharacter(id: string): Promise<void> {
     await db.delete('characters', id);
 }
 
-// Conversation operations
-export async function saveConversation(conversation: Conversation & { messages: Message[] }): Promise<void> {
+// Conversation operations (Metadata only)
+export async function saveConversation(conversation: Conversation): Promise<void> {
     const db = await initDB();
-    await db.put('conversations', conversation);
+    // Ensure we don't save messages in the conversation object if they accidentally leak in
+    const { messages, ...convData } = conversation as any;
+    await db.put('conversations', convData);
 }
 
-export async function getConversation(id: string): Promise<(Conversation & { messages: Message[] }) | undefined> {
+export async function getConversation(id: string): Promise<Conversation | undefined> {
     const db = await initDB();
     return db.get('conversations', id);
 }
 
-export async function getConversationsByCharacter(characterId: string): Promise<(Conversation & { messages: Message[] })[]> {
+export async function getConversationsByCharacter(characterId: string): Promise<Conversation[]> {
     const db = await initDB();
     return db.getAllFromIndex('conversations', 'by-character', characterId);
 }
@@ -120,6 +177,31 @@ export async function getConversationsByCharacter(characterId: string): Promise<
 export async function deleteConversation(id: string): Promise<void> {
     const db = await initDB();
     await db.delete('conversations', id);
+    // Delete associated messages
+    const tx = db.transaction('messages', 'readwrite');
+    const index = tx.store.index('by-conversation');
+    let cursor = await index.openKeyCursor(IDBKeyRange.only(id));
+    while (cursor) {
+        await cursor.delete();
+        cursor = await cursor.continue();
+    }
+    await tx.done;
+}
+
+// Message operations
+export async function saveMessage(message: Message): Promise<void> {
+    const db = await initDB();
+    await db.put('messages', message);
+}
+
+export async function getConversationMessages(conversationId: string): Promise<Message[]> {
+    const db = await initDB();
+    return db.getAllFromIndex('messages', 'by-conversation', conversationId);
+}
+
+export async function deleteMessagedb(id: string): Promise<void> {
+    const db = await initDB();
+    await db.delete('messages', id);
 }
 
 // Lorebook history operations (append-only)

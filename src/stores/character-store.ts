@@ -35,7 +35,21 @@ export const useCharacterStore = create<CharacterState>()((set, get) => ({
             console.log('[CharacterStore] Loading characters from IndexedDB...');
             const characters = await getAllCharacters();
             console.log('[CharacterStore] Loaded characters:', characters.length, characters.map(c => c.name));
-            set({ characters, isLoading: false });
+
+            // Restore active character from localStorage
+            let activeId = get().activeCharacterId;
+            if (typeof window !== 'undefined') {
+                const persistedId = localStorage.getItem('nexusai_active_char');
+                console.log('[CharacterStore] Checking localStorage for nexusai_active_char:', persistedId);
+                if (persistedId && characters.some(c => c.id === persistedId)) {
+                    activeId = persistedId;
+                    console.log('[CharacterStore] Restoring activeCharacterId:', activeId);
+                } else {
+                    console.log('[CharacterStore] No valid active character found in localStorage');
+                }
+            }
+
+            set({ characters, activeCharacterId: activeId, isLoading: false });
         } catch (error) {
             console.error('[CharacterStore] Failed to load characters:', error);
             set({ isLoading: false });
@@ -75,10 +89,25 @@ export const useCharacterStore = create<CharacterState>()((set, get) => ({
             activeCharacterId:
                 state.activeCharacterId === id ? null : state.activeCharacterId,
         }));
+        if (typeof window !== 'undefined' && get().activeCharacterId === id) {
+            localStorage.removeItem('nexusai_active_char');
+        }
     },
 
-    setActiveCharacter: (id) => set({ activeCharacterId: id }),
-    setActiveCharacterId: (id) => set({ activeCharacterId: id }), // Alias
+    setActiveCharacter: (id) => {
+        set({ activeCharacterId: id });
+        if (typeof window !== 'undefined') {
+            if (id) localStorage.setItem('nexusai_active_char', id);
+            else localStorage.removeItem('nexusai_active_char');
+        }
+    },
+    setActiveCharacterId: (id) => { // Alias
+        set({ activeCharacterId: id });
+        if (typeof window !== 'undefined') {
+            if (id) localStorage.setItem('nexusai_active_char', id);
+            else localStorage.removeItem('nexusai_active_char');
+        }
+    },
 
     getActiveCharacter: () => {
         const state = get();
