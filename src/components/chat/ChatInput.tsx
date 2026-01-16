@@ -1,45 +1,45 @@
 'use client';
 
 import { useState, useRef, useEffect, KeyboardEvent } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion, AnimatePresence, Variants } from 'framer-motion';
 import { Send, Loader2, Check, Square } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 
 // Animation variants
-const sendButtonVariants = {
+const sendButtonVariants: Variants = {
     idle: { scale: 1 },
     hover: { scale: 1.05 },
     tap: { scale: 0.9 },
     sending: {
         scale: [1, 1.1, 1],
-        transition: { duration: 0.3 }
-    }
+        transition: { duration: 0.3 },
+    },
 };
 
-const iconVariants = {
+const iconVariants: Variants = {
     hidden: { opacity: 0, scale: 0.5, rotate: -45 },
     visible: {
         opacity: 1,
         scale: 1,
         rotate: 0,
-        transition: { type: 'spring', stiffness: 300, damping: 20 }
+        transition: { type: 'spring', stiffness: 300, damping: 20 },
     },
     exit: {
         opacity: 0,
         scale: 0.5,
         rotate: 45,
-        transition: { duration: 0.15 }
-    }
+        transition: { duration: 0.15 },
+    },
 };
 
-const containerVariants = {
+const containerVariants: Variants = {
     initial: { opacity: 0, y: 20 },
     animate: {
         opacity: 1,
         y: 0,
-        transition: { type: 'spring', stiffness: 300, damping: 25 }
-    }
+        transition: { type: 'spring', stiffness: 300, damping: 25 },
+    },
 };
 
 interface ChatInputProps {
@@ -107,7 +107,7 @@ export function ChatInput({
                 animate={{
                     boxShadow: isFocused
                         ? '0 0 0 2px hsl(var(--primary) / 0.3)'
-                        : '0 0 0 0px transparent'
+                        : '0 0 0 0px transparent',
                 }}
                 transition={{ duration: 0.2 }}
                 style={{ borderRadius: 'calc(var(--radius) + 2px)' }}
@@ -130,9 +130,9 @@ export function ChatInput({
             <motion.div
                 variants={sendButtonVariants}
                 initial="idle"
-                whileHover={!isLoading && message.trim() ? "hover" : "idle"}
-                whileTap={!isLoading && message.trim() ? "tap" : "idle"}
-                animate={justSent ? "sending" : "idle"}
+                whileHover={!isLoading && message.trim() ? 'hover' : 'idle'}
+                whileTap={!isLoading && message.trim() ? 'tap' : 'idle'}
+                animate={justSent ? 'sending' : 'idle'}
             >
                 <Button
                     onClick={isLoading ? onStop : handleSend}

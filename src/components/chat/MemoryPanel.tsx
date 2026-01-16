@@ -36,7 +36,7 @@ export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
     if (!character) return null;
 
     const memories = character.longTermMemory || [];
-    const conversation = conversations.find(c => c.id === activeConversationId);
+    const conversation = conversations.find((c) => c.id === activeConversationId);
 
     const handleAddMemory = async () => {
         if (!newMemory.trim()) return;
@@ -59,7 +59,7 @@ export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
         setIsGenerating(true);
         try {
             const messages = getActiveBranchMessages(activeConversationId!);
-            const formattedMessages = messages.map(m => ({
+            const formattedMessages = messages.map((m) => ({
                 role: m.role,
                 content: m.content,
             }));
@@ -93,7 +93,9 @@ export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
                         </div>
                         <div>
                             <h2 className="font-bold text-sm">Long-Term Memory</h2>
-                            <p className="text-xs text-muted-foreground">{character.name}'s persistent context</p>
+                            <p className="text-xs text-muted-foreground">
+                                {character.name}'s persistent context
+                            </p>
                         </div>
                     </div>
                     <Button variant="ghost" size="icon" onClick={onClose} className="h-8 w-8">
@@ -120,12 +122,16 @@ export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
                                 >
                                     <div
                                         className="flex items-start justify-between cursor-pointer"
-                                        onClick={() => setExpandedIndex(expandedIndex === index ? null : index)}
+                                        onClick={() =>
+                                            setExpandedIndex(expandedIndex === index ? null : index)
+                                        }
                                     >
-                                        <p className={cn(
-                                            "text-xs flex-1 pr-2",
-                                            expandedIndex !== index && "line-clamp-2"
-                                        )}>
+                                        <p
+                                            className={cn(
+                                                'text-xs flex-1 pr-2',
+                                                expandedIndex !== index && 'line-clamp-2'
+                                            )}
+                                        >
                                             {memory}
                                         </p>
                                         <div className="flex items-center gap-1 shrink-0">
@@ -189,22 +195,30 @@ export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
                 </div>
 
                 {/* Delete Confirmation Dialog */}
-                <Dialog open={confirmDeleteIndex !== null} onOpenChange={() => setConfirmDeleteIndex(null)}>
+                <Dialog
+                    open={confirmDeleteIndex !== null}
+                    onOpenChange={() => setConfirmDeleteIndex(null)}
+                >
                     <DialogContent className="sm:max-w-[350px]">
                         <DialogHeader>
                             <DialogTitle>Delete Memory?</DialogTitle>
-                            <DialogDescription>
-                                This action cannot be undone.
-                            </DialogDescription>
+                            <DialogDescription>This action cannot be undone.</DialogDescription>
                         </DialogHeader>
                         <DialogFooter className="flex-row gap-2">
-                            <Button variant="ghost" className="flex-1" onClick={() => setConfirmDeleteIndex(null)}>
+                            <Button
+                                variant="ghost"
+                                className="flex-1"
+                                onClick={() => setConfirmDeleteIndex(null)}
+                            >
                                 Cancel
                             </Button>
                             <Button
                                 variant="destructive"
                                 className="flex-1"
-                                onClick={() => confirmDeleteIndex !== null && handleDeleteMemory(confirmDeleteIndex)}
+                                onClick={() =>
+                                    confirmDeleteIndex !== null &&
+                                    handleDeleteMemory(confirmDeleteIndex)
+                                }
                             >
                                 Delete
                             </Button>

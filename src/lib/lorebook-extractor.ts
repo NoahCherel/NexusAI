@@ -15,7 +15,7 @@ export async function extractLorebookEntries(
     const { apiKeys, activeProvider, activeModel } = useSettingsStore.getState();
 
     // Get encrypted key for active provider
-    const keyConfig = apiKeys.find(k => k.provider === activeProvider);
+    const keyConfig = apiKeys.find((k) => k.provider === activeProvider);
     if (!keyConfig) {
         console.warn('No API key configured, skipping lorebook extraction');
         return [];
@@ -34,9 +34,10 @@ export async function extractLorebookEntries(
         return [];
     }
 
-    const existingKeysStr = existingKeys.length > 0
-        ? `Existing keys to avoid duplicating: ${existingKeys.join(', ')}`
-        : 'No existing keys.';
+    const existingKeysStr =
+        existingKeys.length > 0
+            ? `Existing keys to avoid duplicating: ${existingKeys.join(', ')}`
+            : 'No existing keys.';
 
     const systemPrompt = `You are a world-building assistant. Analyze the AI response and extract NEW important world facts that should be remembered.
 
@@ -62,7 +63,10 @@ Output format (JSON array only, nothing else):
                 model: activeModel,
                 systemPrompt,
                 messages: [
-                    { role: 'user', content: `Extract new world facts from this AI response:\n\n${aiResponse}` }
+                    {
+                        role: 'user',
+                        content: `Extract new world facts from this AI response:\n\n${aiResponse}`,
+                    },
                 ],
             }),
         });
@@ -95,11 +99,12 @@ Output format (JSON array only, nothing else):
             if (!Array.isArray(entries)) return [];
 
             return entries
-                .filter((e: unknown): e is { keys: string[]; content: string; priority?: number } =>
-                    typeof e === 'object' &&
-                    e !== null &&
-                    Array.isArray((e as { keys?: unknown }).keys) &&
-                    typeof (e as { content?: unknown }).content === 'string'
+                .filter(
+                    (e: unknown): e is { keys: string[]; content: string; priority?: number } =>
+                        typeof e === 'object' &&
+                        e !== null &&
+                        Array.isArray((e as { keys?: unknown }).keys) &&
+                        typeof (e as { content?: unknown }).content === 'string'
                 )
                 .map((e) => ({
                     keys: e.keys,

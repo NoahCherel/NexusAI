@@ -52,7 +52,9 @@ export async function parseCharacterCardPNG(file: File): Promise<CharacterCard> 
         if (chunkType === 'IEND') break;
     }
 
-    throw new Error('No character data found in PNG. Make sure this is a valid Character Card V2 file.');
+    throw new Error(
+        'No character data found in PNG. Make sure this is a valid Character Card V2 file.'
+    );
 }
 
 /**
@@ -67,7 +69,9 @@ export async function parseCharacterCardJSON(file: File): Promise<CharacterCard>
 /**
  * Normalize different card formats to our internal format
  */
-function normalizeCharacterCard(data: CharacterCardV2 | CharacterCard | Record<string, unknown>): CharacterCard {
+function normalizeCharacterCard(
+    data: CharacterCardV2 | CharacterCard | Record<string, unknown>
+): CharacterCard {
     // Handle V2 format
     if ('spec' in data && data.spec === 'chara_card_v2') {
         const v2 = data as CharacterCardV2;

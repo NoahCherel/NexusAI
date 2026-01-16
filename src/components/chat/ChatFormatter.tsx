@@ -44,7 +44,12 @@ function FormattedLine({ text }: { text: string }) {
         remainingText = text.slice(nameMatch[0].length); // Keep the space? No, usually allow it to be separate or just appended-space.
         // Actually nameMatch[2] is the whitespace.
         // Let's render the whitespace in the following text or after prefix.
-        prefixNode = <><strong className="font-bold text-foreground/90">{nameMatch[1]}:</strong>{nameMatch[2]}</>;
+        prefixNode = (
+            <>
+                <strong className="font-bold text-foreground/90">{nameMatch[1]}:</strong>
+                {nameMatch[2]}
+            </>
+        );
         remainingText = text.substring(nameMatch[0].length);
     }
 
@@ -70,11 +75,19 @@ function FormattedContent({ text }: { text: string }) {
         <>
             {parts.map((part, index) => {
                 if (part.startsWith('**') && part.endsWith('**')) {
-                    return <strong key={index} className="font-bold">{part.slice(2, -2)}</strong>;
+                    return (
+                        <strong key={index} className="font-bold">
+                            {part.slice(2, -2)}
+                        </strong>
+                    );
                 }
                 if (part.startsWith('*') && part.endsWith('*')) {
                     // Actions usually look better slightly distinct in RPG context
-                    return <em key={index} className="italic opacity-80">{part.slice(1, -1)}</em>;
+                    return (
+                        <em key={index} className="italic opacity-80">
+                            {part.slice(1, -1)}
+                        </em>
+                    );
                 }
                 return <span key={index}>{part}</span>;
             })}

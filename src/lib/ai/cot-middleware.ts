@@ -1,13 +1,13 @@
 /**
  * Chain of Thought (CoT) Middleware
- * 
+ *
  * Normalizes thinking/reasoning content from different AI providers.
  * Each provider formats CoT differently:
  * - DeepSeek: <think>...</think>
  * - Anthropic: <thinking>...</thinking> (Extended Thinking)
  * - OpenAI o1/o3: reasoning_content in API response
  * - Some models: <reasoning>...</reasoning>
- * 
+ *
  * This middleware extracts thoughts and returns clean content.
  */
 
@@ -43,7 +43,7 @@ export function normalizeCoT(response: string, provider?: string): CoTResult {
 
         if (matches.length > 0) {
             // Collect all thought blocks
-            thought = matches.map(m => m[1].trim()).join('\n\n');
+            thought = matches.map((m) => m[1].trim()).join('\n\n');
             // Remove thought tags from content
             content = response.replace(pattern, '').trim();
         }
@@ -55,7 +55,7 @@ export function normalizeCoT(response: string, provider?: string): CoTResult {
         const matches = [...response.matchAll(genericPattern)];
 
         if (matches.length > 0) {
-            thought = matches.map(m => m[1].trim()).join('\n\n');
+            thought = matches.map((m) => m[1].trim()).join('\n\n');
             content = response.replace(genericPattern, '').trim();
         }
     }
@@ -87,7 +87,7 @@ export function parseStreamingChunk(
     let visibleContent = '';
 
     // Simple state machine to track tag nesting
-    let currentPos = 0;
+    const currentPos = 0;
     const lowerAccum = accumulated.toLowerCase();
 
     for (const openTag of openTags) {
@@ -132,9 +132,9 @@ export function formatThoughtForDisplay(thought: string): string {
 
     // Clean up and format
     return thought
-        .replace(/\n{3,}/g, '\n\n')  // Reduce excessive newlines
-        .replace(/^\s+|\s+$/g, '')    // Trim
-        .replace(/^-\s*/gm, '• ');    // Convert dashes to bullets
+        .replace(/\n{3,}/g, '\n\n') // Reduce excessive newlines
+        .replace(/^\s+|\s+$/g, '') // Trim
+        .replace(/^-\s*/gm, '• '); // Convert dashes to bullets
 }
 
 /**
@@ -153,5 +153,5 @@ export function supportsReasoning(modelId: string): boolean {
         'gemini-2.0-flash-thinking',
     ];
 
-    return reasoningModels.some(m => modelId.toLowerCase().includes(m));
+    return reasoningModels.some((m) => modelId.toLowerCase().includes(m));
 }

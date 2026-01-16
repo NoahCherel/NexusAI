@@ -45,7 +45,7 @@ export function WorldStatePanel({
     const handleRemoveItem = (item: string) => {
         if (activeConversationId) {
             updateWorldState(activeConversationId, {
-                inventory: inventory.filter(i => i !== item)
+                inventory: inventory.filter((i) => i !== item),
             });
         }
     };
@@ -53,7 +53,7 @@ export function WorldStatePanel({
     const handleAddItem = () => {
         if (newItem.trim() && activeConversationId) {
             updateWorldState(activeConversationId, {
-                inventory: [...inventory, newItem.trim()]
+                inventory: [...inventory, newItem.trim()],
             });
             setNewItem('');
             setIsAddingItem(false);
@@ -71,7 +71,7 @@ export function WorldStatePanel({
     const handleAddRelation = () => {
         if (newRelationName.trim() && activeConversationId) {
             updateWorldState(activeConversationId, {
-                relationships: { ...relationships, [newRelationName.trim()]: newRelationValue }
+                relationships: { ...relationships, [newRelationName.trim()]: newRelationValue },
             });
             setNewRelationName('');
             setNewRelationValue(0);
@@ -82,7 +82,7 @@ export function WorldStatePanel({
     const handleUpdateRelationValue = (name: string, value: number) => {
         if (activeConversationId) {
             updateWorldState(activeConversationId, {
-                relationships: { ...relationships, [name]: value }
+                relationships: { ...relationships, [name]: value },
             });
         }
     };
@@ -102,8 +102,9 @@ export function WorldStatePanel({
                     <span className="text-base">🌍</span> World Context
                 </span>
                 <ChevronUp
-                    className={`w-4 h-4 text-muted-foreground transition-transform duration-300 ${isCollapsed ? 'rotate-180' : ''
-                        }`}
+                    className={`w-4 h-4 text-muted-foreground transition-transform duration-300 ${
+                        isCollapsed ? 'rotate-180' : ''
+                    }`}
                 />
             </button>
 
@@ -121,7 +122,10 @@ export function WorldStatePanel({
                                     variant="ghost"
                                     size="icon"
                                     className="h-5 w-5 opacity-50 hover:opacity-100"
-                                    onClick={() => { setEditLocation(location); setIsEditingLocation(true); }}
+                                    onClick={() => {
+                                        setEditLocation(location);
+                                        setIsEditingLocation(true);
+                                    }}
                                 >
                                     <Edit2 className="w-3 h-3" />
                                 </Button>
@@ -136,10 +140,19 @@ export function WorldStatePanel({
                                     autoFocus
                                     onKeyDown={(e) => e.key === 'Enter' && handleSaveLocation()}
                                 />
-                                <Button size="icon" className="h-8 w-8" onClick={handleSaveLocation}>
+                                <Button
+                                    size="icon"
+                                    className="h-8 w-8"
+                                    onClick={handleSaveLocation}
+                                >
                                     <Check className="w-3 h-3" />
                                 </Button>
-                                <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => setIsEditingLocation(false)}>
+                                <Button
+                                    size="icon"
+                                    variant="ghost"
+                                    className="h-8 w-8"
+                                    onClick={() => setIsEditingLocation(false)}
+                                >
                                     <X className="w-3 h-3" />
                                 </Button>
                             </div>
@@ -200,7 +213,15 @@ export function WorldStatePanel({
                                 <Button size="icon" className="h-7 w-7" onClick={handleAddItem}>
                                     <Check className="w-3 h-3" />
                                 </Button>
-                                <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => { setIsAddingItem(false); setNewItem(''); }}>
+                                <Button
+                                    size="icon"
+                                    variant="ghost"
+                                    className="h-7 w-7"
+                                    onClick={() => {
+                                        setIsAddingItem(false);
+                                        setNewItem('');
+                                    }}
+                                >
                                     <X className="w-3 h-3" />
                                 </Button>
                             </div>
@@ -251,7 +272,12 @@ export function WorldStatePanel({
                                             <input
                                                 type="number"
                                                 value={level}
-                                                onChange={(e) => handleUpdateRelationValue(name, parseInt(e.target.value) || 0)}
+                                                onChange={(e) =>
+                                                    handleUpdateRelationValue(
+                                                        name,
+                                                        parseInt(e.target.value) || 0
+                                                    )
+                                                }
                                                 className={`w-12 text-right bg-transparent border-none outline-none appearance-none [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none ${level < 0 ? 'text-red-400' : 'text-green-500'} font-bold`}
                                                 min={-100}
                                                 max={100}
@@ -270,7 +296,9 @@ export function WorldStatePanel({
                                 );
                             })}
                             {relationshipEntries.length === 0 && !isAddingRelation && (
-                                <span className="text-xs text-muted-foreground italic">No relationships</span>
+                                <span className="text-xs text-muted-foreground italic">
+                                    No relationships
+                                </span>
                             )}
                         </div>
                         {isAddingRelation && (
@@ -285,7 +313,9 @@ export function WorldStatePanel({
                                 <Input
                                     type="number"
                                     value={newRelationValue}
-                                    onChange={(e) => setNewRelationValue(parseInt(e.target.value) || 0)}
+                                    onChange={(e) =>
+                                        setNewRelationValue(parseInt(e.target.value) || 0)
+                                    }
                                     className="h-7 text-xs w-16"
                                     min={-100}
                                     max={100}
@@ -293,7 +323,15 @@ export function WorldStatePanel({
                                 <Button size="icon" className="h-7 w-7" onClick={handleAddRelation}>
                                     <Check className="w-3 h-3" />
                                 </Button>
-                                <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => { setIsAddingRelation(false); setNewRelationName(''); }}>
+                                <Button
+                                    size="icon"
+                                    variant="ghost"
+                                    className="h-7 w-7"
+                                    onClick={() => {
+                                        setIsAddingRelation(false);
+                                        setNewRelationName('');
+                                    }}
+                                >
                                     <X className="w-3 h-3" />
                                 </Button>
                             </div>

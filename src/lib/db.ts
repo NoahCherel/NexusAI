@@ -98,7 +98,9 @@ export async function initDB(): Promise<IDBPDatabase<NexusAIDB>> {
                     while (cursor) {
                         const conv = cursor.value as any; // Old conversation type
                         if (conv.messages && Array.isArray(conv.messages)) {
-                            console.log(`[DB Migration] Migrating ${conv.messages.length} messages for conversation ${conv.id}`);
+                            console.log(
+                                `[DB Migration] Migrating ${conv.messages.length} messages for conversation ${conv.id}`
+                            );
                             for (const msg of conv.messages) {
                                 await msgStore.put(msg);
                             }
@@ -134,7 +136,9 @@ export async function initDB(): Promise<IDBPDatabase<NexusAIDB>> {
 export async function saveCharacter(character: CharacterWithMemory): Promise<void> {
     console.log(`[DB] Saving character: ${character.name} (${character.id})`);
     if (character.character_book) {
-        console.log(`[DB] Character has lorebook with ${character.character_book.entries.length} entries`);
+        console.log(
+            `[DB] Character has lorebook with ${character.character_book.entries.length} entries`
+        );
     }
     const db = await initDB();
     await db.put('characters', character);
@@ -224,19 +228,21 @@ export async function saveSetting(key: string, value: unknown): Promise<void> {
 export async function getSetting<T>(key: string): Promise<T | undefined> {
     const db = await initDB();
     const result = await db.get('settings', key);
-    return result?.value as T | undefined;
+    return (result as any)?.value as T | undefined;
 }
 
 // Utility: Export all data (for backup)
 export async function exportAllData(): Promise<{
     characters: CharacterWithMemory[];
-    conversations: (Conversation & { messages: Message[] })[];
+    conversations: Conversation[];
+    messages: Message[];
     lorebookHistory: LorebookHistoryEntry[];
 }> {
     const db = await initDB();
     return {
         characters: await db.getAll('characters'),
         conversations: await db.getAll('conversations'),
+        messages: await db.getAll('messages'),
         lorebookHistory: await db.getAll('lorebookHistory'),
     };
 }

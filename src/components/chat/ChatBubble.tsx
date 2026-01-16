@@ -1,7 +1,17 @@
 'use client';
 
-import { motion, AnimatePresence } from 'framer-motion';
-import { ChevronDown, GitBranch, RefreshCw, Edit2, Trash2, ChevronLeft, ChevronRight, Eye, EyeOff } from 'lucide-react';
+import { motion, AnimatePresence, Variants } from 'framer-motion';
+import {
+    ChevronDown,
+    GitBranch,
+    RefreshCw,
+    Edit2,
+    Trash2,
+    ChevronLeft,
+    ChevronRight,
+    Eye,
+    EyeOff,
+} from 'lucide-react';
 import { useState, useRef, useEffect } from 'react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
@@ -9,11 +19,11 @@ import { ActionTooltip } from '@/components/ui/action-tooltip';
 import { ChatFormatter } from '@/components/chat/ChatFormatter';
 
 // Animation variants for premium feel
-const bubbleVariants = {
+const bubbleVariants: Variants = {
     hidden: {
         opacity: 0,
         y: 20,
-        scale: 0.95
+        scale: 0.95,
     },
     visible: {
         opacity: 1,
@@ -23,33 +33,33 @@ const bubbleVariants = {
             type: 'spring',
             stiffness: 260,
             damping: 20,
-            mass: 0.8
-        }
+            mass: 0.8,
+        },
     },
     exit: {
         opacity: 0,
         scale: 0.9,
         y: -10,
-        transition: { duration: 0.2 }
-    }
+        transition: { duration: 0.2 },
+    },
 };
 
 const contentVariants = {
     rest: {
         boxShadow: '0 0 0 rgba(0,0,0,0)',
-        y: 0
+        y: 0,
     },
     hover: {
         boxShadow: '0 4px 20px rgba(0,0,0,0.1)',
         y: -1,
-        transition: { duration: 0.2 }
-    }
+        transition: { duration: 0.2 },
+    },
 };
 
 const buttonVariants = {
     rest: { scale: 1 },
     hover: { scale: 1.05 },
-    tap: { scale: 0.9 }
+    tap: { scale: 0.9 },
 };
 
 interface ChatBubbleProps {
@@ -133,8 +143,9 @@ export function ChatBubble({
             </Avatar>
 
             <div
-                className={`flex flex-col gap-1 max-w-[85%] ${isUser ? 'items-end' : 'items-start'
-                    }`}
+                className={`flex flex-col gap-1 max-w-[85%] ${
+                    isUser ? 'items-end' : 'items-start'
+                }`}
             >
                 {/* Name */}
                 <div className="flex items-center gap-2 px-1">
@@ -143,12 +154,11 @@ export function ChatBubble({
                     )}
                     {/* Thought Button */}
                     {thought && showThoughts && (
-                        <button
-                            aria-label="Toggle thoughts"
-                        >
+                        <button aria-label="Toggle thoughts">
                             <ChevronDown
-                                className={`w-3 h-3 transition-transform duration-200 ${isThoughtOpen ? 'rotate-180' : ''
-                                    }`}
+                                className={`w-3 h-3 transition-transform duration-200 ${
+                                    isThoughtOpen ? 'rotate-180' : ''
+                                }`}
                             />
                             Thoughts
                         </button>
@@ -186,7 +196,9 @@ export function ChatBubble({
                         {/* Live Preview */}
                         {showPreview && (
                             <div className="mt-3 pt-3 border-t border-border/40">
-                                <span className="text-[10px] text-muted-foreground uppercase font-bold block mb-2 tracking-wider">Preview</span>
+                                <span className="text-[10px] text-muted-foreground uppercase font-bold block mb-2 tracking-wider">
+                                    Preview
+                                </span>
                                 <div className="text-sm text-foreground/90 bg-card/50 p-3 rounded-lg border border-border/30">
                                     <ChatFormatter content={editContent || '...'} />
                                 </div>
@@ -199,7 +211,11 @@ export function ChatBubble({
                                 className="mr-auto text-xs flex items-center gap-1.5 px-2 py-1.5 hover:bg-muted rounded-md transition-colors font-medium text-muted-foreground hover:text-foreground"
                                 title="Toggle Preview"
                             >
-                                {showPreview ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                                {showPreview ? (
+                                    <EyeOff className="w-3.5 h-3.5" />
+                                ) : (
+                                    <Eye className="w-3.5 h-3.5" />
+                                )}
                                 {showPreview ? 'Hide Preview' : 'Show Preview'}
                             </button>
 
@@ -222,10 +238,11 @@ export function ChatBubble({
                         variants={contentVariants}
                         initial="rest"
                         whileHover="hover"
-                        className={`rounded-2xl px-4 py-3 whitespace-pre-wrap break-words cursor-default transition-colors ${isUser
-                            ? 'bg-primary text-primary-foreground rounded-br-sm hover:bg-primary/95'
-                            : 'bg-card border border-border rounded-bl-sm hover:bg-card/80'
-                            }`}
+                        className={`rounded-2xl px-4 py-3 whitespace-pre-wrap break-words cursor-default transition-colors ${
+                            isUser
+                                ? 'bg-primary text-primary-foreground rounded-br-sm hover:bg-primary/95'
+                                : 'bg-card border border-border rounded-bl-sm hover:bg-card/80'
+                        }`}
                     >
                         {!content && !isUser ? (
                             <div className="flex gap-1 py-2">
@@ -241,13 +258,19 @@ export function ChatBubble({
 
                 {/* Action buttons (always rendered to prevent layout shift, toggled via opacity) */}
                 <div
-                    className={`flex gap-1 mt-1 transition-opacity duration-200 ${!isEditing && isHovered ? 'opacity-100' : 'opacity-0'
-                        } ${isUser ? 'flex-row-reverse' : ''}`}
+                    className={`flex gap-1 mt-1 transition-opacity duration-200 ${
+                        !isEditing && isHovered ? 'opacity-100' : 'opacity-0'
+                    } ${isUser ? 'flex-row-reverse' : ''}`}
                     // Keep it physically present but allow pointer events only when visible
                     style={{ pointerEvents: !isEditing && isHovered ? 'auto' : 'none' }}
                 >
                     <ActionTooltip label="Edit">
-                        <motion.div variants={buttonVariants} initial="rest" whileHover="hover" whileTap="tap">
+                        <motion.div
+                            variants={buttonVariants}
+                            initial="rest"
+                            whileHover="hover"
+                            whileTap="tap"
+                        >
                             <Button
                                 variant="ghost"
                                 size="icon"
@@ -262,7 +285,12 @@ export function ChatBubble({
                     {!isUser && (
                         <>
                             <ActionTooltip label="Regenerate">
-                                <motion.div variants={buttonVariants} initial="rest" whileHover="hover" whileTap="tap">
+                                <motion.div
+                                    variants={buttonVariants}
+                                    initial="rest"
+                                    whileHover="hover"
+                                    whileTap="tap"
+                                >
                                     <Button
                                         variant="ghost"
                                         size="icon"
@@ -274,7 +302,12 @@ export function ChatBubble({
                                 </motion.div>
                             </ActionTooltip>
                             <ActionTooltip label="Create Branch">
-                                <motion.div variants={buttonVariants} initial="rest" whileHover="hover" whileTap="tap">
+                                <motion.div
+                                    variants={buttonVariants}
+                                    initial="rest"
+                                    whileHover="hover"
+                                    whileTap="tap"
+                                >
                                     <Button
                                         variant="ghost"
                                         size="icon"
@@ -289,7 +322,12 @@ export function ChatBubble({
                     )}
 
                     <ActionTooltip label="Delete">
-                        <motion.div variants={buttonVariants} initial="rest" whileHover="hover" whileTap="tap">
+                        <motion.div
+                            variants={buttonVariants}
+                            initial="rest"
+                            whileHover="hover"
+                            whileTap="tap"
+                        >
                             <Button
                                 variant="ghost"
                                 size="icon"
@@ -300,7 +338,6 @@ export function ChatBubble({
                             </Button>
                         </motion.div>
                     </ActionTooltip>
-
 
                     {/* Branch Navigation */}
                     {totalBranches > 1 && (
@@ -330,6 +367,6 @@ export function ChatBubble({
                     )}
                 </div>
             </div>
-        </motion.div >
+        </motion.div>
     );
 }

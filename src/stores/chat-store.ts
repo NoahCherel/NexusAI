@@ -4,10 +4,9 @@ import {
     saveConversation,
     getConversation,
     getConversationsByCharacter,
-    deleteConversation as dbDeleteConversation,
     saveMessage,
     getConversationMessages,
-    deleteMessagedb
+    deleteMessagedb,
 } from '@/lib/db';
 
 interface ChatState {
@@ -33,6 +32,7 @@ interface ChatState {
     updateWorldState: (conversationId: string, worldState: Partial<WorldState>) => void;
     clearConversation: (conversationId: string) => void;
     navigateToSibling: (messageId: string, direction: 'prev' | 'next') => void;
+    navigateToMessage: (messageId: string) => void;
     getMessageSiblingsInfo: (messageId: string) => { currentIndex: number; total: number };
     loadMessages: (conversationId: string) => Promise<void>;
 }
@@ -40,10 +40,11 @@ interface ChatState {
 const generateId = () => crypto.randomUUID();
 
 // Helper to serialize dates for IndexedDB
-const serializeMessages = (messages: Message[]): Message[] => messages.map(m => ({
-    ...m,
-    createdAt: new Date(m.createdAt),
-}));
+const serializeMessages = (messages: Message[]): Message[] =>
+    messages.map((m) => ({
+        ...m,
+        createdAt: new Date(m.createdAt),
+    }));
 
 export const useChatStore = create<ChatState>()((set, get) => ({
     conversations: [],
@@ -60,7 +61,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
         set({ isLoading: true });
         try {
             const convs = await getConversationsByCharacter(characterId);
-            const conversations: Conversation[] = convs.map(conv => ({
+            const conversations: Conversation[] = convs.map((conv) => ({
                 id: conv.id,
                 characterId: conv.characterId,
                 title: conv.title,
@@ -74,11 +75,13 @@ export const useChatStore = create<ChatState>()((set, get) => ({
             if (typeof window !== 'undefined') {
                 const persistedId = localStorage.getItem(`nexusai_active_conv_${characterId}`);
                 // Verify it belongs to loaded conversations
-                if (persistedId && conversations.some(c => c.id === persistedId)) {
+                if (persistedId && conversations.some((c) => c.id === persistedId)) {
                     activeConvId = persistedId;
                 } else if (conversations.length > 0 && !activeConvId) {
                     // Default to most recent if none selected
-                    const sorted = [...conversations].sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime());
+                    const sorted = [...conversations].sort(
+                        (a, b) => b.updatedAt.getTime() - a.updatedAt.getTime()
+                    );
                     activeConvId = sorted[0].id;
                 }
             }
@@ -95,7 +98,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
                 messages: activeMessages,
                 activeConversationId: activeConvId,
                 isLoading: false,
-                loadedCharacterId: characterId
+                loadedCharacterId: characterId,
             });
         } catch (error) {
             console.error('Failed to load conversations:', error);
@@ -152,7 +155,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
 
             // We need the character ID to namespace the active conversation
             const state = get();
-            const conv = state.conversations.find(c => c.id === id);
+            const conv = state.conversations.find((c) => c.id === id);
             if (typeof window !== 'undefined' && conv) {
                 localStorage.setItem(`nexusai_active_conv_${conv.characterId}`, id);
             }
@@ -162,7 +165,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
     addMessage: (message) => {
         set((state) => {
             // Deactivate siblings (same parent) to ensure only the new message is active in this branch
-            const newMessages = state.messages.map(m => {
+            const newMessages = state.messages.map((m) => {
                 if (m.parentId === message.parentId && m.isActiveBranch) {
                     return { ...m, isActiveBranch: false };
                 }
@@ -198,20 +201,20 @@ export const useChatStore = create<ChatState>()((set, get) => ({
         let conversationToUpdate: Conversation | undefined;
 
         set((state) => {
-            const msgToDelete = state.messages.find(m => m.id === id);
+            const msgToDelete = state.messages.find((m) => m.id === id);
             if (!msgToDelete) return state;
 
             conversationId = msgToDelete.conversationId;
 
             // If deleting an active message, try to activate a sibling
-            let newMessages = state.messages.filter(m => m.id !== id);
+            let newMessages = state.messages.filter((m) => m.id !== id);
 
             if (msgToDelete.isActiveBranch && msgToDelete.parentId) {
-                const siblings = newMessages.filter(m => m.parentId === msgToDelete.parentId);
+                const siblings = newMessages.filter((m) => m.parentId === msgToDelete.parentId);
                 if (siblings.length > 0) {
                     // Activate the first sibling
                     const siblingToActivate = siblings[0];
-                    newMessages = newMessages.map(m =>
+                    newMessages = newMessages.map((m) =>
                         m.id === siblingToActivate.id ? { ...m, isActiveBranch: true } : m
                     );
                 }
@@ -219,7 +222,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
 
             // Restore World State from updated active branch
             const activeMsgs = newMessages
-                .filter(m => m.conversationId === conversationId && m.isActiveBranch)
+                .filter((m) => m.conversationId === conversationId && m.isActiveBranch)
                 .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
 
             let stateToRestore: WorldState = { inventory: [], location: '', relationships: {} };
@@ -230,7 +233,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
                 }
             }
 
-            const newConversations = state.conversations.map(c => {
+            const newConversations = state.conversations.map((c) => {
                 if (c.id === conversationId) {
                     conversationToUpdate = { ...c, worldState: stateToRestore };
                     return conversationToUpdate;
@@ -253,15 +256,13 @@ export const useChatStore = create<ChatState>()((set, get) => ({
     },
 
     getActiveBranchMessages: (conversationId) => {
-        const messages = get().messages.filter(
-            (m) => m.conversationId === conversationId
-        );
+        const messages = get().messages.filter((m) => m.conversationId === conversationId);
 
         if (messages.length === 0) return [];
 
         // Filter by isActiveBranch manually
         return messages
-            .filter(m => m.isActiveBranch)
+            .filter((m) => m.isActiveBranch)
             .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
     },
 
@@ -271,7 +272,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
         let conversationToUpdate: Conversation | undefined;
         set((state) => {
             // 1. Calculate new global state
-            const conversation = state.conversations.find(c => c.id === conversationId);
+            const conversation = state.conversations.find((c) => c.id === conversationId);
             if (!conversation) return state;
 
             const oldState = conversation.worldState;
@@ -292,17 +293,15 @@ export const useChatStore = create<ChatState>()((set, get) => ({
 
             // 3. Snapshot to the latest active message (so it persists for this branch)
             const activeMessages = state.messages
-                .filter(m => m.conversationId === conversationId && m.isActiveBranch)
+                .filter((m) => m.conversationId === conversationId && m.isActiveBranch)
                 .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
 
             let newMessages = state.messages;
             if (activeMessages.length > 0) {
                 const lastMsg = activeMessages[0];
                 if (lastMsg.worldStateSnapshot !== newState) {
-                    newMessages = state.messages.map(m =>
-                        m.id === lastMsg.id
-                            ? { ...m, worldStateSnapshot: newState }
-                            : m
+                    newMessages = state.messages.map((m) =>
+                        m.id === lastMsg.id ? { ...m, worldStateSnapshot: newState } : m
                     );
                     // Also need to save the message with the new snapshot
                     saveMessage({ ...lastMsg, worldStateSnapshot: newState }).catch(console.error);
@@ -311,7 +310,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
 
             return {
                 conversations: newConversations,
-                messages: newMessages
+                messages: newMessages,
             };
         });
 
@@ -327,64 +326,139 @@ export const useChatStore = create<ChatState>()((set, get) => ({
         })),
 
     // Branching Actions
-    navigateToSibling: (currentMessageId, direction) => set((state) => {
-        const currentMsg = state.messages.find(m => m.id === currentMessageId);
-        if (!currentMsg || !currentMsg.parentId) return state;
+    navigateToSibling: (currentMessageId, direction) =>
+        set((state) => {
+            const currentMsg = state.messages.find((m) => m.id === currentMessageId);
+            if (!currentMsg || !currentMsg.parentId) return state;
 
-        // Find all siblings (messages with same parent)
-        const siblings = state.messages
-            .filter(m => m.parentId === currentMsg.parentId)
-            .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+            // Find all siblings (messages with same parent)
+            const siblings = state.messages
+                .filter((m) => m.parentId === currentMsg.parentId)
+                .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
 
-        const currentIndex = siblings.findIndex(m => m.id === currentMessageId);
-        if (currentIndex === -1) return state;
+            const currentIndex = siblings.findIndex((m) => m.id === currentMessageId);
+            if (currentIndex === -1) return state;
 
-        let targetIndex = direction === 'prev' ? currentIndex - 1 : currentIndex + 1;
+            const targetIndex = direction === 'prev' ? currentIndex - 1 : currentIndex + 1;
 
-        // Bounds check
-        if (targetIndex < 0 || targetIndex >= siblings.length) return state;
+            // Bounds check
+            if (targetIndex < 0 || targetIndex >= siblings.length) return state;
 
-        const targetMsg = siblings[targetIndex];
+            const targetMsg = siblings[targetIndex];
 
-        const newMessages = state.messages.map(m => {
-            if (m.id === currentMessageId) return { ...m, isActiveBranch: false };
-            if (m.id === targetMsg.id) return { ...m, isActiveBranch: true };
-            return m;
-        });
+            const newMessages = state.messages.map((m) => {
+                if (m.id === currentMessageId) return { ...m, isActiveBranch: false };
+                if (m.id === targetMsg.id) return { ...m, isActiveBranch: true };
+                return m;
+            });
 
-        // Restore World State from active branch
-        const activeMsgs = newMessages
-            .filter(m => m.conversationId === currentMsg.conversationId && m.isActiveBranch)
-            .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+            // Restore World State from active branch
+            const activeMsgs = newMessages
+                .filter((m) => m.conversationId === currentMsg.conversationId && m.isActiveBranch)
+                .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
 
-        let stateToRestore: WorldState = { inventory: [], location: '', relationships: {} };
-        for (const msg of activeMsgs) {
-            if (msg.worldStateSnapshot) {
-                stateToRestore = msg.worldStateSnapshot;
-                break;
+            let stateToRestore: WorldState = { inventory: [], location: '', relationships: {} };
+            for (const msg of activeMsgs) {
+                if (msg.worldStateSnapshot) {
+                    stateToRestore = msg.worldStateSnapshot;
+                    break;
+                }
             }
-        }
 
-        const newConversations = state.conversations.map(c =>
-            c.id === currentMsg.conversationId ? { ...c, worldState: stateToRestore } : c
-        );
+            const newConversations = state.conversations.map((c) =>
+                c.id === currentMsg.conversationId ? { ...c, worldState: stateToRestore } : c
+            );
 
-        return { messages: newMessages, conversations: newConversations };
-    }),
+            return { messages: newMessages, conversations: newConversations };
+        }),
+
+    navigateToMessage: (messageId) =>
+        set((state) => {
+            const targetMessage = state.messages.find((m) => m.id === messageId);
+            if (!targetMessage) return state;
+
+            // 1. Identify valid path (ancestors + target)
+            const pathIds = new Set<string>();
+            let iterator: Message | undefined = targetMessage;
+            while (iterator) {
+                pathIds.add(iterator.id);
+                iterator = state.messages.find((m) => m.id === iterator?.parentId);
+            }
+
+            // 2. Update strict branches
+            // For every level where we have a choice (siblings), pick the one on our path
+            const newMessages = state.messages.map((m) => {
+                // If this message is on the target path, it must be active
+                if (pathIds.has(m.id)) return { ...m, isActiveBranch: true };
+
+                // If this message is NOT on the path, but shares a parent with someone who IS,
+                // it must be inactive.
+                // We find the "active sibling" for this message's level
+                // (The one that IS in pathIds and has same parent)
+                // If such a sibling exists, then 'm' (which is not it) must be inactive.
+                const siblingOnPath = state.messages.find(
+                    (sib) => sib.parentId === m.parentId && pathIds.has(sib.id)
+                );
+
+                if (siblingOnPath) {
+                    return { ...m, isActiveBranch: false };
+                }
+
+                // If no sibling is on the path (e.g. branch divergent from path), leave it alone?
+                // Or if we are fully switching, we normally only care about the path from root.
+                // However, to be safe/consistent, we usually want a single active leaf.
+                // The loop above ensures the path IS active.
+                // The only edge case is "what about branches that were active but are not on path?"
+                // If we walk down from root, we will deactivate divergent branches because
+                // at the divergence point, the path-node will become active and its sibling (old active)
+                // will become inactive.
+
+                return m;
+            });
+
+            // 3. Restore World State from target message (if it has a snapshot, or calculate?)
+            // For now, if the target message has a snapshot, use it.
+            // Otherwise, we might need to re-calculate (complex).
+            // We'll use the 'latest snapshot on path' approach.
+
+            const activePath = newMessages
+                .filter((m) => pathIds.has(m.id))
+                .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+
+            let stateToRestore = state.conversations.find(
+                (c) => c.id === targetMessage.conversationId
+            )?.worldState; // Default to current
+
+            // Try to find a snapshot on the path, starting from leaf
+            for (const msg of activePath) {
+                if (msg.worldStateSnapshot) {
+                    stateToRestore = msg.worldStateSnapshot;
+                    break;
+                }
+            }
+
+            const newConversations = state.conversations.map((c) =>
+                c.id === targetMessage.conversationId
+                    ? { ...c, worldState: stateToRestore || c.worldState }
+                    : c
+            );
+
+            return { messages: newMessages, conversations: newConversations };
+        }),
 
     // Selectors
     getMessageSiblingsInfo: (messageId) => {
         const messages = get().messages;
-        const currentMsg = messages.find(m => m.id === messageId);
+        const currentMsg = messages.find((m) => m.id === messageId);
         if (!currentMsg || !currentMsg.parentId) return { currentIndex: 1, total: 1 };
 
         const siblings = messages
-            .filter(m => m.parentId === currentMsg.parentId)
+            .filter((m) => m.parentId === currentMsg.parentId)
             .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
 
         return {
-            currentIndex: siblings.findIndex(m => m.id === messageId) + 1,
-            total: siblings.length
+            currentIndex: siblings.findIndex((m) => m.id === messageId) + 1,
+            total: siblings.length,
         };
     },
 }));

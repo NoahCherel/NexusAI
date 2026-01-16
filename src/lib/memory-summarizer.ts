@@ -15,7 +15,7 @@ export async function generateMemorySummary(
     const { apiKeys, activeProvider, activeModel } = useSettingsStore.getState();
 
     // Get encrypted key for active provider
-    const keyConfig = apiKeys.find(k => k.provider === activeProvider);
+    const keyConfig = apiKeys.find((k) => k.provider === activeProvider);
     if (!keyConfig) {
         throw new Error(`No API key configured for ${activeProvider}`);
     }
@@ -39,12 +39,19 @@ Output ONLY the summary text, no extra formatting.`;
 Current World State:
 - Location: ${worldState.location || 'Unknown'}
 - Inventory: ${worldState.inventory.length > 0 ? worldState.inventory.join(', ') : 'Empty'}
-- Relationships: ${Object.entries(worldState.relationships).map(([name, value]) => `${name}: ${value > 0 ? 'Friendly' : value < 0 ? 'Hostile' : 'Neutral'}`).join(', ') || 'None established'}
+- Relationships: ${
+        Object.entries(worldState.relationships)
+            .map(
+                ([name, value]) =>
+                    `${name}: ${value > 0 ? 'Friendly' : value < 0 ? 'Hostile' : 'Neutral'}`
+            )
+            .join(', ') || 'None established'
+    }
 `;
 
     const messagesContext = recentMessages
         .slice(-10)
-        .map(m => `${m.role}: ${m.content}`)
+        .map((m) => `${m.role}: ${m.content}`)
         .join('\n');
 
     try {
@@ -57,7 +64,10 @@ Current World State:
                 model: activeModel,
                 systemPrompt,
                 messages: [
-                    { role: 'user', content: `${worldContext}\n\nRecent conversation with ${characterName}:\n${messagesContext}\n\nGenerate a concise summary:` }
+                    {
+                        role: 'user',
+                        content: `${worldContext}\n\nRecent conversation with ${characterName}:\n${messagesContext}\n\nGenerate a concise summary:`,
+                    },
                 ],
             }),
         });
@@ -91,7 +101,7 @@ export function formatMemoryEntry(summary: string): string {
         month: 'short',
         day: 'numeric',
         hour: '2-digit',
-        minute: '2-digit'
+        minute: '2-digit',
     });
     return `[${timestamp}] ${summary}`;
 }

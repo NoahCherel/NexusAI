@@ -28,7 +28,8 @@ export function LandingPage({ onImportClick }: { onImportClick: () => void }) {
                         Welcome to NexusAI
                     </h1>
                     <p className="text-xl text-muted-foreground leading-relaxed max-w-lg mx-auto">
-                        Your advanced diverse roleplay companion. Select a character from the sidebar or import a new one to begin your journey.
+                        Your advanced diverse roleplay companion. Select a character from the
+                        sidebar or import a new one to begin your journey.
                     </p>
                 </div>
 

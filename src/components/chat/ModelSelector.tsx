@@ -22,14 +22,15 @@ import {
 } from '@/components/ui/dialog';
 
 export function ModelSelector() {
-    const { activeModel, setActiveModel, customModels, addCustomModel, removeCustomModel } = useSettingsStore();
+    const { activeModel, setActiveModel, customModels, addCustomModel, removeCustomModel } =
+        useSettingsStore();
     const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
     const [newModelName, setNewModelName] = useState('');
     const [newModelId, setNewModelId] = useState('');
 
     // Combine default and custom models
     const allModels = [...DEFAULT_MODELS, ...customModels];
-    const currentModel = allModels.find(m => m.modelId === activeModel);
+    const currentModel = allModels.find((m) => m.modelId === activeModel);
 
     const handleAddModel = () => {
         if (newModelName.trim() && newModelId.trim()) {
@@ -46,7 +47,7 @@ export function ModelSelector() {
         }
     };
 
-    const isCustomModel = (id: string) => customModels.some(m => m.id === id);
+    const isCustomModel = (id: string) => customModels.some((m) => m.id === id);
 
     return (
         <>
@@ -73,21 +74,23 @@ export function ModelSelector() {
                     <div className="px-2 py-1.5 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
                         Free Models
                     </div>
-                    {allModels.filter(m => m.isFree).map(model => (
-                        <DropdownMenuItem
-                            key={model.id}
-                            onClick={() => setActiveModel(model.modelId)}
-                            className="flex items-center justify-between"
-                        >
-                            <span className="flex items-center gap-2">
-                                <Sparkles className="w-3 h-3 text-green-500" />
-                                {model.name}
-                            </span>
-                            {activeModel === model.modelId && (
-                                <span className="w-1.5 h-1.5 bg-primary rounded-full" />
-                            )}
-                        </DropdownMenuItem>
-                    ))}
+                    {allModels
+                        .filter((m) => m.isFree)
+                        .map((model) => (
+                            <DropdownMenuItem
+                                key={model.id}
+                                onClick={() => setActiveModel(model.modelId)}
+                                className="flex items-center justify-between"
+                            >
+                                <span className="flex items-center gap-2">
+                                    <Sparkles className="w-3 h-3 text-green-500" />
+                                    {model.name}
+                                </span>
+                                {activeModel === model.modelId && (
+                                    <span className="w-1.5 h-1.5 bg-primary rounded-full" />
+                                )}
+                            </DropdownMenuItem>
+                        ))}
 
                     <DropdownMenuSeparator />
 
@@ -95,32 +98,34 @@ export function ModelSelector() {
                     <div className="px-2 py-1.5 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
                         Premium Models
                     </div>
-                    {allModels.filter(m => !m.isFree).map(model => (
-                        <DropdownMenuItem
-                            key={model.id}
-                            onClick={() => setActiveModel(model.modelId)}
-                            className="flex items-center justify-between"
-                        >
-                            <span className="flex items-center gap-2">
-                                <Zap className="w-3 h-3 text-yellow-500" />
-                                {model.name}
-                                {isCustomModel(model.id) && (
-                                    <button
-                                        onClick={(e) => {
-                                            e.stopPropagation();
-                                            removeCustomModel(model.id);
-                                        }}
-                                        className="ml-auto p-0.5 hover:bg-destructive/20 rounded"
-                                    >
-                                        <X className="w-3 h-3 text-destructive" />
-                                    </button>
+                    {allModels
+                        .filter((m) => !m.isFree)
+                        .map((model) => (
+                            <DropdownMenuItem
+                                key={model.id}
+                                onClick={() => setActiveModel(model.modelId)}
+                                className="flex items-center justify-between"
+                            >
+                                <span className="flex items-center gap-2">
+                                    <Zap className="w-3 h-3 text-yellow-500" />
+                                    {model.name}
+                                    {isCustomModel(model.id) && (
+                                        <button
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                removeCustomModel(model.id);
+                                            }}
+                                            className="ml-auto p-0.5 hover:bg-destructive/20 rounded"
+                                        >
+                                            <X className="w-3 h-3 text-destructive" />
+                                        </button>
+                                    )}
+                                </span>
+                                {activeModel === model.modelId && (
+                                    <span className="w-1.5 h-1.5 bg-primary rounded-full" />
                                 )}
-                            </span>
-                            {activeModel === model.modelId && (
-                                <span className="w-1.5 h-1.5 bg-primary rounded-full" />
-                            )}
-                        </DropdownMenuItem>
-                    ))}
+                            </DropdownMenuItem>
+                        ))}
 
                     <DropdownMenuSeparator />
 
@@ -163,7 +168,10 @@ export function ModelSelector() {
                         <Button variant="outline" onClick={() => setIsAddDialogOpen(false)}>
                             Cancel
                         </Button>
-                        <Button onClick={handleAddModel} disabled={!newModelName.trim() || !newModelId.trim()}>
+                        <Button
+                            onClick={handleAddModel}
+                            disabled={!newModelName.trim() || !newModelId.trim()}
+                        >
                             Add Model
                         </Button>
                     </DialogFooter>

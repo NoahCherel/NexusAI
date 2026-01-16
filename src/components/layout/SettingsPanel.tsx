@@ -11,12 +11,7 @@ import {
     SheetHeader,
     SheetTitle,
 } from '@/components/ui/sheet';
-import {
-    Tabs,
-    TabsContent,
-    TabsList,
-    TabsTrigger,
-} from '@/components/ui/tabs';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Separator } from '@/components/ui/separator';
 import { useSettingsStore } from '@/stores';
 import { encryptApiKey, validateApiKey } from '@/lib/crypto';
@@ -110,35 +105,42 @@ export function SettingsPanel({ open, onOpenChange }: SettingsPanelProps) {
                         <div className="space-y-4">
                             <label className="text-sm font-medium">Provider</label>
                             <div className="flex gap-3">
-                                {(['openrouter', 'openai', 'anthropic'] as Provider[]).map((provider) => {
-                                    const key = getKeyForProvider(provider);
-                                    return (
-                                        <Button
-                                            key={provider}
-                                            variant={selectedProvider === provider ? 'default' : 'outline'}
-                                            size="sm"
-                                            onClick={() => setSelectedProvider(provider)}
-                                            className="flex-1 gap-2 h-10"
-                                        >
-                                            {provider === 'openrouter' && 'OpenRouter'}
-                                            {provider === 'openai' && 'OpenAI'}
-                                            {provider === 'anthropic' && 'Anthropic'}
-                                            {key && (
-                                                key.isValid ? (
-                                                    <Check className="h-3 w-3 text-green-500" />
-                                                ) : (
-                                                    <X className="h-3 w-3 text-red-500" />
-                                                )
-                                            )}
-                                        </Button>
-                                    );
-                                })}
+                                {(['openrouter', 'openai', 'anthropic'] as Provider[]).map(
+                                    (provider) => {
+                                        const key = getKeyForProvider(provider);
+                                        return (
+                                            <Button
+                                                key={provider}
+                                                variant={
+                                                    selectedProvider === provider
+                                                        ? 'default'
+                                                        : 'outline'
+                                                }
+                                                size="sm"
+                                                onClick={() => setSelectedProvider(provider)}
+                                                className="flex-1 gap-2 h-10"
+                                            >
+                                                {provider === 'openrouter' && 'OpenRouter'}
+                                                {provider === 'openai' && 'OpenAI'}
+                                                {provider === 'anthropic' && 'Anthropic'}
+                                                {key &&
+                                                    (key.isValid ? (
+                                                        <Check className="h-3 w-3 text-green-500" />
+                                                    ) : (
+                                                        <X className="h-3 w-3 text-red-500" />
+                                                    ))}
+                                            </Button>
+                                        );
+                                    }
+                                )}
                             </div>
                         </div>
 
                         {/* API Key Input */}
                         <div className="space-y-4">
-                            <label className="text-sm font-medium">{selectedProvider} API Key</label>
+                            <label className="text-sm font-medium">
+                                {selectedProvider} API Key
+                            </label>
                             <div className="flex gap-3">
                                 <div className="relative flex-1">
                                     <Input
@@ -155,15 +157,24 @@ export function SettingsPanel({ open, onOpenChange }: SettingsPanelProps) {
                                         className="absolute right-0 top-0 h-full hover:bg-transparent"
                                         onClick={() => setShowKey(!showKey)}
                                     >
-                                        {showKey ? <EyeOff className="h-4 w-4 text-muted-foreground" /> : <Eye className="h-4 w-4 text-muted-foreground" />}
+                                        {showKey ? (
+                                            <EyeOff className="h-4 w-4 text-muted-foreground" />
+                                        ) : (
+                                            <Eye className="h-4 w-4 text-muted-foreground" />
+                                        )}
                                     </Button>
                                 </div>
-                                <Button onClick={handleSaveKey} disabled={!newKey.trim() || isValidating} className="h-10 px-6">
+                                <Button
+                                    onClick={handleSaveKey}
+                                    disabled={!newKey.trim() || isValidating}
+                                    className="h-10 px-6"
+                                >
                                     {isValidating ? 'Validating...' : 'Save'}
                                 </Button>
                             </div>
                             <p className="text-xs text-muted-foreground leading-relaxed">
-                                🔒 Your key is encrypted locally using AES-256-GCM and stored only in your browser's LocalStorage. It is never sent to our servers.
+                                🔒 Your key is encrypted locally using AES-256-GCM and stored only
+                                in your browser's LocalStorage. It is never sent to our servers.
                             </p>
                         </div>
                     </TabsContent>
@@ -176,7 +187,8 @@ export function SettingsPanel({ open, onOpenChange }: SettingsPanelProps) {
                                 <div>
                                     <p className="text-sm font-medium">Thinking Mode (Reasoning)</p>
                                     <p className="text-xs text-muted-foreground mt-1">
-                                        Enables reasoning tokens for compatible models (e.g. DeepSeek R1)
+                                        Enables reasoning tokens for compatible models (e.g.
+                                        DeepSeek R1)
                                     </p>
                                 </div>
                                 <Button
@@ -199,13 +211,21 @@ export function SettingsPanel({ open, onOpenChange }: SettingsPanelProps) {
                                 {Object.entries(PRESETS).map(([key, preset]) => (
                                     <Button
                                         key={key}
-                                        variant={temperature === preset.temperature ? 'default' : 'outline'}
+                                        variant={
+                                            temperature === preset.temperature
+                                                ? 'default'
+                                                : 'outline'
+                                        }
                                         className={`h-auto py-4 px-4 flex-col items-start gap-1 transition-all ${temperature === preset.temperature ? 'border-primary' : ''}`}
                                         onClick={() => setTemperature(preset.temperature)}
                                     >
                                         <div className="flex items-center justify-between w-full">
-                                            <span className="font-semibold capitalize text-sm">{key}</span>
-                                            {temperature === preset.temperature && <Check className="h-3 w-3" />}
+                                            <span className="font-semibold capitalize text-sm">
+                                                {key}
+                                            </span>
+                                            {temperature === preset.temperature && (
+                                                <Check className="h-3 w-3" />
+                                            )}
                                         </div>
                                         <span className="text-[10px] text-muted-foreground text-left leading-tight opacity-90">
                                             {preset.description}

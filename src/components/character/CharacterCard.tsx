@@ -37,15 +37,19 @@ export function CharacterCard({
                 whileHover={{ scale: 1.05, backgroundColor: 'rgba(var(--primary), 0.1)' }}
                 whileTap={{ scale: 0.95 }}
                 className={cn(
-                    "relative cursor-pointer rounded-xl flex items-center justify-center transition-all duration-200 aspect-square w-12 mx-auto border-2",
+                    'relative cursor-pointer rounded-xl flex items-center justify-center transition-all duration-200 aspect-square w-12 mx-auto border-2',
                     isActive
-                        ? "border-primary bg-primary/10 shadow-[0_0_15px_rgba(var(--primary),0.2)]"
-                        : "border-transparent hover:border-border/60 bg-transparent"
+                        ? 'border-primary bg-primary/10 shadow-[0_0_15px_rgba(var(--primary),0.2)]'
+                        : 'border-transparent hover:border-border/60 bg-transparent'
                 )}
                 onClick={onClick}
             >
                 <Avatar className="w-10 h-10 rounded-lg shrink-0 border border-border/50 shadow-sm">
-                    <AvatarImage src={character.avatar} alt={character.name} className="object-cover" />
+                    <AvatarImage
+                        src={character.avatar}
+                        alt={character.name}
+                        className="object-cover"
+                    />
                     <AvatarFallback className="rounded-lg bg-muted text-muted-foreground text-[10px] font-bold">
                         {character.name.slice(0, 2).toUpperCase()}
                     </AvatarFallback>
@@ -68,17 +72,21 @@ export function CharacterCard({
             whileHover={{ scale: 1.01 }}
             whileTap={{ scale: 0.98 }}
             className={cn(
-                "relative group cursor-pointer rounded-xl border-2 transition-all duration-200",
+                'relative group cursor-pointer rounded-xl border-2 transition-all duration-200',
                 isActive
-                    ? "border-primary/60 bg-primary/10 shadow-sm"
-                    : "border-border/30 hover:border-border/60 bg-card/40 hover:bg-card/60 backdrop-blur-sm"
+                    ? 'border-primary/60 bg-primary/10 shadow-sm'
+                    : 'border-border/30 hover:border-border/60 bg-card/40 hover:bg-card/60 backdrop-blur-sm'
             )}
             onClick={onClick}
         >
             {/* Card contents */}
             <div className="p-3 flex gap-3 items-start">
                 <Avatar className="w-12 h-12 rounded-lg shrink-0 border border-border/50 shadow-sm text-xs">
-                    <AvatarImage src={character.avatar} alt={character.name} className="object-cover" />
+                    <AvatarImage
+                        src={character.avatar}
+                        alt={character.name}
+                        className="object-cover"
+                    />
                     <AvatarFallback className="rounded-lg bg-muted text-muted-foreground font-medium">
                         {character.name.slice(0, 2).toUpperCase()}
                     </AvatarFallback>
@@ -86,23 +94,30 @@ export function CharacterCard({
 
                 <div className="flex-1 min-w-0 flex flex-col gap-1">
                     <div className="flex items-center justify-between gap-2">
-                        <h3 className={cn(
-                            "font-bold text-sm truncate leading-none pt-0.5",
-                            isActive ? "text-primary" : "text-foreground"
-                        )}>
+                        <h3
+                            className={cn(
+                                'font-bold text-sm truncate leading-none pt-0.5',
+                                isActive ? 'text-primary' : 'text-foreground'
+                            )}
+                        >
                             {character.name}
                         </h3>
                     </div>
 
                     <p className="text-[11px] text-muted-foreground line-clamp-2 leading-relaxed opacity-80">
-                        {character.description || character.personality || 'No description available'}
+                        {character.description ||
+                            character.personality ||
+                            'No description available'}
                     </p>
 
                     {/* Tags */}
                     {character.tags && character.tags.length > 0 && (
                         <div className="flex gap-1 mt-1.5 flex-wrap">
                             {character.tags.slice(0, 2).map((tag, i) => (
-                                <span key={i} className="text-[9px] px-1.5 py-0.5 rounded-md bg-primary/5 text-primary/70 border border-primary/10 font-medium">
+                                <span
+                                    key={i}
+                                    className="text-[9px] px-1.5 py-0.5 rounded-md bg-primary/5 text-primary/70 border border-primary/10 font-medium"
+                                >
                                     {tag}
                                 </span>
                             ))}
@@ -122,13 +137,21 @@ export function CharacterCard({
                         </Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end" className="w-40">
-                        <DropdownMenuItem onClick={(e) => { e.stopPropagation(); onEdit?.(); }}>
+                        <DropdownMenuItem
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                onEdit?.();
+                            }}
+                        >
                             <Edit className="h-4 w-4 mr-2" />
                             Edit
                         </DropdownMenuItem>
                         <DropdownMenuItem
                             className="text-destructive focus:text-destructive"
-                            onClick={(e) => { e.stopPropagation(); onDelete?.(); }}
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                onDelete?.();
+                            }}
                         >
                             <Trash2 className="h-4 w-4 mr-2" />
                             Delete

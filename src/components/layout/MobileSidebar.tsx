@@ -2,24 +2,11 @@
 
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import {
-    MessageCircle,
-    Settings,
-    Upload,
-    X,
-    Sparkles,
-    Menu,
-} from 'lucide-react';
+import { MessageCircle, Settings, Upload, X, Sparkles, Menu } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
-import {
-    Sheet,
-    SheetContent,
-    SheetHeader,
-    SheetTitle,
-    SheetTrigger,
-} from '@/components/ui/sheet';
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
 import { CharacterCard } from '@/components/character/CharacterCard';
 import { CharacterImporter } from '@/components/character/CharacterImporter';
 import { useCharacterStore } from '@/stores';
@@ -34,13 +21,13 @@ const sidebarVariants = {
     visible: {
         x: 0,
         opacity: 1,
-        transition: { type: 'spring' as const, stiffness: 300, damping: 30 }
+        transition: { type: 'spring' as const, stiffness: 300, damping: 30 },
     },
     exit: {
         x: '-100%',
         opacity: 0,
-        transition: { duration: 0.2 }
-    }
+        transition: { duration: 0.2 },
+    },
 };
 
 const itemVariants = {
@@ -48,8 +35,8 @@ const itemVariants = {
     visible: (i: number) => ({
         opacity: 1,
         x: 0,
-        transition: { delay: i * 0.05, type: 'spring' as const, stiffness: 300, damping: 25 }
-    })
+        transition: { delay: i * 0.05, type: 'spring' as const, stiffness: 300, damping: 25 },
+    }),
 };
 
 export function MobileSidebar({ onCharacterSelect, onSettingsClick }: MobileSidebarProps) {
@@ -71,11 +58,7 @@ export function MobileSidebar({ onCharacterSelect, onSettingsClick }: MobileSide
     return (
         <Sheet open={isOpen} onOpenChange={setIsOpen}>
             <SheetTrigger asChild>
-                <Button
-                    variant="ghost"
-                    size="icon"
-                    className="lg:hidden h-10 w-10"
-                >
+                <Button variant="ghost" size="icon" className="lg:hidden h-10 w-10">
                     <Menu className="h-5 w-5" />
                 </Button>
             </SheetTrigger>
@@ -104,17 +87,10 @@ export function MobileSidebar({ onCharacterSelect, onSettingsClick }: MobileSide
                     </SheetHeader>
 
                     {/* Import Button */}
-                    <motion.div
-                        className="p-3"
-                        variants={itemVariants}
-                        custom={0}
-                    >
+                    <motion.div className="p-3" variants={itemVariants} custom={0}>
                         <CharacterImporter
                             trigger={
-                                <Button
-                                    variant="outline"
-                                    className="w-full gap-2 hover-lift"
-                                >
+                                <Button variant="outline" className="w-full gap-2 hover-lift">
                                     <Upload className="h-4 w-4" />
                                     Importer un personnage
                                 </Button>

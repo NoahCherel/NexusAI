@@ -4,11 +4,7 @@ import { useState } from 'react';
 import { useSettingsStore } from '@/stores/settings-store';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import {
-    Popover,
-    PopoverContent,
-    PopoverTrigger,
-} from '@/components/ui/popover';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import {
     Dialog,
     DialogContent,
@@ -22,12 +18,26 @@ import { ChevronUp, Plus, Trash2, Edit2, User } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 export function PersonaSelector() {
-    const { personas, activePersonaId, setActivePersonaId, addPersona, updatePersona, deletePersona } = useSettingsStore();
+    const {
+        personas,
+        activePersonaId,
+        setActivePersonaId,
+        addPersona,
+        updatePersona,
+        deletePersona,
+    } = useSettingsStore();
     const [open, setOpen] = useState(false);
     const [dialogOpen, setDialogOpen] = useState(false);
     const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
-    const [personaToDelete, setPersonaToDelete] = useState<{ id: string; name: string } | null>(null);
-    const [editingPersona, setEditingPersona] = useState<{ id?: string; name: string; bio: string; avatar: string } | null>(null);
+    const [personaToDelete, setPersonaToDelete] = useState<{ id: string; name: string } | null>(
+        null
+    );
+    const [editingPersona, setEditingPersona] = useState<{
+        id?: string;
+        name: string;
+        bio: string;
+        avatar: string;
+    } | null>(null);
 
     const activePersona = personas.find((p) => p.id === activePersonaId);
     const displayName = activePersona?.name || 'You';
@@ -39,8 +49,13 @@ export function PersonaSelector() {
         setOpen(false);
     };
 
-    const openEditDialog = (persona: typeof personas[0]) => {
-        setEditingPersona({ id: persona.id, name: persona.name, bio: persona.bio, avatar: persona.avatar || '' });
+    const openEditDialog = (persona: (typeof personas)[0]) => {
+        setEditingPersona({
+            id: persona.id,
+            name: persona.name,
+            bio: persona.bio,
+            avatar: persona.avatar || '',
+        });
         setDialogOpen(true);
         setOpen(false);
     };
@@ -90,14 +105,20 @@ export function PersonaSelector() {
         <>
             <Popover open={open} onOpenChange={setOpen}>
                 <PopoverTrigger asChild>
-                    <Button variant="ghost" size="sm" className="h-8 gap-1.5 px-2 text-xs font-medium text-muted-foreground hover:text-foreground">
+                    <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-8 gap-1.5 px-2 text-xs font-medium text-muted-foreground hover:text-foreground"
+                    >
                         <Avatar className="h-5 w-5 border border-border/50">
                             <AvatarImage src={displayAvatar} className="object-cover" />
                             <AvatarFallback className="text-[9px] bg-primary/10 text-primary">
                                 {displayName[0].toUpperCase()}
                             </AvatarFallback>
                         </Avatar>
-                        <span className="max-w-[80px] truncate hidden sm:inline-block">{displayName}</span>
+                        <span className="max-w-[80px] truncate hidden sm:inline-block">
+                            {displayName}
+                        </span>
                         <ChevronUp className="h-3 w-3 opacity-50 hidden sm:block" />
                     </Button>
                 </PopoverTrigger>
@@ -110,36 +131,67 @@ export function PersonaSelector() {
                             <div
                                 key={persona.id}
                                 className={cn(
-                                    "flex items-center gap-2 p-2 rounded-lg cursor-pointer hover:bg-muted transition-colors group",
-                                    activePersonaId === persona.id && "bg-muted"
+                                    'flex items-center gap-2 p-2 rounded-lg cursor-pointer hover:bg-muted transition-colors group',
+                                    activePersonaId === persona.id && 'bg-muted'
                                 )}
                             >
                                 <div
                                     className="flex-1 flex items-center gap-2"
-                                    onClick={() => { setActivePersonaId(persona.id); setOpen(false); }}
+                                    onClick={() => {
+                                        setActivePersonaId(persona.id);
+                                        setOpen(false);
+                                    }}
                                 >
                                     <Avatar className="h-5 w-5">
                                         <AvatarImage src={persona.avatar} />
-                                        <AvatarFallback className="text-[9px]">{persona.name[0].toUpperCase()}</AvatarFallback>
+                                        <AvatarFallback className="text-[9px]">
+                                            {persona.name[0].toUpperCase()}
+                                        </AvatarFallback>
                                     </Avatar>
                                     <div className="flex-1 min-w-0">
-                                        <span className="text-xs font-medium truncate block">{persona.name}</span>
-                                        {persona.bio && <span className="text-[10px] text-muted-foreground truncate block">{persona.bio}</span>}
+                                        <span className="text-xs font-medium truncate block">
+                                            {persona.name}
+                                        </span>
+                                        {persona.bio && (
+                                            <span className="text-[10px] text-muted-foreground truncate block">
+                                                {persona.bio}
+                                            </span>
+                                        )}
                                     </div>
                                 </div>
                                 <div className="sm:hidden flex items-center gap-2 pr-1">
-                                    <Button variant="ghost" size="icon" className="h-9 w-9 bg-muted/50 rounded-full" onClick={() => openEditDialog(persona)}>
+                                    <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        className="h-9 w-9 bg-muted/50 rounded-full"
+                                        onClick={() => openEditDialog(persona)}
+                                    >
                                         <Edit2 className="h-3.5 w-3.5" />
                                     </Button>
-                                    <Button variant="ghost" size="icon" className="h-9 w-9 bg-destructive/10 text-destructive rounded-full" onClick={() => handleDelete(persona.id, persona.name)}>
+                                    <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        className="h-9 w-9 bg-destructive/10 text-destructive rounded-full"
+                                        onClick={() => handleDelete(persona.id, persona.name)}
+                                    >
                                         <Trash2 className="h-3.5 w-3.5" />
                                     </Button>
                                 </div>
                                 <div className="hidden sm:flex group-hover:flex items-center gap-0.5">
-                                    <Button variant="ghost" size="icon" className="h-5 w-5" onClick={() => openEditDialog(persona)}>
+                                    <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        className="h-5 w-5"
+                                        onClick={() => openEditDialog(persona)}
+                                    >
                                         <Edit2 className="h-2.5 w-2.5" />
                                     </Button>
-                                    <Button variant="ghost" size="icon" className="h-5 w-5 hover:text-destructive" onClick={() => handleDelete(persona.id, persona.name)}>
+                                    <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        className="h-5 w-5 hover:text-destructive"
+                                        onClick={() => handleDelete(persona.id, persona.name)}
+                                    >
                                         <Trash2 className="h-2.5 w-2.5" />
                                     </Button>
                                 </div>
@@ -152,7 +204,12 @@ export function PersonaSelector() {
                             </div>
                         )}
 
-                        <Button variant="ghost" size="sm" className="w-full justify-start gap-2 h-7 text-xs" onClick={openCreateDialog}>
+                        <Button
+                            variant="ghost"
+                            size="sm"
+                            className="w-full justify-start gap-2 h-7 text-xs"
+                            onClick={openCreateDialog}
+                        >
                             <Plus className="h-3 w-3" />
                             New Persona
                         </Button>
@@ -164,9 +221,12 @@ export function PersonaSelector() {
             <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
                 <DialogContent className="sm:max-w-md">
                     <DialogHeader>
-                        <DialogTitle>{editingPersona?.id ? 'Edit Persona' : 'Create Persona'}</DialogTitle>
+                        <DialogTitle>
+                            {editingPersona?.id ? 'Edit Persona' : 'Create Persona'}
+                        </DialogTitle>
                         <DialogDescription>
-                            Configure your persona's identity. The AI will adopt this persona during the conversation.
+                            Configure your persona's identity. The AI will adopt this persona during
+                            the conversation.
                         </DialogDescription>
                     </DialogHeader>
                     <div className="space-y-4 py-4">
@@ -175,7 +235,11 @@ export function PersonaSelector() {
                             <Input
                                 placeholder="Your character name..."
                                 value={editingPersona?.name || ''}
-                                onChange={(e) => setEditingPersona(prev => prev ? { ...prev, name: e.target.value } : null)}
+                                onChange={(e) =>
+                                    setEditingPersona((prev) =>
+                                        prev ? { ...prev, name: e.target.value } : null
+                                    )
+                                }
                             />
                         </div>
                         <div className="space-y-2">
@@ -184,7 +248,11 @@ export function PersonaSelector() {
                                 className="flex min-h-[100px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                                 placeholder="Describe your persona... (The AI will see this as your character)"
                                 value={editingPersona?.bio || ''}
-                                onChange={(e) => setEditingPersona(prev => prev ? { ...prev, bio: e.target.value } : null)}
+                                onChange={(e) =>
+                                    setEditingPersona((prev) =>
+                                        prev ? { ...prev, bio: e.target.value } : null
+                                    )
+                                }
                             />
                         </div>
                         <div className="space-y-2">
@@ -192,7 +260,11 @@ export function PersonaSelector() {
                             <Input
                                 placeholder="https://example.com/avatar.png"
                                 value={editingPersona?.avatar || ''}
-                                onChange={(e) => setEditingPersona(prev => prev ? { ...prev, avatar: e.target.value } : null)}
+                                onChange={(e) =>
+                                    setEditingPersona((prev) =>
+                                        prev ? { ...prev, avatar: e.target.value } : null
+                                    )
+                                }
                             />
                         </div>
                     </div>
@@ -215,7 +287,11 @@ export function PersonaSelector() {
                         </div>
                         <DialogTitle className="text-center">Delete Persona?</DialogTitle>
                         <DialogDescription className="text-center pt-2">
-                            This action cannot be undone. You are about to delete <span className="font-bold text-foreground">"{personaToDelete?.name}"</span>.
+                            This action cannot be undone. You are about to delete{' '}
+                            <span className="font-bold text-foreground">
+                                "{personaToDelete?.name}"
+                            </span>
+                            .
                         </DialogDescription>
                     </DialogHeader>
                     <DialogFooter className="flex-row gap-2 mt-4">

@@ -26,22 +26,22 @@ export const useNotificationStore = create<NotificationStore>((set) => ({
     addNotification: (message, icon) => {
         const id = crypto.randomUUID();
         set((state) => ({
-            notifications: [...state.notifications, { id, type: 'loading', message, icon }]
+            notifications: [...state.notifications, { id, type: 'loading', message, icon }],
         }));
         return id;
     },
 
     updateNotification: (id, type, message) => {
         set((state) => ({
-            notifications: state.notifications.map(n =>
+            notifications: state.notifications.map((n) =>
                 n.id === id ? { ...n, type, message: message || n.message } : n
-            )
+            ),
         }));
         // Auto-remove after success/error
         if (type !== 'loading') {
             setTimeout(() => {
                 set((state) => ({
-                    notifications: state.notifications.filter(n => n.id !== id)
+                    notifications: state.notifications.filter((n) => n.id !== id),
                 }));
             }, 3000);
         }
@@ -49,7 +49,7 @@ export const useNotificationStore = create<NotificationStore>((set) => ({
 
     removeNotification: (id) => {
         set((state) => ({
-            notifications: state.notifications.filter(n => n.id !== id)
+            notifications: state.notifications.filter((n) => n.id !== id),
         }));
     },
 }));
@@ -70,10 +70,14 @@ export function APINotificationToast() {
         }
 
         switch (notification.icon) {
-            case 'memory': return <Brain className="w-4 h-4" />;
-            case 'lorebook': return <Book className="w-4 h-4" />;
-            case 'world': return <Sparkles className="w-4 h-4" />;
-            default: return <Loader2 className="w-4 h-4 animate-spin" />;
+            case 'memory':
+                return <Brain className="w-4 h-4" />;
+            case 'lorebook':
+                return <Book className="w-4 h-4" />;
+            case 'world':
+                return <Sparkles className="w-4 h-4" />;
+            default:
+                return <Loader2 className="w-4 h-4 animate-spin" />;
         }
     };
 
@@ -86,12 +90,13 @@ export function APINotificationToast() {
                         initial={{ opacity: 0, y: 20, scale: 0.9 }}
                         animate={{ opacity: 1, y: 0, scale: 1 }}
                         exit={{ opacity: 0, y: -10, scale: 0.9 }}
-                        className={`flex items-center gap-2 px-4 py-2.5 rounded-lg shadow-lg backdrop-blur-md border ${notification.type === 'loading'
+                        className={`flex items-center gap-2 px-4 py-2.5 rounded-lg shadow-lg backdrop-blur-md border ${
+                            notification.type === 'loading'
                                 ? 'bg-card/90 border-border/50'
                                 : notification.type === 'success'
-                                    ? 'bg-green-500/10 border-green-500/30'
-                                    : 'bg-red-500/10 border-red-500/30'
-                            }`}
+                                  ? 'bg-green-500/10 border-green-500/30'
+                                  : 'bg-red-500/10 border-red-500/30'
+                        }`}
                     >
                         {getIcon(notification)}
                         <span className="text-sm font-medium">{notification.message}</span>

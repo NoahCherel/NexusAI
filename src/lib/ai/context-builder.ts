@@ -11,14 +11,14 @@ export function getActiveLorebookEntries(
 ): LorebookEntry[] {
     if (!lorebook?.entries) return [];
 
-    const entries = lorebook.entries.filter(e => e.enabled);
+    const entries = lorebook.entries.filter((e) => e.enabled);
     if (entries.length === 0) return [];
 
     // Get text from last N messages to scan
     // We scan the last 3 messages usually
     const recentText = messages
         .slice(-3)
-        .map(m => m.content.toLowerCase())
+        .map((m) => m.content.toLowerCase())
         .join('\n');
 
     const matchedEntries: LorebookEntry[] = [];
@@ -57,22 +57,27 @@ export function buildSystemPrompt(
 
     // 1. Inject World State
     const worldStateSection = [
-        "--- CURRENT WORLD STATE ---",
+        '--- CURRENT WORLD STATE ---',
         worldState.location ? `Location: ${worldState.location}` : null,
         worldState.inventory.length > 0 ? `Inventory: ${worldState.inventory.join(', ')}` : null,
         Object.keys(worldState.relationships).length > 0
-            ? `Relationships: ${Object.entries(worldState.relationships).map(([name, val]) => `${name}: ${val}%`).join(', ')}`
-            : null
-    ].filter(Boolean).join('\n');
+            ? `Relationships: ${Object.entries(worldState.relationships)
+                  .map(([name, val]) => `${name}: ${val}%`)
+                  .join(', ')}`
+            : null,
+    ]
+        .filter(Boolean)
+        .join('\n');
 
-    if (worldStateSection.length > 30) { // arbitrary length check
+    if (worldStateSection.length > 30) {
+        // arbitrary length check
         prompt += `\n\n${worldStateSection}`;
     }
 
     // 2. Inject Lorebook Entries
     if (activeLorebookEntries.length > 0) {
         const loreSection = activeLorebookEntries
-            .map(e => `[Info about ${e.keys[0]}: ${e.content}]`)
+            .map((e) => `[Info about ${e.keys[0]}: ${e.content}]`)
             .join('\n');
 
         prompt += `\n\n--- WORLD KNOWLEDGE ---\n${loreSection}`;

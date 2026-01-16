@@ -14,16 +14,23 @@ import { CharacterImporter } from '@/components/character/CharacterImporter';
 import { cn } from '@/lib/utils';
 import type { CharacterCard as CharacterCardType } from '@/types';
 
-export function Sidebar() {
-    const { characters, activeCharacterId, setActiveCharacterId, removeCharacter } = useCharacterStore();
+interface SidebarProps {
+    isCollapsed: boolean;
+    onToggle: () => void;
+    onSettingsClick: () => void;
+}
+
+export function Sidebar({ isCollapsed, onToggle, onSettingsClick }: SidebarProps) {
+    const { characters, activeCharacterId, setActiveCharacterId, removeCharacter } =
+        useCharacterStore();
     const [searchTerm, setSearchTerm] = useState('');
-    const [isCollapsed, setIsCollapsed] = useState(false);
     const [isEditorOpen, setIsEditorOpen] = useState(false);
     const [editingCharacter, setEditingCharacter] = useState<CharacterCardType | null>(null);
 
-    const filteredCharacters = characters.filter(c =>
-        c.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        c.tags.some(t => t.toLowerCase().includes(searchTerm.toLowerCase()))
+    const filteredCharacters = characters.filter(
+        (c) =>
+            c.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            c.tags?.some((t) => t.toLowerCase().includes(searchTerm.toLowerCase()))
     );
 
     const handleEdit = (character: CharacterCardType) => {
@@ -45,15 +52,17 @@ export function Sidebar() {
         <>
             <div
                 className={cn(
-                    "relative h-full bg-card/60 backdrop-blur-lg border-r border-border/40 flex flex-col transition-all duration-300 ease-in-out",
-                    isCollapsed ? "w-20" : "w-80"
+                    'relative h-full bg-card/60 backdrop-blur-lg border-r border-border/40 flex flex-col transition-all duration-300 ease-in-out',
+                    isCollapsed ? 'w-20' : 'w-80'
                 )}
             >
                 {/* Header */}
-                <div className={cn(
-                    "p-4 flex items-center h-16",
-                    isCollapsed ? "justify-center" : "justify-between"
-                )}>
+                <div
+                    className={cn(
+                        'p-4 flex items-center h-16',
+                        isCollapsed ? 'justify-center' : 'justify-between'
+                    )}
+                >
                     {!isCollapsed && (
                         <div className="flex items-center gap-2">
                             <div className="p-1.5 bg-primary/10 rounded-md">
@@ -65,10 +74,14 @@ export function Sidebar() {
                     <Button
                         variant="ghost"
                         size="icon"
-                        onClick={() => setIsCollapsed(!isCollapsed)}
+                        onClick={onToggle}
                         className="h-8 w-8 text-muted-foreground hover:text-foreground"
                     >
-                        {isCollapsed ? <PanelLeftOpen className="w-4 h-4" /> : <PanelLeftClose className="w-4 h-4" />}
+                        {isCollapsed ? (
+                            <PanelLeftOpen className="w-4 h-4" />
+                        ) : (
+                            <PanelLeftClose className="w-4 h-4" />
+                        )}
                     </Button>
                 </div>
 
@@ -87,7 +100,11 @@ export function Sidebar() {
                         <div className="flex gap-2">
                             <CharacterImporter
                                 trigger={
-                                    <Button variant="outline" size="sm" className="gap-1.5 flex-1 h-9 border-primary/20 bg-primary/5 text-primary hover:bg-primary/10">
+                                    <Button
+                                        variant="outline"
+                                        size="sm"
+                                        className="gap-1.5 flex-1 h-9 border-primary/20 bg-primary/5 text-primary hover:bg-primary/10"
+                                    >
                                         <Upload className="w-4 h-4" /> Import
                                     </Button>
                                 }
@@ -104,7 +121,11 @@ export function Sidebar() {
                     </div>
                 ) : (
                     <div className="px-2 pb-4 flex flex-col items-center gap-2">
-                        <Button variant="ghost" size="icon" className="h-9 w-9 text-muted-foreground hover:bg-primary/5">
+                        <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-9 w-9 text-muted-foreground hover:bg-primary/5"
+                        >
                             <Search className="w-4 h-4" />
                         </Button>
                         <div className="w-8 h-px bg-border/40 my-1" />
@@ -124,29 +145,31 @@ export function Sidebar() {
 
                 {/* List */}
                 <ScrollArea className="flex-1">
-                    <div className={cn(
-                        "space-y-3 pb-10 transition-all duration-300",
-                        isCollapsed ? "px-2 pt-4" : "px-4 pt-4"
-                    )}>
-                        {filteredCharacters.length === 0 ? (
-                            !isCollapsed && (
-                                <div className="text-center py-12 px-4">
-                                    <p className="text-muted-foreground text-sm">No characters found</p>
-                                </div>
-                            )
-                        ) : (
-                            filteredCharacters.map((char) => (
-                                <CharacterCard
-                                    key={char.id}
-                                    character={char}
-                                    isActive={char.id === activeCharacterId}
-                                    onClick={() => setActiveCharacterId(char.id)}
-                                    onEdit={() => handleEdit(char)}
-                                    onDelete={() => removeCharacter(char.id)}
-                                    isCollapsed={isCollapsed}
-                                />
-                            ))
+                    <div
+                        className={cn(
+                            'space-y-3 pb-10 transition-all duration-300',
+                            isCollapsed ? 'px-2 pt-4' : 'px-4 pt-4'
                         )}
+                    >
+                        {filteredCharacters.length === 0
+                            ? !isCollapsed && (
+                                  <div className="text-center py-12 px-4">
+                                      <p className="text-muted-foreground text-sm">
+                                          No characters found
+                                      </p>
+                                  </div>
+                              )
+                            : filteredCharacters.map((char) => (
+                                  <CharacterCard
+                                      key={char.id}
+                                      character={char}
+                                      isActive={char.id === activeCharacterId}
+                                      onClick={() => setActiveCharacterId(char.id)}
+                                      onEdit={() => handleEdit(char)}
+                                      onDelete={() => removeCharacter(char.id)}
+                                      isCollapsed={isCollapsed}
+                                  />
+                              ))}
                     </div>
                 </ScrollArea>
 
@@ -155,8 +178,8 @@ export function Sidebar() {
                     <Button
                         variant="ghost"
                         className={cn(
-                            "w-full justify-start gap-2 text-muted-foreground hover:text-foreground hover:bg-primary/5",
-                            isCollapsed ? "px-0 justify-center h-10 w-10 mx-auto" : "h-10 px-3"
+                            'w-full justify-start gap-2 text-muted-foreground hover:text-foreground hover:bg-primary/5',
+                            isCollapsed ? 'px-0 justify-center h-10 w-10 mx-auto' : 'h-10 px-3'
                         )}
                     >
                         <Settings className="w-5 h-5" />

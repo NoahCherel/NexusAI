@@ -9,7 +9,13 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { X, Save, User, FileText, MessageSquare, Tags, Sparkles } from 'lucide-react';
 import { useCharacterStore } from '@/stores/character-store';
 import type { CharacterCard } from '@/types';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
+import {
+    Dialog,
+    DialogContent,
+    DialogHeader,
+    DialogTitle,
+    DialogDescription,
+} from '@/components/ui/dialog';
 
 interface CharacterEditorProps {
     isOpen: boolean;
@@ -72,8 +78,8 @@ export function CharacterEditor({ isOpen, onClose, character }: CharacterEditorP
         try {
             const tags = formData.tags
                 .split(',')
-                .map(t => t.trim())
-                .filter(t => t.length > 0);
+                .map((t) => t.trim())
+                .filter((t) => t.length > 0);
 
             if (isEditing && character) {
                 // Update existing character
@@ -103,11 +109,7 @@ export function CharacterEditor({ isOpen, onClose, character }: CharacterEditorP
                     avatar: formData.avatar,
                     creator: 'User',
                     creator_notes: '',
-                    character_version: '1.0',
-                    post_history_instructions: '',
-                    alternate_greetings: [],
                     character_book: { entries: [] },
-                    extensions: {},
                 };
                 await addCharacter(newCharacter);
             }
@@ -133,20 +135,27 @@ export function CharacterEditor({ isOpen, onClose, character }: CharacterEditorP
                     </div>
                 </DialogHeader>
                 <DialogDescription className="sr-only">
-                    {isEditing ? 'Make changes to your character card here.' : 'Create a new character card.'}
+                    {isEditing
+                        ? 'Make changes to your character card here.'
+                        : 'Create a new character card.'}
                 </DialogDescription>
 
                 <div className="flex-1 overflow-y-auto px-4">
                     <div className="space-y-4 py-4">
                         {/* Name */}
                         <div className="space-y-2">
-                            <Label htmlFor="name" className="flex items-center gap-2 text-sm font-medium">
+                            <Label
+                                htmlFor="name"
+                                className="flex items-center gap-2 text-sm font-medium"
+                            >
                                 <User className="w-4 h-4" /> Name *
                             </Label>
                             <Input
                                 id="name"
                                 value={formData.name}
-                                onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))}
+                                onChange={(e) =>
+                                    setFormData((prev) => ({ ...prev, name: e.target.value }))
+                                }
                                 placeholder="Character name"
                                 className="bg-background/50"
                             />
@@ -154,13 +163,21 @@ export function CharacterEditor({ isOpen, onClose, character }: CharacterEditorP
 
                         {/* Description */}
                         <div className="space-y-2">
-                            <Label htmlFor="description" className="flex items-center gap-2 text-sm font-medium">
+                            <Label
+                                htmlFor="description"
+                                className="flex items-center gap-2 text-sm font-medium"
+                            >
                                 <FileText className="w-4 h-4" /> Description
                             </Label>
                             <Textarea
                                 id="description"
                                 value={formData.description}
-                                onChange={(e) => setFormData(prev => ({ ...prev, description: e.target.value }))}
+                                onChange={(e) =>
+                                    setFormData((prev) => ({
+                                        ...prev,
+                                        description: e.target.value,
+                                    }))
+                                }
                                 placeholder="Character description and backstory..."
                                 className="min-h-[80px] bg-background/50"
                             />
@@ -168,13 +185,21 @@ export function CharacterEditor({ isOpen, onClose, character }: CharacterEditorP
 
                         {/* Personality */}
                         <div className="space-y-2">
-                            <Label htmlFor="personality" className="flex items-center gap-2 text-sm font-medium">
+                            <Label
+                                htmlFor="personality"
+                                className="flex items-center gap-2 text-sm font-medium"
+                            >
                                 <Sparkles className="w-4 h-4" /> Personality
                             </Label>
                             <Textarea
                                 id="personality"
                                 value={formData.personality}
-                                onChange={(e) => setFormData(prev => ({ ...prev, personality: e.target.value }))}
+                                onChange={(e) =>
+                                    setFormData((prev) => ({
+                                        ...prev,
+                                        personality: e.target.value,
+                                    }))
+                                }
                                 placeholder="Personality traits, quirks, mannerisms..."
                                 className="min-h-[80px] bg-background/50"
                             />
@@ -182,11 +207,15 @@ export function CharacterEditor({ isOpen, onClose, character }: CharacterEditorP
 
                         {/* Scenario */}
                         <div className="space-y-2">
-                            <Label htmlFor="scenario" className="text-sm font-medium">Scenario</Label>
+                            <Label htmlFor="scenario" className="text-sm font-medium">
+                                Scenario
+                            </Label>
                             <Textarea
                                 id="scenario"
                                 value={formData.scenario}
-                                onChange={(e) => setFormData(prev => ({ ...prev, scenario: e.target.value }))}
+                                onChange={(e) =>
+                                    setFormData((prev) => ({ ...prev, scenario: e.target.value }))
+                                }
                                 placeholder="The setting or situation for the roleplay..."
                                 className="min-h-[60px] bg-background/50"
                             />
@@ -194,13 +223,18 @@ export function CharacterEditor({ isOpen, onClose, character }: CharacterEditorP
 
                         {/* First Message */}
                         <div className="space-y-2">
-                            <Label htmlFor="first_mes" className="flex items-center gap-2 text-sm font-medium">
+                            <Label
+                                htmlFor="first_mes"
+                                className="flex items-center gap-2 text-sm font-medium"
+                            >
                                 <MessageSquare className="w-4 h-4" /> First Message
                             </Label>
                             <Textarea
                                 id="first_mes"
                                 value={formData.first_mes}
-                                onChange={(e) => setFormData(prev => ({ ...prev, first_mes: e.target.value }))}
+                                onChange={(e) =>
+                                    setFormData((prev) => ({ ...prev, first_mes: e.target.value }))
+                                }
                                 placeholder="The character's opening message..."
                                 className="min-h-[100px] bg-background/50"
                             />
@@ -208,11 +242,18 @@ export function CharacterEditor({ isOpen, onClose, character }: CharacterEditorP
 
                         {/* Example Messages */}
                         <div className="space-y-2">
-                            <Label htmlFor="mes_example" className="text-sm font-medium">Example Messages</Label>
+                            <Label htmlFor="mes_example" className="text-sm font-medium">
+                                Example Messages
+                            </Label>
                             <Textarea
                                 id="mes_example"
                                 value={formData.mes_example}
-                                onChange={(e) => setFormData(prev => ({ ...prev, mes_example: e.target.value }))}
+                                onChange={(e) =>
+                                    setFormData((prev) => ({
+                                        ...prev,
+                                        mes_example: e.target.value,
+                                    }))
+                                }
                                 placeholder="Example dialogue format ({{user}}: / {{char}}:)..."
                                 className="min-h-[80px] bg-background/50 font-mono text-xs"
                             />
@@ -220,11 +261,18 @@ export function CharacterEditor({ isOpen, onClose, character }: CharacterEditorP
 
                         {/* System Prompt */}
                         <div className="space-y-2">
-                            <Label htmlFor="system_prompt" className="text-sm font-medium">System Prompt Override</Label>
+                            <Label htmlFor="system_prompt" className="text-sm font-medium">
+                                System Prompt Override
+                            </Label>
                             <Textarea
                                 id="system_prompt"
                                 value={formData.system_prompt}
-                                onChange={(e) => setFormData(prev => ({ ...prev, system_prompt: e.target.value }))}
+                                onChange={(e) =>
+                                    setFormData((prev) => ({
+                                        ...prev,
+                                        system_prompt: e.target.value,
+                                    }))
+                                }
                                 placeholder="Custom system prompt (optional)..."
                                 className="min-h-[60px] bg-background/50"
                             />
@@ -232,13 +280,18 @@ export function CharacterEditor({ isOpen, onClose, character }: CharacterEditorP
 
                         {/* Tags */}
                         <div className="space-y-2">
-                            <Label htmlFor="tags" className="flex items-center gap-2 text-sm font-medium">
+                            <Label
+                                htmlFor="tags"
+                                className="flex items-center gap-2 text-sm font-medium"
+                            >
                                 <Tags className="w-4 h-4" /> Tags
                             </Label>
                             <Input
                                 id="tags"
                                 value={formData.tags}
-                                onChange={(e) => setFormData(prev => ({ ...prev, tags: e.target.value }))}
+                                onChange={(e) =>
+                                    setFormData((prev) => ({ ...prev, tags: e.target.value }))
+                                }
                                 placeholder="fantasy, romance, adventure (comma separated)"
                                 className="bg-background/50"
                             />
@@ -246,11 +299,15 @@ export function CharacterEditor({ isOpen, onClose, character }: CharacterEditorP
 
                         {/* Avatar URL */}
                         <div className="space-y-2">
-                            <Label htmlFor="avatar" className="text-sm font-medium">Avatar URL</Label>
+                            <Label htmlFor="avatar" className="text-sm font-medium">
+                                Avatar URL
+                            </Label>
                             <Input
                                 id="avatar"
                                 value={formData.avatar}
-                                onChange={(e) => setFormData(prev => ({ ...prev, avatar: e.target.value }))}
+                                onChange={(e) =>
+                                    setFormData((prev) => ({ ...prev, avatar: e.target.value }))
+                                }
                                 placeholder="https://example.com/avatar.png"
                                 className="bg-background/50"
                             />
@@ -269,7 +326,7 @@ export function CharacterEditor({ isOpen, onClose, character }: CharacterEditorP
                         disabled={!formData.name.trim() || isSaving}
                     >
                         <Save className="w-4 h-4" />
-                        {isSaving ? 'Saving...' : (isEditing ? 'Save Changes' : 'Create Character')}
+                        {isSaving ? 'Saving...' : isEditing ? 'Save Changes' : 'Create Character'}
                     </Button>
                 </div>
             </DialogContent>

@@ -32,31 +32,34 @@ export function CharacterImporter({ trigger, onImported, isCollapsed }: Characte
 
     const addCharacter = useCharacterStore((state) => state.addCharacter);
 
-    const onDrop = useCallback(async (acceptedFiles: File[]) => {
-        const file = acceptedFiles[0];
-        if (!file) return;
+    const onDrop = useCallback(
+        async (acceptedFiles: File[]) => {
+            const file = acceptedFiles[0];
+            if (!file) return;
 
-        setStatus('loading');
-        setError(null);
+            setStatus('loading');
+            setError(null);
 
-        try {
-            const character = await importCharacterCard(file);
-            setImportedChar(character);
-            addCharacter(character);
-            setStatus('success');
-            onImported?.(character);
+            try {
+                const character = await importCharacterCard(file);
+                setImportedChar(character);
+                addCharacter(character);
+                setStatus('success');
+                onImported?.(character);
 
-            // Auto-close after success
-            setTimeout(() => {
-                setIsOpen(false);
-                setStatus('idle');
-                setImportedChar(null);
-            }, 2000);
-        } catch (err) {
-            setError(err instanceof Error ? err.message : 'Erreur lors de l\'import');
-            setStatus('error');
-        }
-    }, [addCharacter, onImported]);
+                // Auto-close after success
+                setTimeout(() => {
+                    setIsOpen(false);
+                    setStatus('idle');
+                    setImportedChar(null);
+                }, 2000);
+            } catch (err) {
+                setError(err instanceof Error ? err.message : "Erreur lors de l'import");
+                setStatus('error');
+            }
+        },
+        [addCharacter, onImported]
+    );
 
     const { getRootProps, getInputProps, isDragActive } = useDropzone({
         onDrop,
@@ -71,33 +74,42 @@ export function CharacterImporter({ trigger, onImported, isCollapsed }: Characte
     return (
         <Dialog open={isOpen} onOpenChange={setIsOpen}>
             <DialogTrigger asChild>
-                {trigger || (
-                    isCollapsed ? (
-                        <Button variant="ghost" size="icon" className="h-10 w-10 text-primary bg-primary/10 hover:bg-primary/20">
+                {trigger ||
+                    (isCollapsed ? (
+                        <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-10 w-10 text-primary bg-primary/10 hover:bg-primary/20"
+                        >
                             <Plus className="w-5 h-5" />
                         </Button>
                     ) : (
-                        <Button variant="outline" className="w-full gap-2 border-primary/20 bg-primary/5 text-primary hover:bg-primary/10 h-10">
+                        <Button
+                            variant="outline"
+                            className="w-full gap-2 border-primary/20 bg-primary/5 text-primary hover:bg-primary/10 h-10"
+                        >
                             <Upload className="h-4 w-4" />
                             <span className="text-sm font-medium">Import Character</span>
                         </Button>
-                    )
-                )}
+                    ))}
             </DialogTrigger>
             <DialogContent className="sm:max-w-md">
                 <DialogHeader>
                     <DialogTitle>Import Character</DialogTitle>
                     <DialogDescription>
-                        Drag & drop a Character Card V2 (PNG or JSON) from Chub, JanitorAI, or SillyTavern.
+                        Drag & drop a Character Card V2 (PNG or JSON) from Chub, JanitorAI, or
+                        SillyTavern.
                     </DialogDescription>
                 </DialogHeader>
 
                 <div
                     {...getRootProps()}
                     className={cn(
-                        "relative mt-4 p-8 border-2 border-dashed rounded-xl transition-all cursor-pointer",
-                        isDragActive ? "border-primary bg-primary/5" : "border-muted-foreground/25 hover:border-primary/50",
-                        status === 'loading' ? "opacity-50 pointer-events-none" : ""
+                        'relative mt-4 p-8 border-2 border-dashed rounded-xl transition-all cursor-pointer',
+                        isDragActive
+                            ? 'border-primary bg-primary/5'
+                            : 'border-muted-foreground/25 hover:border-primary/50',
+                        status === 'loading' ? 'opacity-50 pointer-events-none' : ''
                     )}
                 >
                     <input {...getInputProps()} />
@@ -139,7 +151,11 @@ export function CharacterImporter({ trigger, onImported, isCollapsed }: Characte
                                 <div className="w-16 h-16 rounded-full bg-muted flex items-center justify-center">
                                     <motion.div
                                         animate={{ rotate: 360 }}
-                                        transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
+                                        transition={{
+                                            duration: 1,
+                                            repeat: Infinity,
+                                            ease: 'linear',
+                                        }}
                                     >
                                         <Upload className="w-8 h-8 text-muted-foreground" />
                                     </motion.div>
@@ -161,7 +177,9 @@ export function CharacterImporter({ trigger, onImported, isCollapsed }: Characte
                                 </div>
                                 <div className="text-center">
                                     <p className="font-medium">{importedChar.name}</p>
-                                    <p className="text-sm text-muted-foreground">Imported successfully!</p>
+                                    <p className="text-sm text-muted-foreground">
+                                        Imported successfully!
+                                    </p>
                                 </div>
                             </motion.div>
                         )}

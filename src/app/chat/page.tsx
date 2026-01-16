@@ -5,7 +5,15 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { MessageCircle, Settings2, Sparkles, GitBranch, Brain } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { ChatBubble, ChatInput, WorldStatePanel, PersonaSelector, ModelSelector, ThinkingModeToggle } from '@/components/chat';
+import type { Message as CAMessage } from '@/types';
+import {
+    ChatBubble,
+    ChatInput,
+    WorldStatePanel,
+    PersonaSelector,
+    ModelSelector,
+    ThinkingModeToggle,
+} from '@/components/chat';
 import { Sidebar, SettingsPanel, MobileSidebar } from '@/components/layout';
 import { useCharacterStore, useSettingsStore, useChatStore, useLorebookStore } from '@/stores';
 import { useWorldStateAnalyzer } from '@/hooks';
@@ -20,7 +28,12 @@ import { MemoryPanel } from '@/components/chat/MemoryPanel';
 import { LandingPage } from '@/components/chat/LandingPage';
 import { useAppInitialization } from '@/hooks/useAppInitialization';
 import { extractLorebookEntries } from '@/lib/lorebook-extractor';
-import { APINotificationToast, notifyAPIStart, notifyAPISuccess, notifyAPIError } from '@/components/ui/api-notification';
+import {
+    APINotificationToast,
+    notifyAPIStart,
+    notifyAPISuccess,
+    notifyAPIError,
+} from '@/components/ui/api-notification';
 import type { CharacterCard, Message } from '@/types';
 
 export default function ChatPage() {
@@ -53,7 +66,7 @@ export default function ChatPage() {
         setActiveConversation,
         deleteMessage,
         isLoading: isLoadingConversations,
-        loadedCharacterId
+        loadedCharacterId,
     } = useChatStore();
     const { activeLorebook, setActiveLorebook } = useLorebookStore();
 
@@ -70,18 +83,22 @@ export default function ChatPage() {
         activePersonaId,
         personas,
         enableReasoning,
-        immersiveMode
+        immersiveMode,
     } = useSettingsStore();
     const character = getActiveCharacter();
 
     // Get current world state from active conversation
-    const currentConversation = conversations.find(c => c.id === activeConversationId);
-    const worldState = currentConversation?.worldState || { inventory: [], location: '', relationships: {} };
+    const currentConversation = conversations.find((c) => c.id === activeConversationId);
+    const worldState = currentConversation?.worldState || {
+        inventory: [],
+        location: '',
+        relationships: {},
+    };
 
     // Get decrypted API key on mount/change
     useEffect(() => {
         const loadApiKey = async () => {
-            const keyConfig = apiKeys.find(k => k.provider === activeProvider);
+            const keyConfig = apiKeys.find((k) => k.provider === activeProvider);
             if (keyConfig) {
                 try {
                     const decrypted = await decryptApiKey(keyConfig.encryptedKey);
@@ -115,7 +132,7 @@ export default function ChatPage() {
                 console.log('[ChatPage] Waiting for sync...', {
                     char: character?.id,
                     loaded: loadedCharacterId,
-                    loading: isLoadingConversations
+                    loading: isLoadingConversations,
                 });
                 return;
             }
@@ -124,11 +141,11 @@ export default function ChatPage() {
                 hasCharacter: !!character,
                 isLoadingConversations: isLoadingConversations,
                 activeConversationId,
-                loadedConversationsCount: conversations.length
+                loadedConversationsCount: conversations.length,
             });
 
             // Check if we already have a valid active conversation for this character
-            const currentConv = conversations.find(c => c.id === activeConversationId);
+            const currentConv = conversations.find((c) => c.id === activeConversationId);
             if (currentConv && currentConv.characterId === character.id) {
                 console.log('[ChatPage] Valid conversation already active:', activeConversationId);
                 return;
@@ -137,7 +154,8 @@ export default function ChatPage() {
             // Try to find an existing conversation for this character
             // The store's loadConversations should have already tried to set activeConversationId from localStorage
             // But if it failed or wasn't set, we pick the most recent one
-            const characterConvs = conversations.filter(c => c.characterId === character.id)
+            const characterConvs = conversations
+                .filter((c) => c.characterId === character.id)
                 .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime());
 
             if (characterConvs.length > 0) {
@@ -172,7 +190,17 @@ export default function ChatPage() {
             }
         };
         initConversation();
-    }, [character?.id, character?.first_mes, activeConversationId, createConversation, addMessage, conversations, analyzeMessage, loadedCharacterId, isLoadingConversations]);
+    }, [
+        character?.id,
+        character?.first_mes,
+        activeConversationId,
+        createConversation,
+        addMessage,
+        conversations,
+        analyzeMessage,
+        loadedCharacterId,
+        isLoadingConversations,
+    ]);
 
     // Auto-scroll to bottom
     useEffect(() => {
@@ -181,10 +209,9 @@ export default function ChatPage() {
         }
     }, [messages]);
 
-    const triggerAiReponse = async (history: ChatMessage[]) => {
+    const triggerAiReponse = async (history: CAMessage[]) => {
         if (!currentApiKey || !character) return;
         setIsLoading(true);
-
 
         // Stop any previous request
         if (abortControllerRef.current) {
@@ -192,11 +219,17 @@ export default function ChatPage() {
         }
         abortControllerRef.current = new AbortController();
 
-        const activePersona = personas.find(p => p.id === activePersonaId);
+        const activePersona = personas.find((p) => p.id === activePersonaId);
 
         // 1. Calculate Active Lorebook Entries (World Info) using STORE data
         const activeEntries = getActiveLorebookEntries(
-            history.map(m => ({ ...m, conversationId: '', parentId: null, isActiveBranch: true, createdAt: new Date() })),
+            history.map((m) => ({
+                ...m,
+                conversationId: '',
+                parentId: null,
+                isActiveBranch: true,
+                createdAt: new Date(),
+            })) as unknown as CAMessage[],
             activeLorebook || undefined
         );
 
@@ -229,9 +262,9 @@ export default function ChatPage() {
                     temperature,
                     systemPrompt, // We pass the fully constructed prompt here
                     userPersona: activePersona,
-                    enableReasoning
+                    enableReasoning,
                 }),
-                signal: abortControllerRef.current.signal
+                signal: abortControllerRef.current.signal,
             });
 
             if (!response.ok) {
@@ -263,7 +296,7 @@ export default function ChatPage() {
                 // Update the assistant message in store
                 updateMessage(assistantId, {
                     content: visibleContent,
-                    thought: assistantThought || undefined
+                    thought: assistantThought || undefined,
                 });
             }
 
@@ -271,7 +304,7 @@ export default function ChatPage() {
             const finalResult = normalizeCoT(assistantContent, activeProvider);
             updateMessage(assistantId, {
                 content: finalResult.content,
-                thought: finalResult.thought || undefined
+                thought: finalResult.thought || undefined,
             });
 
             // Analyze messages for world state changes (background)
@@ -288,17 +321,17 @@ export default function ChatPage() {
 
                 // Auto-extract lorebook entries from AI response
                 if (activeLorebook && assistantContent) {
-                    const existingKeys = activeLorebook.entries.flatMap(e => e.keys);
+                    const existingKeys = activeLorebook.entries.flatMap((e) => e.keys);
                     extractLorebookEntries(assistantContent, existingKeys)
-                        .then(newEntries => {
+                        .then((newEntries) => {
                             if (newEntries.length > 0) {
                                 console.log('Extracted new lorebook entries:', newEntries);
                                 // Add each entry through the store (blockchain-style)
                                 const { addAIEntry } = useLorebookStore.getState();
-                                newEntries.forEach(entry => addAIEntry(entry));
+                                newEntries.forEach((entry) => addAIEntry(entry));
                             }
                         })
-                        .catch(err => console.error('Lorebook extraction failed:', err));
+                        .catch((err) => console.error('Lorebook extraction failed:', err));
                 }
             }
         } catch (error: any) {
@@ -352,7 +385,7 @@ export default function ChatPage() {
         if (!activeConversationId) return;
 
         // Find the message
-        const msgIndex = messages.findIndex(m => m.id === id);
+        const msgIndex = messages.findIndex((m) => m.id === id);
         if (msgIndex === -1) return;
 
         const msgToRegen = messages[msgIndex];
@@ -413,13 +446,17 @@ export default function ChatPage() {
                                     initial={{ y: -60, opacity: 0 }}
                                     animate={{ y: 0, opacity: 1 }}
                                     exit={{ y: -60, opacity: 0 }}
-                                    transition={{ type: 'spring' as const, stiffness: 300, damping: 30 }}
+                                    transition={{
+                                        type: 'spring' as const,
+                                        stiffness: 300,
+                                        damping: 30,
+                                    }}
                                     className="h-14 border-b border-white/5 flex items-center px-4 justify-between glass-heavy sticky top-0 z-30 shrink-0"
                                 >
                                     <div className="flex items-center gap-2 sm:gap-3 min-w-0">
                                         {/* Mobile Menu Button */}
                                         <MobileSidebar
-                                            onCharacterSelect={() => { }}
+                                            onCharacterSelect={() => {}}
                                             onSettingsClick={() => setIsSettingsOpen(true)}
                                         />
                                         <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center overflow-hidden shrink-0">
@@ -436,7 +473,9 @@ export default function ChatPage() {
                                             )}
                                         </div>
                                         <div className="flex flex-col min-w-0">
-                                            <h2 className="font-semibold text-xs sm:text-sm truncate">{character.name}</h2>
+                                            <h2 className="font-semibold text-xs sm:text-sm truncate">
+                                                {character.name}
+                                            </h2>
                                             <p className="text-[10px] text-muted-foreground truncate opacity-80">
                                                 {activeModel}
                                             </p>
@@ -472,17 +511,33 @@ export default function ChatPage() {
                                         messages.map((msg) => {
                                             const siblingsInfo = getMessageSiblingsInfo(msg.id);
                                             // Replace {{user}} with persona name for display
-                                            const displayContent = msg.content.replace(/{{user}}/gi, personas.find(p => p.id === activePersonaId)?.name || 'You');
+                                            const displayContent = msg.content.replace(
+                                                /{{user}}/gi,
+                                                personas.find((p) => p.id === activePersonaId)
+                                                    ?.name || 'You'
+                                            );
 
                                             return (
                                                 <ChatBubble
                                                     key={msg.id}
                                                     id={msg.id}
-                                                    role={msg.role}
+                                                    role={msg.role as 'user' | 'assistant'}
                                                     content={displayContent}
                                                     thought={msg.thought}
-                                                    avatar={msg.role === 'user' ? (personas.find(p => p.id === activePersonaId)?.avatar) : character.avatar}
-                                                    name={msg.role === 'user' ? (personas.find(p => p.id === activePersonaId)?.name || 'You') : character.name}
+                                                    avatar={
+                                                        msg.role === 'user'
+                                                            ? personas.find(
+                                                                  (p) => p.id === activePersonaId
+                                                              )?.avatar
+                                                            : character.avatar
+                                                    }
+                                                    name={
+                                                        msg.role === 'user'
+                                                            ? personas.find(
+                                                                  (p) => p.id === activePersonaId
+                                                              )?.name || 'You'
+                                                            : character.name
+                                                    }
                                                     showThoughts={showThoughts}
                                                     onEdit={handleEditMessage}
                                                     onRegenerate={handleRegenerate}
@@ -502,13 +557,27 @@ export default function ChatPage() {
 
                             {/* World State Panel (Overlay or Side) */}
                             {showWorldState && (
-                                <div className={`hidden lg:block absolute right-0 top-0 bottom-0 border-l bg-background/95 backdrop-blur z-10 transition-all duration-300 ${isWorldStateCollapsed ? 'w-[50px] overflow-hidden' : 'w-64 p-4'}`}>
+                                <div
+                                    className={`hidden lg:block absolute right-0 top-0 bottom-0 border-l bg-background/95 backdrop-blur z-10 transition-all duration-300 ${isWorldStateCollapsed ? 'w-[50px] overflow-hidden' : 'w-64 p-4'}`}
+                                >
                                     <WorldStatePanel
-                                        inventory={worldState.inventory.map(i => i.replace(/{{user}}/gi, personas.find(p => p.id === activePersonaId)?.name || 'You'))}
-                                        location={worldState.location.replace(/{{user}}/gi, personas.find(p => p.id === activePersonaId)?.name || 'You')}
+                                        inventory={worldState.inventory.map((i) =>
+                                            i.replace(
+                                                /{{user}}/gi,
+                                                personas.find((p) => p.id === activePersonaId)
+                                                    ?.name || 'You'
+                                            )
+                                        )}
+                                        location={worldState.location.replace(
+                                            /{{user}}/gi,
+                                            personas.find((p) => p.id === activePersonaId)?.name ||
+                                                'You'
+                                        )}
                                         relationships={worldState.relationships}
                                         isCollapsed={isWorldStateCollapsed}
-                                        onToggle={() => setIsWorldStateCollapsed(!isWorldStateCollapsed)}
+                                        onToggle={() =>
+                                            setIsWorldStateCollapsed(!isWorldStateCollapsed)
+                                        }
                                     />
                                 </div>
                             )}
@@ -517,12 +586,15 @@ export default function ChatPage() {
                         {/* Input Area - Floating in immersive mode */}
                         <motion.div
                             layout
-                            className={`z-20 ${immersiveMode
-                                ? 'absolute bottom-4 left-4 right-4 rounded-2xl glass-heavy shadow-2xl'
-                                : 'p-4 border-t border-white/5 glass-heavy'
-                                }`}
+                            className={`z-20 ${
+                                immersiveMode
+                                    ? 'absolute bottom-4 left-4 right-4 rounded-2xl glass-heavy shadow-2xl'
+                                    : 'p-4 border-t border-white/5 glass-heavy'
+                            }`}
                         >
-                            <div className={`mx-auto w-full space-y-2 ${immersiveMode ? 'p-4 max-w-3xl' : 'max-w-4xl'}`}>
+                            <div
+                                className={`mx-auto w-full space-y-2 ${immersiveMode ? 'p-4 max-w-3xl' : 'max-w-4xl'}`}
+                            >
                                 {!immersiveMode && (
                                     <div className="flex items-center gap-1 sm:gap-2 overflow-x-auto no-scrollbar pb-1">
                                         <PersonaSelector />
@@ -562,7 +634,11 @@ export default function ChatPage() {
                                     onStop={handleStop}
                                     isLoading={isLoading}
                                     disabled={!currentApiKey}
-                                    placeholder={!currentApiKey ? 'Missing API Key...' : `Message for ${character.name}...`}
+                                    placeholder={
+                                        !currentApiKey
+                                            ? 'Missing API Key...'
+                                            : `Message for ${character.name}...`
+                                    }
                                 />
                                 {immersiveMode && (
                                     <div className="absolute top-2 right-2">
@@ -590,7 +666,9 @@ export default function ChatPage() {
             <Dialog open={isLorebookOpen} onOpenChange={setIsLorebookOpen}>
                 <DialogContent className="w-[calc(100vw-2rem)] max-w-5xl h-[90vh] p-0 overflow-hidden [&>button]:hidden">
                     <DialogTitle className="sr-only">Lorebook Editor</DialogTitle>
-                    <DialogDescription className="sr-only">Edit lorebook entries for this character.</DialogDescription>
+                    <DialogDescription className="sr-only">
+                        Edit lorebook entries for this character.
+                    </DialogDescription>
                     <LorebookEditor onClose={() => setIsLorebookOpen(false)} />
                 </DialogContent>
             </Dialog>

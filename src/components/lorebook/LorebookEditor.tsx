@@ -19,13 +19,8 @@ import {
 } from '@/components/ui/dialog';
 
 export function LorebookEditor({ onClose }: { onClose: () => void }) {
-    const {
-        activeLorebook,
-        addEntry,
-        updateEntry,
-        deleteEntry,
-        setActiveLorebook
-    } = useLorebookStore();
+    const { activeLorebook, addEntry, updateEntry, deleteEntry, setActiveLorebook } =
+        useLorebookStore();
 
     const [selectedEntryIndex, setSelectedEntryIndex] = useState<number | null>(null);
     const [searchQuery, setSearchQuery] = useState('');
@@ -47,7 +42,7 @@ export function LorebookEditor({ onClose }: { onClose: () => void }) {
     const handleSaveToCharacter = () => {
         if (character && activeLorebook) {
             updateCharacter(character.id, {
-                character_book: activeLorebook
+                character_book: activeLorebook,
             });
         }
     };
@@ -60,18 +55,22 @@ export function LorebookEditor({ onClose }: { onClose: () => void }) {
             priority: 10,
         };
         addEntry(newEntry);
-        setSelectedEntryIndex((activeLorebook?.entries.length || 0));
+        setSelectedEntryIndex(activeLorebook?.entries.length || 0);
     };
 
-    const filteredEntries = activeLorebook?.entries.map((entry, index) => ({ entry, index }))
-        .filter(({ entry }) =>
-            entry.keys.some(k => k.toLowerCase().includes(searchQuery.toLowerCase())) ||
-            entry.content.toLowerCase().includes(searchQuery.toLowerCase())
-        ) || [];
+    const filteredEntries =
+        activeLorebook?.entries
+            .map((entry, index) => ({ entry, index }))
+            .filter(
+                ({ entry }) =>
+                    entry.keys.some((k) => k.toLowerCase().includes(searchQuery.toLowerCase())) ||
+                    entry.content.toLowerCase().includes(searchQuery.toLowerCase())
+            ) || [];
 
-    const currentEntry = selectedEntryIndex !== null && activeLorebook?.entries[selectedEntryIndex]
-        ? activeLorebook.entries[selectedEntryIndex]
-        : null;
+    const currentEntry =
+        selectedEntryIndex !== null && activeLorebook?.entries[selectedEntryIndex]
+            ? activeLorebook.entries[selectedEntryIndex]
+            : null;
 
     // Mobile logic: if an entry is selected on mobile, we show the editor view.
     const showEditorOnMobile = isMobile && selectedEntryIndex !== null;
@@ -94,13 +93,18 @@ export function LorebookEditor({ onClose }: { onClose: () => void }) {
                     <Book className="w-5 h-5 text-primary shrink-0" />
                     <h2 className="font-bold text-sm sm:text-base truncate">
                         {isMobile && currentEntry
-                            ? (currentEntry.keys[0] || 'Entry Details')
+                            ? currentEntry.keys[0] || 'Entry Details'
                             : 'Lorebook Editor'}
                     </h2>
                 </div>
                 <div className="flex items-center gap-1 sm:gap-2 shrink-0">
                     {character && (
-                        <Button variant="outline" size="sm" onClick={handleSaveToCharacter} className="h-8 gap-2 px-2 sm:px-3 border-primary/20 bg-primary/5 text-primary hover:bg-primary/10">
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={handleSaveToCharacter}
+                            className="h-8 gap-2 px-2 sm:px-3 border-primary/20 bg-primary/5 text-primary hover:bg-primary/10"
+                        >
                             <Save className="w-3.5 h-3.5" />
                             <span className="hidden sm:inline">Save to {character.name}</span>
                             <span className="sm:hidden">Save</span>
@@ -114,10 +118,12 @@ export function LorebookEditor({ onClose }: { onClose: () => void }) {
 
             <div className="flex flex-1 min-h-0 relative">
                 {/* Sidebar List - Hidden on mobile when entry is selected */}
-                <div className={cn(
-                    "w-full lg:w-72 border-r flex flex-col bg-muted/10 transition-all duration-300",
-                    showEditorOnMobile ? "hidden lg:flex" : "flex"
-                )}>
+                <div
+                    className={cn(
+                        'w-full lg:w-72 border-r flex flex-col bg-muted/10 transition-all duration-300',
+                        showEditorOnMobile ? 'hidden lg:flex' : 'flex'
+                    )}
+                >
                     <div className="p-3 border-b space-y-2 bg-muted/5">
                         <div className="relative">
                             <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted-foreground outline-none" />
@@ -125,10 +131,14 @@ export function LorebookEditor({ onClose }: { onClose: () => void }) {
                                 placeholder="Search keys..."
                                 className="pl-9 h-9 text-xs bg-background/50 border-border/50 focus-visible:ring-primary/20"
                                 value={searchQuery}
-                                onChange={e => setSearchQuery(e.target.value)}
+                                onChange={(e) => setSearchQuery(e.target.value)}
                             />
                         </div>
-                        <Button onClick={handleAddEntry} size="sm" className="w-full text-xs gap-2 font-semibold h-9 shadow-sm">
+                        <Button
+                            onClick={handleAddEntry}
+                            size="sm"
+                            className="w-full text-xs gap-2 font-semibold h-9 shadow-sm"
+                        >
                             <Plus className="w-3.5 h-3.5" /> New Entry
                         </Button>
                     </div>
@@ -140,10 +150,10 @@ export function LorebookEditor({ onClose }: { onClose: () => void }) {
                                     key={index}
                                     onClick={() => setSelectedEntryIndex(index)}
                                     className={cn(
-                                        "text-left p-2.5 rounded-lg text-xs sm:text-sm transition-all flex items-center justify-between group h-11",
+                                        'text-left p-2.5 rounded-lg text-xs sm:text-sm transition-all flex items-center justify-between group h-11',
                                         selectedEntryIndex === index
-                                            ? "bg-primary text-primary-foreground shadow-md shadow-primary/20 translate-x-1"
-                                            : "hover:bg-muted/80 text-muted-foreground hover:text-foreground"
+                                            ? 'bg-primary text-primary-foreground shadow-md shadow-primary/20 translate-x-1'
+                                            : 'hover:bg-muted/80 text-muted-foreground hover:text-foreground'
                                     )}
                                 >
                                     <span className="truncate font-semibold px-1">
@@ -155,7 +165,9 @@ export function LorebookEditor({ onClose }: { onClose: () => void }) {
                                                 +{entry.keys.length - 1}
                                             </span>
                                         )}
-                                        {!entry.enabled && <div className="w-1.5 h-1.5 rounded-full bg-destructive" />}
+                                        {!entry.enabled && (
+                                            <div className="w-1.5 h-1.5 rounded-full bg-destructive" />
+                                        )}
                                     </div>
                                 </button>
                             ))}
@@ -164,7 +176,9 @@ export function LorebookEditor({ onClose }: { onClose: () => void }) {
                                     <div className="bg-muted/20 w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-3">
                                         <Search className="w-6 h-6 opacity-20" />
                                     </div>
-                                    <p className="text-muted-foreground text-xs font-medium">No lore entries found</p>
+                                    <p className="text-muted-foreground text-xs font-medium">
+                                        No lore entries found
+                                    </p>
                                 </div>
                             )}
                         </div>
@@ -172,10 +186,12 @@ export function LorebookEditor({ onClose }: { onClose: () => void }) {
                 </div>
 
                 {/* Editor Area - Hidden on mobile when no entry selected IF we want to force list first */}
-                <div className={cn(
-                    "flex-1 flex flex-col transition-all duration-300",
-                    !showEditorOnMobile && isMobile ? "hidden" : "flex"
-                )}>
+                <div
+                    className={cn(
+                        'flex-1 flex flex-col transition-all duration-300',
+                        !showEditorOnMobile && isMobile ? 'hidden' : 'flex'
+                    )}
+                >
                     {currentEntry ? (
                         <div className="flex-1 flex flex-col p-4 sm:p-6 gap-6 overflow-y-auto">
                             <div className="space-y-3">
@@ -185,10 +201,15 @@ export function LorebookEditor({ onClose }: { onClose: () => void }) {
                                 <Input
                                     className="bg-muted/5 focus-visible:ring-primary/20 h-10 font-medium"
                                     value={currentEntry.keys.join(', ')}
-                                    onChange={(e) => updateEntry(selectedEntryIndex!, {
-                                        ...currentEntry,
-                                        keys: e.target.value.split(',').map(s => s.trim()).filter(Boolean)
-                                    })}
+                                    onChange={(e) =>
+                                        updateEntry(selectedEntryIndex!, {
+                                            ...currentEntry,
+                                            keys: e.target.value
+                                                .split(',')
+                                                .map((s) => s.trim())
+                                                .filter(Boolean),
+                                        })
+                                    }
                                     placeholder="e.g. Castle, King, Magic"
                                 />
                             </div>
@@ -205,10 +226,12 @@ export function LorebookEditor({ onClose }: { onClose: () => void }) {
                                 <Textarea
                                     className="flex-1 min-h-[250px] sm:min-h-[300px] resize-none font-sans text-sm leading-relaxed p-4 bg-muted/5 focus-visible:ring-primary/20"
                                     value={currentEntry.content}
-                                    onChange={(e) => updateEntry(selectedEntryIndex!, {
-                                        ...currentEntry,
-                                        content: e.target.value
-                                    })}
+                                    onChange={(e) =>
+                                        updateEntry(selectedEntryIndex!, {
+                                            ...currentEntry,
+                                            content: e.target.value,
+                                        })
+                                    }
                                     placeholder="Describe the lore item here..."
                                 />
                             </div>
@@ -219,13 +242,17 @@ export function LorebookEditor({ onClose }: { onClose: () => void }) {
                                         <input
                                             type="checkbox"
                                             checked={currentEntry.enabled}
-                                            onChange={(e) => updateEntry(selectedEntryIndex!, {
-                                                ...currentEntry,
-                                                enabled: e.target.checked
-                                            })}
+                                            onChange={(e) =>
+                                                updateEntry(selectedEntryIndex!, {
+                                                    ...currentEntry,
+                                                    enabled: e.target.checked,
+                                                })
+                                            }
                                             className="w-4 h-4 rounded border-border/50 bg-muted/20 text-primary shadow-sm focus:ring-primary/20 cursor-pointer"
                                         />
-                                        <span className="text-sm font-semibold opacity-80 group-hover:opacity-100 transition-opacity">Enabled</span>
+                                        <span className="text-sm font-semibold opacity-80 group-hover:opacity-100 transition-opacity">
+                                            Enabled
+                                        </span>
                                     </label>
                                 </div>
                                 <Button
@@ -247,7 +274,8 @@ export function LorebookEditor({ onClose }: { onClose: () => void }) {
                                 <div className="space-y-1">
                                     <h3 className="font-bold">No Lore Selected</h3>
                                     <p className="text-xs text-muted-foreground leading-relaxed">
-                                        Select an entry from the list or create a new one to define keys and world info.
+                                        Select an entry from the list or create a new one to define
+                                        keys and world info.
                                     </p>
                                 </div>
                             </div>
@@ -265,7 +293,11 @@ export function LorebookEditor({ onClose }: { onClose: () => void }) {
                         </div>
                         <DialogTitle className="text-center">Delete Lore Entry?</DialogTitle>
                         <DialogDescription className="text-center pt-2">
-                            This action cannot be undone. You are about to delete <span className="font-bold text-foreground">"{currentEntry?.keys[0] || 'this entry'}"</span>.
+                            This action cannot be undone. You are about to delete{' '}
+                            <span className="font-bold text-foreground">
+                                "{currentEntry?.keys[0] || 'this entry'}"
+                            </span>
+                            .
                         </DialogDescription>
                     </DialogHeader>
                     <DialogFooter className="flex-row gap-2 mt-4">

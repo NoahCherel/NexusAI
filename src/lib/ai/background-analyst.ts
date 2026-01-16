@@ -1,12 +1,13 @@
 /**
  * Background Analyst - World State Tracker
- * 
+ *
  * Analyzes chat messages for action verbs and updates the world state.
  * Uses a free-tier model (Gemini Flash) to extract state changes.
  */
 
 // Regex patterns to detect action verbs in messages (English)
-export const ACTION_TRIGGERS = /\b(take|give|pick\s*up|grab|drop|put\s*down|throw|go\s+to|enter|exit|leave|arrive|attack|hit|kill|wound|heal|speak|say|shout|eat|drink|buy|sell|open|close|use|equip|wear|remove)\b/i;
+export const ACTION_TRIGGERS =
+    /\b(take|give|pick\s*up|grab|drop|put\s*down|throw|go\s+to|enter|exit|leave|arrive|attack|hit|kill|wound|heal|speak|say|shout|eat|drink|buy|sell|open|close|use|equip|wear|remove)\b/i;
 
 export interface WorldStateChanges {
     inventory_add: string[];
@@ -73,7 +74,8 @@ export function parseAnalystResponse(text: string): WorldStateChanges | null {
             inventory_add: Array.isArray(parsed.inventory_add) ? parsed.inventory_add : [],
             inventory_remove: Array.isArray(parsed.inventory_remove) ? parsed.inventory_remove : [],
             location: typeof parsed.location === 'string' ? parsed.location : null,
-            relationship_changes: typeof parsed.relationship_changes === 'object' ? parsed.relationship_changes : {},
+            relationship_changes:
+                typeof parsed.relationship_changes === 'object' ? parsed.relationship_changes : {},
         };
     } catch (error) {
         console.error('[BackgroundAnalyst] Failed to parse response:', text, error);
@@ -99,10 +101,8 @@ export function mergeWorldState(
     }
 
     // Remove items
-    newInventory = newInventory.filter(item =>
-        !changes.inventory_remove.some(r =>
-            r.toLowerCase() === item.toLowerCase()
-        )
+    newInventory = newInventory.filter(
+        (item) => !changes.inventory_remove.some((r) => r.toLowerCase() === item.toLowerCase())
     );
 
     // Update location if changed

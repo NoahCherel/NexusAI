@@ -29,7 +29,11 @@ export const MODELS = {
         { id: 'google/gemini-2.0-flash-exp:free', name: 'Gemini 2.0 Flash (Free)', free: true },
         { id: 'meta-llama/llama-3.1-8b-instruct:free', name: 'Llama 3.1 8B (Free)', free: true },
         { id: 'deepseek/deepseek-r1:free', name: 'DeepSeek R1 (Free)', free: true },
-        { id: 'tngtech/deepseek-r1t2-chimera:free', name: 'DeepSeek R1 Chimera (Free)', free: true },
+        {
+            id: 'tngtech/deepseek-r1t2-chimera:free',
+            name: 'DeepSeek R1 Chimera (Free)',
+            free: true,
+        },
         { id: 'anthropic/claude-3.5-sonnet', name: 'Claude 3.5 Sonnet', free: false },
         { id: 'openai/gpt-4o', name: 'GPT-4o', free: false },
         { id: 'openai/gpt-4o-mini', name: 'GPT-4o Mini', free: false },
@@ -68,6 +72,6 @@ export const PRESETS = {
     adventure: {
         temperature: 0.9,
         maxTokens: 3000,
-        description: 'Optimisé pour les scénarios d\'aventure',
+        description: "Optimisé pour les scénarios d'aventure",
     },
 } as const;
