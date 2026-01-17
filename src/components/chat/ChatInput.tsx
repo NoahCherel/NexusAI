@@ -105,7 +105,6 @@ export function ChatInput({
             className="w-full max-w-4xl mx-auto p-2"
         >
             <div className="flex items-end gap-2 bg-secondary/30 p-2 rounded-xl border border-border/50 shadow-sm backdrop-blur-sm relative transition-colors focus-within:bg-secondary/50 focus-within:border-primary/20">
-
                 {/* Action Menu */}
                 <DropdownMenu>
                     <DropdownMenuTrigger asChild>
@@ -120,9 +119,14 @@ export function ChatInput({
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="start" className="w-56 mb-2">
                         {onImpersonate && (
-                            <DropdownMenuItem onClick={handleImpersonateClick} disabled={isImpersonating || isLoading}>
+                            <DropdownMenuItem
+                                onClick={handleImpersonateClick}
+                                disabled={isImpersonating || isLoading}
+                            >
                                 <User className="mr-2 h-4 w-4" />
-                                <span>{isImpersonating ? 'Impersonating...' : 'Impersonate Me'}</span>
+                                <span>
+                                    {isImpersonating ? 'Impersonating...' : 'Impersonate Me'}
+                                </span>
                             </DropdownMenuItem>
                         )}
                     </DropdownMenuContent>
@@ -146,8 +150,10 @@ export function ChatInput({
                     disabled={(!message.trim() && !isLoading) || disabled}
                     size="icon"
                     className={cn(
-                        "h-10 w-10 shrink-0 mb-[1px] transition-all duration-200 rounded-lg",
-                        message.trim() || isLoading ? "opacity-100 scale-100" : "opacity-50 scale-95"
+                        'h-10 w-10 shrink-0 mb-[1px] transition-all duration-200 rounded-lg',
+                        message.trim() || isLoading
+                            ? 'opacity-100 scale-100'
+                            : 'opacity-50 scale-95'
                     )}
                 >
                     {isLoading ? (

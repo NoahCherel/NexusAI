@@ -12,15 +12,15 @@ export interface Message {
     worldStateSnapshot?: WorldState;
 
     // Message ordering and regeneration tracking
-    messageOrder: number;       // Sequential position in timeline (1, 2, 3...)
-    regenerationIndex: number;  // Which regeneration attempt (0 = original, 1+ = regens)
+    messageOrder: number; // Sequential position in timeline (1, 2, 3...)
+    regenerationIndex: number; // Which regeneration attempt (0 = original, 1+ = regens)
 }
 
 export interface Conversation {
     id: string;
     characterId: string;
     title: string;
-    worldState: WorldState;  // Kept for backward compatibility (maps to root branch)
+    worldState: WorldState; // Kept for backward compatibility (maps to root branch)
     worldStates?: Record<string, WorldState>; // Branch-specific states (branchId -> state)
     createdAt: Date;
     updatedAt: Date;

@@ -11,17 +11,23 @@ import {
     WorldStatePanel,
     PersonaSelector,
     ModelSelector,
-
 } from '@/components/chat';
 import { Sidebar, SettingsPanel, MobileSidebar } from '@/components/layout';
 import { useCharacterStore, useSettingsStore, useChatStore, useLorebookStore } from '@/stores';
+import { useNotificationStore } from '@/components/ui/api-notification';
 import { useWorldStateAnalyzer } from '@/hooks';
 import { decryptApiKey } from '@/lib/crypto';
 import { parseStreamingChunk, normalizeCoT } from '@/lib/ai/cot-middleware';
 import { buildSystemPrompt, getActiveLorebookEntries } from '@/lib/ai/context-builder';
 import { LorebookEditor } from '@/components/lorebook';
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from '@/components/ui/dialog';
-import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '@/components/ui/sheet';
+import {
+    Sheet,
+    SheetContent,
+    SheetHeader,
+    SheetTitle,
+    SheetDescription,
+} from '@/components/ui/sheet';
 import { Book, Globe2Icon } from 'lucide-react';
 import { TreeVisualization } from '@/components/chat/TreeVisualization';
 import { MemoryPanel } from '@/components/chat/MemoryPanel';
@@ -114,6 +120,16 @@ export default function ChatPage() {
         loadApiKey();
     }, [apiKeys, activeProvider]);
 
+    // Auto-scroll to bottom when switching conversations or loading
+    useEffect(() => {
+        if (activeConversationId) {
+            // Small delay to ensure content is rendered
+            setTimeout(() => {
+                scrollRef.current?.scrollIntoView({ behavior: 'instant' });
+            }, 100);
+        }
+    }, [activeConversationId]);
+
     // Sync lorebook when character changes
     useEffect(() => {
         if (character) {
@@ -175,6 +191,8 @@ export default function ChatPage() {
                         content: character.first_mes,
                         isActiveBranch: true,
                         createdAt: new Date(),
+                        messageOrder: 1,
+                        regenerationIndex: 0,
                     });
                     // Analyze first message for initial world state (delay to allow store to update)
                     const firstMes = character.first_mes;
@@ -251,21 +269,18 @@ export default function ChatPage() {
             : [];
 
         // 2. Build Enhanced System Prompt
-        let systemPrompt = buildSystemPrompt(
-            character,
-            worldState,
-            activeEntries,
-            {
-                template: activePreset?.systemPromptTemplate,
-                preHistory: activePreset?.preHistoryInstructions,
-                postHistory: activePreset?.postHistoryInstructions,
-                userPersonaName: activePersona?.name || 'User',
-            }
-        );
+        let systemPrompt = buildSystemPrompt(character, worldState, activeEntries, {
+            template: activePreset?.systemPromptTemplate,
+            preHistory: activePreset?.preHistoryInstructions,
+            postHistory: activePreset?.postHistoryInstructions,
+            userPersona: activePersona,
+            longTermMemory: character.longTermMemory,
+        });
 
         // Handle Impersonation System Prompt Override
         if (options.isImpersonation) {
-            const impersonationInstruction = activePreset?.impersonationPrompt ||
+            const impersonationInstruction =
+                activePreset?.impersonationPrompt ||
                 'Write the next message for {{user}}. Stay in character as {{user}}. Do not respond as the AI/Assistant.';
 
             const resolvedImpersonation = impersonationInstruction.replace(
@@ -295,6 +310,8 @@ export default function ChatPage() {
                 content: initialContent,
                 isActiveBranch: true,
                 createdAt: new Date(),
+                messageOrder: history.length + 1,
+                regenerationIndex: 0,
             });
         }
 
@@ -302,12 +319,13 @@ export default function ChatPage() {
         const messagesPayload = history.map(({ role, content }) => ({ role, content }));
 
         // Handle Prefill for API (Add active message to history if supported/needed)
-        // For simple usage, if we have prefill, we might NOT send it to API if we want API to complete it, 
+        // For simple usage, if we have prefill, we might NOT send it to API if we want API to complete it,
         // OR we send it as the *last* message if the provider supports prefill (Anthropic).
-        // Since we are using standard streamText, standard behavior is: 
+        // Since we are using standard streamText, standard behavior is:
         // If last message is assistant, it continues.
         if (options.prefill && targetRole === 'assistant') {
-            const supportsPrefill = activeProvider === 'anthropic' || activeProvider === 'openrouter';
+            const supportsPrefill =
+                activeProvider === 'anthropic' || activeProvider === 'openrouter';
             if (supportsPrefill) {
                 messagesPayload.push({ role: 'assistant', content: options.prefill });
             } else {
@@ -368,7 +386,7 @@ export default function ChatPage() {
 
                 // For providers where we DID sends prefill, the chunk acts as continuation.
                 // For providers where we DID NOT, the chunk is the whole start.
-                // We just append chunk to what we have? 
+                // We just append chunk to what we have?
                 // Wait, if we provided prefill to Anthropic, it returns ONLY the new text.
                 // If we didn't provide it (OpenAI), it returns the whole text (which shouldn't include prefill matching).
 
@@ -389,7 +407,7 @@ export default function ChatPage() {
 
             // Final parse
             const finalResult = normalizeCoT(fullContent, activeProvider);
-            // Check if we need to preserve thought accumulated vs returned? 
+            // Check if we need to preserve thought accumulated vs returned?
             // normalizeCoT re-parses whole string.
             // If we used prefill, fullContent has prefill.
 
@@ -433,9 +451,20 @@ export default function ChatPage() {
                 return;
             }
             console.error('Chat error:', error);
+
+            const { addNotification, updateNotification } = useNotificationStore.getState();
+            const notifId = addNotification('Failed to generate response', 'world');
+            updateNotification(
+                notifId,
+                'error',
+                error instanceof Error ? error.message : 'Unknown error'
+            );
+
             if (activeConversationId) {
                 updateMessage(targetId, {
-                    content: fullContent + '\n[Error: Failed to get response. Check API Key or Network.]',
+                    content:
+                        fullContent +
+                        '\n[Error: Failed to get response. Check API Key or Network.]',
                 });
             }
         } finally {
@@ -452,7 +481,7 @@ export default function ChatPage() {
     };
 
     const handleSend = async (userMessage: string) => {
-        if (!activeConversationId) return;
+        if (!activeConversationId || !character) return;
 
         const lastParams = messages.length > 0 ? messages[messages.length - 1] : null;
 
@@ -464,6 +493,8 @@ export default function ChatPage() {
             content: userMessage,
             isActiveBranch: true,
             createdAt: new Date(),
+            messageOrder: messages.length + 1,
+            regenerationIndex: 0,
         };
 
         addMessage(newUserMessage);
@@ -477,7 +508,7 @@ export default function ChatPage() {
     };
 
     const handleImpersonate = async (): Promise<string | void> => {
-        if (!activeConversationId || isLoading || !currentApiKey) return;
+        if (!activeConversationId || isLoading || !currentApiKey || !character) return;
 
         setIsLoading(true);
 
@@ -491,7 +522,13 @@ export default function ChatPage() {
             const useLorebooks = activePreset?.useLorebooks ?? true;
             const activeEntries = useLorebooks
                 ? getActiveLorebookEntries(
-                    messages.map((m) => ({ ...m, conversationId: '', parentId: null, isActiveBranch: true, createdAt: new Date() })) as unknown as CAMessage[],
+                    messages.map((m) => ({
+                        ...m,
+                        conversationId: '',
+                        parentId: null,
+                        isActiveBranch: true,
+                        createdAt: new Date(),
+                    })) as unknown as CAMessage[],
                     activeLorebook || undefined,
                     {
                         scanDepth: activePreset?.lorebookScanDepth,
@@ -502,20 +539,17 @@ export default function ChatPage() {
                 )
                 : [];
 
-            let systemPrompt = buildSystemPrompt(
-                character,
-                worldState,
-                activeEntries,
-                {
-                    template: activePreset?.systemPromptTemplate,
-                    preHistory: activePreset?.preHistoryInstructions,
-                    postHistory: activePreset?.postHistoryInstructions,
-                    userPersonaName: activePersona?.name || 'User',
-                }
-            );
+            let systemPrompt = buildSystemPrompt(character, worldState, activeEntries, {
+                template: activePreset?.systemPromptTemplate,
+                preHistory: activePreset?.preHistoryInstructions,
+                postHistory: activePreset?.postHistoryInstructions,
+                userPersona: activePersona,
+                longTermMemory: character.longTermMemory,
+            });
 
             // Impersonation Override
-            const impersonationInstruction = activePreset?.impersonationPrompt ||
+            const impersonationInstruction =
+                activePreset?.impersonationPrompt ||
                 'Write the next message for {{user}}. Stay in character as {{user}}. Do not respond as the AI/Assistant.';
             const resolvedImpersonation = impersonationInstruction.replace(
                 /{{user}}/gi,
@@ -557,14 +591,13 @@ export default function ChatPage() {
                 const { done, value } = await reader.read();
                 if (done) break;
                 const chunk = decoder.decode(value, { stream: true });
-                // We must accumulate the raw text first, because chunk-based parsing 
+                // We must accumulate the raw text first, because chunk-based parsing
                 // of thoughts split across chunks is unreliable.
                 generatedText += chunk;
             }
 
             const final = normalizeCoT(generatedText, activeProvider);
             return final.content;
-
         } catch (err) {
             console.error('Impersonation error:', err);
         } finally {
@@ -748,15 +781,14 @@ export default function ChatPage() {
                                     <div ref={scrollRef} />
                                 </div>
                             </div>
-
                         </div>
 
                         {/* Input Area - Floating in immersive mode */}
                         <motion.div
                             layout
                             className={`z-20 ${immersiveMode
-                                ? 'absolute bottom-4 left-4 right-4 rounded-2xl glass-heavy shadow-2xl'
-                                : 'p-4 border-t border-white/5 glass-heavy'
+                                    ? 'absolute bottom-4 left-4 right-4 rounded-2xl glass-heavy shadow-2xl'
+                                    : 'p-4 border-t border-white/5 glass-heavy'
                                 }`}
                         >
                             <div
@@ -851,7 +883,7 @@ export default function ChatPage() {
             <SettingsPanel open={isSettingsOpen} onOpenChange={setIsSettingsOpen} />
 
             <Dialog open={isLorebookOpen} onOpenChange={setIsLorebookOpen}>
-                <DialogContent className="!max-w-[95vw] !w-[95vw] h-[90vh] p-0 overflow-hidden [&>button]:hidden">
+                <DialogContent className="!max-w-[95vw] !w-[95vw] h-[90vh] p-0 overflow-hidden [&>button]:hidden flex flex-col">
                     <DialogTitle className="sr-only">Lorebook Editor</DialogTitle>
                     <DialogDescription className="sr-only">
                         Edit lorebook entries for this character.
@@ -883,7 +915,8 @@ export default function ChatPage() {
                                 inventory={worldState.inventory.map((i) =>
                                     i.replace(
                                         /{{user}}/gi,
-                                        personas.find((p) => p.id === activePersonaId)?.name || 'You'
+                                        personas.find((p) => p.id === activePersonaId)?.name ||
+                                        'You'
                                     )
                                 )}
                                 location={worldState.location.replace(
@@ -903,7 +936,9 @@ export default function ChatPage() {
                 <SheetContent side="bottom" className="h-[70vh] p-0">
                     <SheetHeader className="p-4 border-b">
                         <SheetTitle>🌍 World Context</SheetTitle>
-                        <SheetDescription>Track inventory, relationships, and location</SheetDescription>
+                        <SheetDescription>
+                            Track inventory, relationships, and location
+                        </SheetDescription>
                     </SheetHeader>
                     <div className="p-4 overflow-y-auto h-[calc(70vh-5rem)]">
                         <WorldStatePanel

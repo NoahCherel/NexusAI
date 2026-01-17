@@ -142,14 +142,14 @@ export function LorebookEditor({ onClose }: { onClose: () => void }) {
                         </Button>
                     </div>
 
-                    <ScrollArea className="flex-1">
+                    <div className="flex-1 overflow-y-auto min-h-0 custom-scrollbar">
                         <div className="flex flex-col p-2 gap-1.5 pt-3">
                             {filteredEntries.map(({ entry, index }) => (
                                 <button
                                     key={index}
                                     onClick={() => setSelectedEntryIndex(index)}
                                     className={cn(
-                                        'text-left p-2.5 rounded-lg text-xs sm:text-sm transition-all flex items-center justify-between group h-11',
+                                        'text-left p-2.5 rounded-lg text-xs sm:text-sm transition-all flex items-center justify-between group h-11 shrink-0',
                                         selectedEntryIndex === index
                                             ? 'bg-primary text-primary-foreground shadow-md shadow-primary/20 translate-x-1'
                                             : 'hover:bg-muted/80 text-muted-foreground hover:text-foreground'
@@ -181,7 +181,7 @@ export function LorebookEditor({ onClose }: { onClose: () => void }) {
                                 </div>
                             )}
                         </div>
-                    </ScrollArea>
+                    </div>
                 </div>
 
                 {/* Editor Area - Hidden on mobile when no entry selected IF we want to force list first */}

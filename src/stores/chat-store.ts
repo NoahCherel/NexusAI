@@ -171,19 +171,19 @@ export const useChatStore = create<ChatState>()((set, get) => ({
         let currentParentId = message.parentId;
         while (currentParentId) {
             messageOrder++;
-            const parent = messages.find(m => m.id === currentParentId);
+            const parent = messages.find((m) => m.id === currentParentId);
             currentParentId = parent?.parentId || null;
         }
 
         // Calculate regenerationIndex by counting siblings
-        const siblings = messages.filter(m => m.parentId === message.parentId);
+        const siblings = messages.filter((m) => m.parentId === message.parentId);
         const regenerationIndex = siblings.length;
 
         // Add calculated fields to message
         const enrichedMessage: Message = {
             ...message,
             messageOrder,
-            regenerationIndex
+            regenerationIndex,
         };
 
         set((state) => {

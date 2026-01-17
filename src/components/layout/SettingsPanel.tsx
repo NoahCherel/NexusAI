@@ -105,7 +105,10 @@ export function SettingsPanel({ open, onOpenChange }: SettingsPanelProps) {
                         </div>
 
                         {/* API Keys Tab */}
-                        <TabsContent value="api" className="flex-1 overflow-y-auto p-6 space-y-8 m-0 outline-none">
+                        <TabsContent
+                            value="api"
+                            className="flex-1 overflow-y-auto p-6 space-y-8 m-0 outline-none"
+                        >
                             <div className="max-w-2xl mx-auto space-y-8">
                                 {/* Provider Selection */}
                                 <div className="space-y-4">
@@ -123,7 +126,9 @@ export function SettingsPanel({ open, onOpenChange }: SettingsPanelProps) {
                                                                 : 'outline'
                                                         }
                                                         size="sm"
-                                                        onClick={() => setSelectedProvider(provider)}
+                                                        onClick={() =>
+                                                            setSelectedProvider(provider)
+                                                        }
                                                         className="flex-1 gap-2 h-10"
                                                     >
                                                         {provider === 'openrouter' && 'OpenRouter'}
@@ -179,22 +184,27 @@ export function SettingsPanel({ open, onOpenChange }: SettingsPanelProps) {
                                         </Button>
                                     </div>
                                     <p className="text-xs text-muted-foreground leading-relaxed">
-                                        🔒 Your key is encrypted locally using AES-256-GCM and stored only
-                                        in your browser&apos;s LocalStorage. It is never sent to our
-                                        servers.
+                                        🔒 Your key is encrypted locally using AES-256-GCM and
+                                        stored only in your browser&apos;s LocalStorage. It is never
+                                        sent to our servers.
                                     </p>
                                 </div>
                             </div>
                         </TabsContent>
 
                         {/* Chat Settings Tab */}
-                        <TabsContent value="chat" className="flex-1 overflow-y-auto p-6 space-y-8 m-0 outline-none">
+                        <TabsContent
+                            value="chat"
+                            className="flex-1 overflow-y-auto p-6 space-y-8 m-0 outline-none"
+                        >
                             <div className="max-w-2xl mx-auto space-y-8">
                                 {/* Reasoning Mode Toggle */}
                                 <div className="space-y-4">
                                     <div className="flex items-center justify-between p-4 border rounded-lg bg-card/50">
                                         <div>
-                                            <p className="text-sm font-medium">Thinking Mode (Reasoning)</p>
+                                            <p className="text-sm font-medium">
+                                                Thinking Mode (Reasoning)
+                                            </p>
                                             <p className="text-xs text-muted-foreground mt-1">
                                                 Enables reasoning tokens for compatible models (e.g.
                                                 DeepSeek R1)
@@ -215,7 +225,9 @@ export function SettingsPanel({ open, onOpenChange }: SettingsPanelProps) {
 
                                 {/* UI Options */}
                                 <div className="space-y-5">
-                                    <label className="text-sm font-medium">Interface Preferences</label>
+                                    <label className="text-sm font-medium">
+                                        Interface Preferences
+                                    </label>
 
                                     <div className="space-y-3">
                                         <div className="flex items-center justify-between p-3 border rounded-lg bg-card/50">
@@ -274,7 +286,10 @@ export function SettingsPanel({ open, onOpenChange }: SettingsPanelProps) {
                         </TabsContent>
 
                         {/* Presets Tab */}
-                        <TabsContent value="presets" className="flex-1 overflow-hidden m-0 data-[state=inactive]:hidden">
+                        <TabsContent
+                            value="presets"
+                            className="flex-1 overflow-hidden m-0 data-[state=inactive]:hidden"
+                        >
                             <PresetEditor />
                         </TabsContent>
                     </Tabs>

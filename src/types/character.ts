@@ -13,6 +13,7 @@ export interface CharacterCard {
     creator?: string;
     creator_notes?: string;
     character_book?: Lorebook;
+    longTermMemory?: string[];
 }
 
 export interface Lorebook {
@@ -25,18 +26,18 @@ export interface Lorebook {
 export enum LorebookCategory {
     CHARACTER = 'character',
     LOCATION = 'location',
-    NOTION = 'notion'  // concepts, factions, objects, events
+    NOTION = 'notion', // concepts, factions, objects, events
 }
 
-export interface Lorebook Entry {
+export interface LorebookEntry {
     keys: string[];
     content: string;
     enabled: boolean;
-    insertion_order ?: number;
-    case_sensitive ?: boolean;
-    priority ?: number;
-    category ?: LorebookCategory;  // Semantic categorization
-    position ?: 'before_char' | 'after_char';
+    insertion_order?: number;
+    case_sensitive?: boolean;
+    priority?: number;
+    category?: LorebookCategory; // Semantic categorization
+    position?: 'before_char' | 'after_char';
 }
 
 // V2 Character Card spec (PNG metadata)

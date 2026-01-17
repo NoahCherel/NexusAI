@@ -28,11 +28,7 @@ import {
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useSettingsStore } from '@/stores';
-import {
-    DEFAULT_SYSTEM_PROMPT_TEMPLATE,
-    DEFAULT_PRESETS,
-    type APIPreset,
-} from '@/types/preset';
+import { DEFAULT_SYSTEM_PROMPT_TEMPLATE, DEFAULT_PRESETS, type APIPreset } from '@/types/preset';
 import { useNotificationStore } from '@/components/ui/api-notification';
 import { useRef } from 'react';
 
@@ -48,7 +44,7 @@ export function PresetEditor() {
         error: (message: string) => {
             const id = addNotification(message);
             updateNotification(id, 'error', message);
-        }
+        },
     };
 
     const {
@@ -94,10 +90,15 @@ export function PresetEditor() {
 
     const handleExportJSON = () => {
         if (!activePreset) return;
-        const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(activePreset, null, 2));
+        const dataStr =
+            'data:text/json;charset=utf-8,' +
+            encodeURIComponent(JSON.stringify(activePreset, null, 2));
         const downloadAnchorNode = document.createElement('a');
-        downloadAnchorNode.setAttribute("href", dataStr);
-        downloadAnchorNode.setAttribute("download", `${activePreset.name.replace(/\s+/g, '_')}.json`);
+        downloadAnchorNode.setAttribute('href', dataStr);
+        downloadAnchorNode.setAttribute(
+            'download',
+            `${activePreset.name.replace(/\s+/g, '_')}.json`
+        );
         document.body.appendChild(downloadAnchorNode);
         downloadAnchorNode.click();
         downloadAnchorNode.remove();
@@ -123,8 +124,10 @@ export function PresetEditor() {
                     name: json.name || file.name.replace('.json', '') || 'Imported Preset',
                     // Generation
                     temperature: json.temperature ?? base.temperature,
-                    maxOutputTokens: json.max_tokens ?? json.maxOutputTokens ?? base.maxOutputTokens, // Common alias
-                    maxContextTokens: json.context_length ?? json.maxContextTokens ?? base.maxContextTokens,
+                    maxOutputTokens:
+                        json.max_tokens ?? json.maxOutputTokens ?? base.maxOutputTokens, // Common alias
+                    maxContextTokens:
+                        json.context_length ?? json.maxContextTokens ?? base.maxContextTokens,
                     topP: json.top_p ?? base.topP,
                     topK: json.top_k ?? base.topK,
                     minP: json.min_p ?? base.minP,
@@ -135,20 +138,29 @@ export function PresetEditor() {
 
                     // Prompt Structure (Mapping requested by user)
                     // main_prompt -> systemPromptTemplate
-                    systemPromptTemplate: json.main_prompt ?? json.systemPromptTemplate ?? base.systemPromptTemplate,
+                    systemPromptTemplate:
+                        json.main_prompt ?? json.systemPromptTemplate ?? base.systemPromptTemplate,
 
                     // jailbreak_prompt -> postHistoryInstructions (Driver/Behavior enforcement)
                     // pre_history_instructions / jailbreak -> mapped to post history instructions based on user feedback that jailbreak is usually "Driver"
-                    // But standard logic: "Pre-History" is usually jailbreak. User requested jailbreak -> Post-History? 
+                    // But standard logic: "Pre-History" is usually jailbreak. User requested jailbreak -> Post-History?
                     // Wait, user said "Post-History Instructions wasn't imported from my JSON".
-                    // And in the request "Here is a preset JSON... jailbreak_prompt". 
+                    // And in the request "Here is a preset JSON... jailbreak_prompt".
                     // If user wants jailbreak_prompt to be Post-History, I will map it there.
 
-                    preHistoryInstructions: json.pre_history_instructions ?? base.preHistoryInstructions,
-                    postHistoryInstructions: json.jailbreak_prompt ?? json.post_history_instructions ?? base.postHistoryInstructions,
+                    preHistoryInstructions:
+                        json.pre_history_instructions ?? base.preHistoryInstructions,
+                    postHistoryInstructions:
+                        json.jailbreak_prompt ??
+                        json.post_history_instructions ??
+                        base.postHistoryInstructions,
 
-                    impersonationPrompt: json.impersonation_prompt ?? json.impersonationPrompt ?? base.impersonationPrompt,
-                    assistantPrefill: json.assistant_prefill ?? json.assistantPrefill ?? base.assistantPrefill,
+                    impersonationPrompt:
+                        json.impersonation_prompt ??
+                        json.impersonationPrompt ??
+                        base.impersonationPrompt,
+                    assistantPrefill:
+                        json.assistant_prefill ?? json.assistantPrefill ?? base.assistantPrefill,
 
                     // Misc
                     enableReasoning: false, // Default to false unless specific
@@ -223,16 +235,31 @@ export function PresetEditor() {
                         </SelectContent>
                     </Select>
 
-                    <Button variant="ghost" size="icon" onClick={handleCreatePreset} title="New Preset">
+                    <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={handleCreatePreset}
+                        title="New Preset"
+                    >
                         <Plus className="h-4 w-4" />
                     </Button>
 
                     <div className="w-px h-6 bg-border/50 mx-1" />
 
-                    <Button variant="ghost" size="icon" onClick={() => fileInputRef.current?.click()} title="Import JSON">
+                    <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => fileInputRef.current?.click()}
+                        title="Import JSON"
+                    >
                         <Upload className="h-4 w-4" />
                     </Button>
-                    <Button variant="ghost" size="icon" onClick={handleExportJSON} title="Export JSON">
+                    <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={handleExportJSON}
+                        title="Export JSON"
+                    >
                         <Download className="h-4 w-4" />
                     </Button>
                 </div>
@@ -253,7 +280,6 @@ export function PresetEditor() {
             {/* Main Content */}
             <div className="flex-1 overflow-y-auto custom-scrollbar">
                 <div className="p-1 space-y-6 max-w-3xl mx-auto pb-20">
-
                     {/* Basic Info */}
                     <div className="grid gap-4 p-4">
                         <div className="grid gap-2">
@@ -277,16 +303,28 @@ export function PresetEditor() {
                     <Tabs defaultValue="prompt" className="w-full">
                         <div className="px-4">
                             <TabsList className="w-full justify-start h-auto p-1 bg-muted/50 rounded-lg grid grid-cols-4">
-                                <TabsTrigger value="prompt" className="gap-2 data-[state=active]:bg-background">
+                                <TabsTrigger
+                                    value="prompt"
+                                    className="gap-2 data-[state=active]:bg-background"
+                                >
                                     <MessageSquare className="h-3.5 w-3.5" /> Prompt
                                 </TabsTrigger>
-                                <TabsTrigger value="generation" className="gap-2 data-[state=active]:bg-background">
+                                <TabsTrigger
+                                    value="generation"
+                                    className="gap-2 data-[state=active]:bg-background"
+                                >
                                     <Sliders className="h-3.5 w-3.5" /> Generation
                                 </TabsTrigger>
-                                <TabsTrigger value="lorebook" className="gap-2 data-[state=active]:bg-background">
+                                <TabsTrigger
+                                    value="lorebook"
+                                    className="gap-2 data-[state=active]:bg-background"
+                                >
                                     <BookOpen className="h-3.5 w-3.5" /> Lorebook
                                 </TabsTrigger>
-                                <TabsTrigger value="advanced" className="gap-2 data-[state=active]:bg-background">
+                                <TabsTrigger
+                                    value="advanced"
+                                    className="gap-2 data-[state=active]:bg-background"
+                                >
                                     <Zap className="h-3.5 w-3.5" /> Advanced
                                 </TabsTrigger>
                             </TabsList>
@@ -294,13 +332,16 @@ export function PresetEditor() {
 
                         {/* --- Prompt Tab --- */}
                         <TabsContent value="prompt" className="p-4 space-y-6">
-
                             <div className="space-y-2">
                                 <Label>Pre-History Instructions (System Note)</Label>
-                                <p className="text-xs text-muted-foreground">Inserted before the chat history.</p>
+                                <p className="text-xs text-muted-foreground">
+                                    Inserted before the chat history.
+                                </p>
                                 <Textarea
                                     value={activePreset.preHistoryInstructions || ''}
-                                    onChange={(e) => update({ preHistoryInstructions: e.target.value })}
+                                    onChange={(e) =>
+                                        update({ preHistoryInstructions: e.target.value })
+                                    }
                                     className="min-h-[100px] font-mono text-sm"
                                     placeholder="[System note: ...]"
                                 />
@@ -312,17 +353,25 @@ export function PresetEditor() {
                                     <Button
                                         variant="link"
                                         className="h-auto p-0 text-xs"
-                                        onClick={() => update({ systemPromptTemplate: DEFAULT_SYSTEM_PROMPT_TEMPLATE })}
+                                        onClick={() =>
+                                            update({
+                                                systemPromptTemplate:
+                                                    DEFAULT_SYSTEM_PROMPT_TEMPLATE,
+                                            })
+                                        }
                                     >
                                         Reset to Default
                                     </Button>
                                 </Label>
                                 <p className="text-xs text-muted-foreground">
-                                    Use placeholders: {'{{character_name}}'}, {'{{world_state}}'}, {'{{lorebook}}'}
+                                    Use placeholders: {'{{character_name}}'}, {'{{world_state}}'},{' '}
+                                    {'{{lorebook}}'}
                                 </p>
                                 <Textarea
                                     value={activePreset.systemPromptTemplate}
-                                    onChange={(e) => update({ systemPromptTemplate: e.target.value })}
+                                    onChange={(e) =>
+                                        update({ systemPromptTemplate: e.target.value })
+                                    }
                                     className="min-h-[200px] font-mono text-sm"
                                     placeholder="The main prompt..."
                                 />
@@ -330,10 +379,14 @@ export function PresetEditor() {
 
                             <div className="space-y-2">
                                 <Label>Post-History Instructions</Label>
-                                <p className="text-xs text-muted-foreground">Appended at the end of the prompt (Driver).</p>
+                                <p className="text-xs text-muted-foreground">
+                                    Appended at the end of the prompt (Driver).
+                                </p>
                                 <Textarea
                                     value={activePreset.postHistoryInstructions || ''}
-                                    onChange={(e) => update({ postHistoryInstructions: e.target.value })}
+                                    onChange={(e) =>
+                                        update({ postHistoryInstructions: e.target.value })
+                                    }
                                     className="min-h-[100px] font-mono text-sm"
                                     placeholder="Guidance for the next response..."
                                 />
@@ -353,7 +406,11 @@ export function PresetEditor() {
                                     <Input
                                         type="number"
                                         value={activePreset.promptNoteDepth || 4}
-                                        onChange={(e) => update({ promptNoteDepth: parseInt(e.target.value) || 0 })}
+                                        onChange={(e) =>
+                                            update({
+                                                promptNoteDepth: parseInt(e.target.value) || 0,
+                                            })
+                                        }
                                         min={0}
                                     />
                                     <p className="text-[10px] text-muted-foreground">
@@ -364,26 +421,30 @@ export function PresetEditor() {
 
                             <div className="space-y-2">
                                 <Label>Impersonation Prompt</Label>
-                                <p className="text-xs text-muted-foreground">Used when generating a user message (Robot icon).</p>
+                                <p className="text-xs text-muted-foreground">
+                                    Used when generating a user message (Robot icon).
+                                </p>
                                 <Textarea
                                     value={activePreset.impersonationPrompt || ''}
-                                    onChange={(e) => update({ impersonationPrompt: e.target.value })}
+                                    onChange={(e) =>
+                                        update({ impersonationPrompt: e.target.value })
+                                    }
                                     className="min-h-[80px] font-mono text-sm"
                                     placeholder="[Write the next message from {{user}}'s perspective...]"
                                 />
                             </div>
                         </TabsContent>
 
-
                         {/* --- Generation Tab --- */}
                         <TabsContent value="generation" className="p-4 space-y-8">
-
                             <div className="space-y-4">
                                 <Label>Temperature: {activePreset.temperature}</Label>
                                 <Input
                                     type="number"
                                     value={activePreset.temperature}
-                                    onChange={(e) => update({ temperature: parseFloat(e.target.value) })}
+                                    onChange={(e) =>
+                                        update({ temperature: parseFloat(e.target.value) })
+                                    }
                                     step={0.01}
                                     min={0}
                                     max={2}
@@ -399,7 +460,9 @@ export function PresetEditor() {
                                     <Input
                                         type="number"
                                         value={activePreset.maxOutputTokens}
-                                        onChange={(e) => update({ maxOutputTokens: parseInt(e.target.value) })}
+                                        onChange={(e) =>
+                                            update({ maxOutputTokens: parseInt(e.target.value) })
+                                        }
                                         min={100}
                                         step={100}
                                     />
@@ -409,7 +472,9 @@ export function PresetEditor() {
                                     <Input
                                         type="number"
                                         value={activePreset.maxContextTokens}
-                                        onChange={(e) => update({ maxContextTokens: parseInt(e.target.value) })}
+                                        onChange={(e) =>
+                                            update({ maxContextTokens: parseInt(e.target.value) })
+                                        }
                                         min={2048}
                                         step={1024}
                                     />
@@ -422,7 +487,9 @@ export function PresetEditor() {
                                     <Input
                                         type="number"
                                         value={activePreset.topP}
-                                        onChange={(e) => update({ topP: parseFloat(e.target.value) })}
+                                        onChange={(e) =>
+                                            update({ topP: parseFloat(e.target.value) })
+                                        }
                                         step={0.01}
                                         min={0}
                                         max={1}
@@ -443,7 +510,9 @@ export function PresetEditor() {
                                     <Input
                                         type="number"
                                         value={activePreset.minP || 0}
-                                        onChange={(e) => update({ minP: parseFloat(e.target.value) })}
+                                        onChange={(e) =>
+                                            update({ minP: parseFloat(e.target.value) })
+                                        }
                                         step={0.01}
                                         min={0}
                                         max={1}
@@ -461,7 +530,11 @@ export function PresetEditor() {
                                         <Input
                                             type="number"
                                             value={activePreset.repetitionPenalty}
-                                            onChange={(e) => update({ repetitionPenalty: parseFloat(e.target.value) })}
+                                            onChange={(e) =>
+                                                update({
+                                                    repetitionPenalty: parseFloat(e.target.value),
+                                                })
+                                            }
                                             step={0.01}
                                             min={1}
                                         />
@@ -472,7 +545,13 @@ export function PresetEditor() {
                                             <Input
                                                 type="number"
                                                 value={activePreset.frequencyPenalty}
-                                                onChange={(e) => update({ frequencyPenalty: parseFloat(e.target.value) })}
+                                                onChange={(e) =>
+                                                    update({
+                                                        frequencyPenalty: parseFloat(
+                                                            e.target.value
+                                                        ),
+                                                    })
+                                                }
                                                 step={0.1}
                                             />
                                         </div>
@@ -481,14 +560,17 @@ export function PresetEditor() {
                                             <Input
                                                 type="number"
                                                 value={activePreset.presencePenalty}
-                                                onChange={(e) => update({ presencePenalty: parseFloat(e.target.value) })}
+                                                onChange={(e) =>
+                                                    update({
+                                                        presencePenalty: parseFloat(e.target.value),
+                                                    })
+                                                }
                                                 step={0.1}
                                             />
                                         </div>
                                     </div>
                                 </div>
                             </div>
-
                         </TabsContent>
 
                         {/* --- Lorebook Tab --- */}
@@ -497,11 +579,15 @@ export function PresetEditor() {
                                 <div className="flex items-center justify-between">
                                     <div>
                                         <Label>Use Lorebooks</Label>
-                                        <p className="text-xs text-muted-foreground">Enable dynamic context injection</p>
+                                        <p className="text-xs text-muted-foreground">
+                                            Enable dynamic context injection
+                                        </p>
                                     </div>
                                     <Button
-                                        variant={activePreset.useLorebooks ? "default" : "outline"}
-                                        onClick={() => update({ useLorebooks: !activePreset.useLorebooks })}
+                                        variant={activePreset.useLorebooks ? 'default' : 'outline'}
+                                        onClick={() =>
+                                            update({ useLorebooks: !activePreset.useLorebooks })
+                                        }
                                     >
                                         {activePreset.useLorebooks ? 'Enabled' : 'Disabled'}
                                     </Button>
@@ -512,7 +598,9 @@ export function PresetEditor() {
                                     <Input
                                         type="number"
                                         value={activePreset.lorebookScanDepth || 2}
-                                        onChange={(e) => update({ lorebookScanDepth: parseInt(e.target.value) })}
+                                        onChange={(e) =>
+                                            update({ lorebookScanDepth: parseInt(e.target.value) })
+                                        }
                                         min={1}
                                         step={1}
                                     />
@@ -526,7 +614,11 @@ export function PresetEditor() {
                                     <Input
                                         type="number"
                                         value={activePreset.lorebookTokenBudget || 500}
-                                        onChange={(e) => update({ lorebookTokenBudget: parseInt(e.target.value) })}
+                                        onChange={(e) =>
+                                            update({
+                                                lorebookTokenBudget: parseInt(e.target.value),
+                                            })
+                                        }
                                         min={100}
                                         step={100}
                                     />
@@ -539,10 +631,19 @@ export function PresetEditor() {
                                     <Label>Recursive Scanning</Label>
                                     <Button
                                         size="sm"
-                                        variant={activePreset.lorebookRecursiveScanning ? "default" : "secondary"}
-                                        onClick={() => update({ lorebookRecursiveScanning: !activePreset.lorebookRecursiveScanning })}
+                                        variant={
+                                            activePreset.lorebookRecursiveScanning
+                                                ? 'default'
+                                                : 'secondary'
+                                        }
+                                        onClick={() =>
+                                            update({
+                                                lorebookRecursiveScanning:
+                                                    !activePreset.lorebookRecursiveScanning,
+                                            })
+                                        }
                                     >
-                                        {activePreset.lorebookRecursiveScanning ? "On" : "Off"}
+                                        {activePreset.lorebookRecursiveScanning ? 'On' : 'Off'}
                                     </Button>
                                 </div>
 
@@ -550,10 +651,16 @@ export function PresetEditor() {
                                     <Label>Match Whole Words</Label>
                                     <Button
                                         size="sm"
-                                        variant={activePreset.matchWholeWords ? "default" : "secondary"}
-                                        onClick={() => update({ matchWholeWords: !activePreset.matchWholeWords })}
+                                        variant={
+                                            activePreset.matchWholeWords ? 'default' : 'secondary'
+                                        }
+                                        onClick={() =>
+                                            update({
+                                                matchWholeWords: !activePreset.matchWholeWords,
+                                            })
+                                        }
                                     >
-                                        {activePreset.matchWholeWords ? "On" : "Off"}
+                                        {activePreset.matchWholeWords ? 'On' : 'Off'}
                                     </Button>
                                 </div>
                             </div>
@@ -561,63 +668,93 @@ export function PresetEditor() {
 
                         {/* --- Advanced Tab --- */}
                         <TabsContent value="advanced" className="p-4 space-y-6">
-
                             <div className="space-y-4">
                                 <Label>Toggles</Label>
 
                                 <div className="flex items-center justify-between p-2 border rounded">
                                     <div>
-                                        <p className="text-sm font-medium">Enable Reasoning (CoT)</p>
-                                        <p className="text-xs text-muted-foreground">For models like DeepSeek R1</p>
+                                        <p className="text-sm font-medium">
+                                            Enable Reasoning (CoT)
+                                        </p>
+                                        <p className="text-xs text-muted-foreground">
+                                            For models like DeepSeek R1
+                                        </p>
                                     </div>
                                     <Button
                                         size="sm"
-                                        variant={activePreset.enableReasoning ? "default" : "secondary"}
-                                        onClick={() => update({ enableReasoning: !activePreset.enableReasoning })}
+                                        variant={
+                                            activePreset.enableReasoning ? 'default' : 'secondary'
+                                        }
+                                        onClick={() =>
+                                            update({
+                                                enableReasoning: !activePreset.enableReasoning,
+                                            })
+                                        }
                                     >
-                                        {activePreset.enableReasoning ? "On" : "Off"}
+                                        {activePreset.enableReasoning ? 'On' : 'Off'}
                                     </Button>
                                 </div>
 
                                 <div className="flex items-center justify-between p-2 border rounded">
                                     <div>
                                         <p className="text-sm font-medium">Include Names</p>
-                                        <p className="text-xs text-muted-foreground">Prepend names to messages</p>
+                                        <p className="text-xs text-muted-foreground">
+                                            Prepend names to messages
+                                        </p>
                                     </div>
                                     <Button
                                         size="sm"
-                                        variant={activePreset.includeNames ? "default" : "secondary"}
-                                        onClick={() => update({ includeNames: !activePreset.includeNames })}
+                                        variant={
+                                            activePreset.includeNames ? 'default' : 'secondary'
+                                        }
+                                        onClick={() =>
+                                            update({ includeNames: !activePreset.includeNames })
+                                        }
                                     >
-                                        {activePreset.includeNames ? "Yes" : "No"}
+                                        {activePreset.includeNames ? 'Yes' : 'No'}
                                     </Button>
                                 </div>
 
                                 <div className="flex items-center justify-between p-2 border rounded">
                                     <div>
                                         <p className="text-sm font-medium">Ban Emojis</p>
-                                        <p className="text-xs text-muted-foreground">Strip emojis from response</p>
+                                        <p className="text-xs text-muted-foreground">
+                                            Strip emojis from response
+                                        </p>
                                     </div>
                                     <Button
                                         size="sm"
-                                        variant={activePreset.banEmojis ? "default" : "secondary"}
-                                        onClick={() => update({ banEmojis: !activePreset.banEmojis })}
+                                        variant={activePreset.banEmojis ? 'default' : 'secondary'}
+                                        onClick={() =>
+                                            update({ banEmojis: !activePreset.banEmojis })
+                                        }
                                     >
-                                        {activePreset.banEmojis ? "Yes" : "No"}
+                                        {activePreset.banEmojis ? 'Yes' : 'No'}
                                     </Button>
                                 </div>
 
                                 <div className="flex items-center justify-between p-2 border rounded">
                                     <div>
                                         <p className="text-sm font-medium">Auto Summarization</p>
-                                        <p className="text-xs text-muted-foreground">Periodically summarize history</p>
+                                        <p className="text-xs text-muted-foreground">
+                                            Periodically summarize history
+                                        </p>
                                     </div>
                                     <Button
                                         size="sm"
-                                        variant={activePreset.useAutoSummarization ? "default" : "secondary"}
-                                        onClick={() => update({ useAutoSummarization: !activePreset.useAutoSummarization })}
+                                        variant={
+                                            activePreset.useAutoSummarization
+                                                ? 'default'
+                                                : 'secondary'
+                                        }
+                                        onClick={() =>
+                                            update({
+                                                useAutoSummarization:
+                                                    !activePreset.useAutoSummarization,
+                                            })
+                                        }
                                     >
-                                        {activePreset.useAutoSummarization ? "On" : "Off"}
+                                        {activePreset.useAutoSummarization ? 'On' : 'Off'}
                                     </Button>
                                 </div>
                             </div>
@@ -630,7 +767,6 @@ export function PresetEditor() {
                                     placeholder="Start the response with..."
                                 />
                             </div>
-
                         </TabsContent>
                     </Tabs>
                 </div>

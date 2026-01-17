@@ -21,7 +21,10 @@ export const ChatFormatter = memo(function ChatFormatter({ content }: ChatFormat
                     const lang = langMatch ? langMatch[1] : '';
 
                     return (
-                        <div key={index} className="rounded-md overflow-hidden my-2 border border-border/50 bg-muted/50">
+                        <div
+                            key={index}
+                            className="rounded-md overflow-hidden my-2 border border-border/50 bg-muted/50"
+                        >
                             {lang && (
                                 <div className="px-3 py-1.5 border-b border-border/50 text-xs text-muted-foreground bg-muted/80">
                                     {lang}
@@ -35,9 +38,11 @@ export const ChatFormatter = memo(function ChatFormatter({ content }: ChatFormat
                 }
 
                 // It's regular text, process lines
-                return part.split('\n').map((line, lineIdx) => (
-                    <FormattedLine key={`${index}-${lineIdx}`} text={line} />
-                ));
+                return part
+                    .split('\n')
+                    .map((line, lineIdx) => (
+                        <FormattedLine key={`${index}-${lineIdx}`} text={line} />
+                    ));
             })}
         </div>
     );
@@ -51,16 +56,14 @@ const FormattedLine = memo(({ text }: { text: string }) => {
     let actualText = text;
 
     // Default styling
-    let className = "block mb-1";
+    let className = 'block mb-1';
 
     // Check for "Name:" pattern at start
     const nameMatch = text.match(/^([A-Za-z0-9 _'-]+):(\s+)/);
     if (nameMatch) {
         // Create the bold name prefix
         prefixNode = (
-            <span className="font-bold text-foreground/90 tabular-nums">
-                {nameMatch[1]}:
-            </span>
+            <span className="font-bold text-foreground/90 tabular-nums">{nameMatch[1]}:</span>
         );
         // Keep the whitespace but don't bold it, or just just rely on the span spacing
         actualText = text.slice(nameMatch[0].length);
@@ -83,7 +86,7 @@ const FormattedText = memo(({ text }: { text: string }) => {
     // We scan the string and build nodes
 
     const nodes: React.ReactNode[] = [];
-    let currentText = "";
+    let currentText = '';
     let i = 0;
 
     // Use a separate counter for keys to avoid collisions
@@ -93,7 +96,7 @@ const FormattedText = memo(({ text }: { text: string }) => {
     const flushText = () => {
         if (currentText) {
             nodes.push(<span key={keyIndex++}>{currentText}</span>);
-            currentText = "";
+            currentText = '';
         }
     };
 
@@ -104,7 +107,11 @@ const FormattedText = memo(({ text }: { text: string }) => {
             if (endIdx !== -1) {
                 flushText();
                 const boldContent = text.slice(i + 2, endIdx);
-                nodes.push(<strong key={keyIndex++} className="font-semibold text-foreground">{boldContent}</strong>);
+                nodes.push(
+                    <strong key={keyIndex++} className="font-semibold text-foreground">
+                        {boldContent}
+                    </strong>
+                );
                 i = endIdx + 2;
                 continue;
             }
@@ -117,7 +124,11 @@ const FormattedText = memo(({ text }: { text: string }) => {
                 flushText();
                 const italicContent = text.slice(i + 1, endIdx);
                 // Standard visual style for RP actions: italic + slightly muted color
-                nodes.push(<em key={keyIndex++} className="italic text-muted-foreground">{italicContent}</em>);
+                nodes.push(
+                    <em key={keyIndex++} className="italic opacity-80">
+                        {italicContent}
+                    </em>
+                );
                 i = endIdx + 1;
                 continue;
             }
@@ -129,7 +140,11 @@ const FormattedText = memo(({ text }: { text: string }) => {
             if (endIdx !== -1) {
                 flushText();
                 const italicContent = text.slice(i + 1, endIdx);
-                nodes.push(<em key={keyIndex++} className="italic text-muted-foreground">{italicContent}</em>);
+                nodes.push(
+                    <em key={keyIndex++} className="italic opacity-80">
+                        {italicContent}
+                    </em>
+                );
                 i = endIdx + 1;
                 continue;
             }

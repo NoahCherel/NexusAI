@@ -105,6 +105,27 @@ export const DEFAULT_MODELS: CustomModel[] = [
         isFree: true,
     },
     {
+        id: 'deepseek-v3',
+        name: 'DeepSeek V3 (Chat)',
+        modelId: 'deepseek/deepseek-chat',
+        provider: 'openrouter',
+        isFree: false,
+    },
+    {
+        id: 'deepseek-r1-paid',
+        name: 'DeepSeek R1 (Full)',
+        modelId: 'deepseek/deepseek-r1',
+        provider: 'openrouter',
+        isFree: false,
+    },
+    {
+        id: 'gemini-3-pro',
+        name: 'Gemini 3 Pro',
+        modelId: 'google/gemini-3-pro-preview',
+        provider: 'openrouter',
+        isFree: false,
+    },
+    {
         id: 'gpt-4o',
         name: 'GPT-4o',
         modelId: 'openai/gpt-4o',
@@ -253,9 +274,7 @@ export const useSettingsStore = create<SettingsState>()(
 
             updatePreset: (id, updates) =>
                 set((state) => ({
-                    presets: state.presets.map((p) =>
-                        p.id === id ? { ...p, ...updates } : p
-                    ),
+                    presets: state.presets.map((p) => (p.id === id ? { ...p, ...updates } : p)),
                 })),
 
             deletePreset: (id) =>

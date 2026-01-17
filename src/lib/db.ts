@@ -127,7 +127,9 @@ export async function initDB(): Promise<IDBPDatabase<NexusAIDB>> {
             // Migration from v3 to v4: Add messageOrder and regenerationIndex
             if (oldVersion >= 1 && oldVersion < 4) {
                 try {
-                    console.log('[DB Migration v3→v4] Assigning messageOrder and regenerationIndex...');
+                    console.log(
+                        '[DB Migration v3→v4] Assigning messageOrder and regenerationIndex...'
+                    );
                     const msgStore = transaction.objectStore('messages');
                     const conversationStore = transaction.objectStore('conversations');
 
@@ -136,47 +138,57 @@ export async function initDB(): Promise<IDBPDatabase<NexusAIDB>> {
 
                     for (const conversation of conversations) {
                         // Get all messages for this conversation
-                        const messages = await msgStore.index('by-conversation').getAll(conversation.id);
+                        const messages = await msgStore
+                            .index('by-conversation')
+                            .getAll(conversation.id);
 
                         // Build tree structure
                         const messageMap = new Map<string, Message>();
                         const rootMessages: Message[] = [];
 
-                        messages.forEach(msg => {
+                        messages.forEach((msg) => {
                             messageMap.set(msg.id, msg);
                             if (!msg.parentId) rootMessages.push(msg);
                         });
 
                         // Helper to walk tree and assign order/index
-                        const walkTree = async (message: Message, depth: number, siblings: Message[]): Promise<void> => {
+                        const walkTree = async (
+                            message: Message,
+                            depth: number,
+                            siblings: Message[]
+                        ): Promise<void> => {
                             // Assign messageOrder based on depth
                             const messageOrder = depth + 1;
 
                             // Find position among siblings to determine regenerationIndex
-                            const regenerationIndex = siblings.findIndex(s => s.id === message.id);
+                            const regenerationIndex = siblings.findIndex(
+                                (s) => s.id === message.id
+                            );
 
                             // Update message with new fields
                             const updatedMessage = {
                                 ...message,
                                 messageOrder,
-                                regenerationIndex: regenerationIndex >= 0 ? regenerationIndex : 0
+                                regenerationIndex: regenerationIndex >= 0 ? regenerationIndex : 0,
                             };
 
                             await msgStore.put(updatedMessage);
 
                             // Find children
-                            const children = messages.filter(m => m.parentId === message.id);
+                            const children = messages.filter((m) => m.parentId === message.id);
 
                             // Group children by their parent (they are siblings)
                             for (const child of children) {
-                                const childSiblings = messages.filter(m => m.parentId === child.parentId);
+                                const childSiblings = messages.filter(
+                                    (m) => m.parentId === child.parentId
+                                );
                                 await walkTree(child, depth + 1, childSiblings);
                             }
                         };
 
                         // Process each root message
                         for (const root of rootMessages) {
-                            const rootSiblings = messages.filter(m => !m.parentId);
+                            const rootSiblings = messages.filter((m) => !m.parentId);
                             await walkTree(root, 0, rootSiblings);
                         }
                     }

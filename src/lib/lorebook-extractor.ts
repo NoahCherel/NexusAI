@@ -103,7 +103,14 @@ Output format (JSON array only, nothing else):
 
             return entries
                 .filter(
-                    (e: unknown): e is { keys: string[]; content: string; priority?: number; category?: string } =>
+                    (
+                        e: unknown
+                    ): e is {
+                        keys: string[];
+                        content: string;
+                        priority?: number;
+                        category?: string;
+                    } =>
                         typeof e === 'object' &&
                         e !== null &&
                         Array.isArray((e as { keys?: unknown }).keys) &&
@@ -114,8 +121,8 @@ Output format (JSON array only, nothing else):
                     content: e.content,
                     enabled: true,
                     priority: e.priority || 10,
-                    category: e.category as 'character' | 'location' | 'notion' | undefined,
-                }));
+                    category: e.category as any,
+                })) as unknown as LorebookEntry[];
         } catch {
             console.error('Failed to parse lorebook extraction response:', cleanContent);
             return [];

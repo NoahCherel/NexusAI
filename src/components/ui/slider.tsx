@@ -16,16 +16,7 @@ interface SliderProps {
 
 const Slider = React.forwardRef<HTMLInputElement, SliderProps>(
     (
-        {
-            value,
-            defaultValue,
-            min = 0,
-            max = 100,
-            step = 1,
-            onValueChange,
-            className,
-            disabled,
-        },
+        { value, defaultValue, min = 0, max = 100, step = 1, onValueChange, className, disabled },
         ref
     ) => {
         const currentValue = value?.[0] ?? defaultValue?.[0] ?? min;

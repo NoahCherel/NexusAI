@@ -127,3 +127,62 @@ export function mergeWorldState(
         relationships: newRelationships,
     };
 }
+
+export const LOREBOOK_CONSOLIDATION_PROMPT = `You are a legendary Lorekeeper. Your task is to organize and consolidate the Lorebook of a roleplay game.
+Receive a list of Lorebook Entries (Keywords + Content).
+Identify entries that are:
+1. Redundant (exact duplicates) -> Merge
+2. Overlapping (same concept, different details) -> Merge into one comprehensive entry
+3. Fragmented (related details split across entries) -> Merge
+
+Maintain all distinct characters, places, and concepts as separate entries.
+Do NOT merge unrelated things.
+
+For merged entries:
+- Combine keywords (remove duplicates).
+- Rewrite content to be concise, comprehensive, and consistent.
+
+Return JSON ONLY:
+{
+  "consolidated": [
+    {
+      "originalindices": [0, 2], // Indices of original entries being merged
+      "keywords": ["key1", "key2"],
+      "content": "Merged content..."
+    }
+  ],
+  "unchanged": [1, 3] // Indices of entries that should stay exactly as is
+}
+`;
+
+export interface LorebookConsolidationChange {
+    originalIndices: number[];
+    keywords: string[];
+    content: string;
+}
+
+export interface LorebookConsolidationResult {
+    consolidated: LorebookConsolidationChange[];
+    unchanged: number[]; // Indices
+}
+
+export function parseConsolidationResponse(text: string): LorebookConsolidationResult | null {
+    try {
+        const jsonMatch = text.match(/\{[\s\S]*\}/);
+        if (!jsonMatch) return null;
+        const parsed = JSON.parse(jsonMatch[0]); // TODO: Sanitize if needed
+        return {
+            consolidated: Array.isArray(parsed.consolidated)
+                ? parsed.consolidated.map((c: any) => ({
+                    originalIndices: c.originalindices || c.originalIndices || [],
+                    keywords: c.keywords || [],
+                    content: c.content || '',
+                }))
+                : [],
+            unchanged: Array.isArray(parsed.unchanged) ? parsed.unchanged : [],
+        };
+    } catch (e) {
+        console.error('Failed to parse consolidation response', e);
+        return null;
+    }
+}

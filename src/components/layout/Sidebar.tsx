@@ -153,39 +153,25 @@ export function Sidebar({ isCollapsed, onToggle }: SidebarProps) {
                     >
                         {filteredCharacters.length === 0
                             ? !isCollapsed && (
-                                  <div className="text-center py-12 px-4">
-                                      <p className="text-muted-foreground text-sm">
-                                          No characters found
-                                      </p>
-                                  </div>
-                              )
+                                <div className="text-center py-12 px-4">
+                                    <p className="text-muted-foreground text-sm">
+                                        No characters found
+                                    </p>
+                                </div>
+                            )
                             : filteredCharacters.map((char) => (
-                                  <CharacterCard
-                                      key={char.id}
-                                      character={char}
-                                      isActive={char.id === activeCharacterId}
-                                      onClick={() => setActiveCharacterId(char.id)}
-                                      onEdit={() => handleEdit(char)}
-                                      onDelete={() => removeCharacter(char.id)}
-                                      isCollapsed={isCollapsed}
-                                  />
-                              ))}
+                                <CharacterCard
+                                    key={char.id}
+                                    character={char}
+                                    isActive={char.id === activeCharacterId}
+                                    onClick={() => setActiveCharacterId(char.id)}
+                                    onEdit={() => handleEdit(char)}
+                                    onDelete={() => removeCharacter(char.id)}
+                                    isCollapsed={isCollapsed}
+                                />
+                            ))}
                     </div>
                 </ScrollArea>
-
-                {/* Footer */}
-                <div className="p-4 border-t border-border/40 bg-muted/5">
-                    <Button
-                        variant="ghost"
-                        className={cn(
-                            'w-full justify-start gap-2 text-muted-foreground hover:text-foreground hover:bg-primary/5',
-                            isCollapsed ? 'px-0 justify-center h-10 w-10 mx-auto' : 'h-10 px-3'
-                        )}
-                    >
-                        <Settings className="w-5 h-5" />
-                        {!isCollapsed && <span className="text-sm font-medium">Settings</span>}
-                    </Button>
-                </div>
             </div>
 
             {/* Character Editor Dialog */}

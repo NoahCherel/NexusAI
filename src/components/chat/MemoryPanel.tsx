@@ -4,7 +4,17 @@ import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Brain, Plus, Trash2, Sparkles, Loader2, X, ChevronDown, ChevronUp } from 'lucide-react';
+import {
+    Brain,
+    Plus,
+    Trash2,
+    Sparkles,
+    Loader2,
+    X,
+    ChevronDown,
+    ChevronUp,
+    Edit2,
+} from 'lucide-react';
 import { useCharacterStore } from '@/stores/character-store';
 import { useChatStore } from '@/stores/chat-store';
 import { generateMemorySummary, formatMemoryEntry } from '@/lib/memory-summarizer';
@@ -31,6 +41,8 @@ export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
     const [newMemory, setNewMemory] = useState('');
     const [isGenerating, setIsGenerating] = useState(false);
     const [expandedIndex, setExpandedIndex] = useState<number | null>(null);
+    const [editingIndex, setEditingIndex] = useState<number | null>(null);
+    const [editValue, setEditValue] = useState('');
     const [confirmDeleteIndex, setConfirmDeleteIndex] = useState<number | null>(null);
 
     if (!character) return null;
@@ -45,6 +57,14 @@ export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
         const updated = [...memories, formattedEntry];
         await updateLongTermMemory(character.id, updated);
         setNewMemory('');
+    };
+
+    const handleUpdateMemory = async (index: number) => {
+        if (!editValue.trim()) return;
+        const updated = [...memories];
+        updated[index] = editValue.trim();
+        await updateLongTermMemory(character.id, updated);
+        setEditingIndex(null);
     };
 
     const handleDeleteMemory = async (index: number) => {
@@ -118,41 +138,78 @@ export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
                             memories.map((memory, index) => (
                                 <div
                                     key={index}
-                                    className="p-3 rounded-lg bg-muted/30 border border-border/30 group"
+                                    className="p-3 rounded-lg bg-muted/30 border border-border/30 group transition-all"
                                 >
-                                    <div
-                                        className="flex items-start justify-between cursor-pointer"
-                                        onClick={() =>
-                                            setExpandedIndex(expandedIndex === index ? null : index)
-                                        }
-                                    >
-                                        <p
-                                            className={cn(
-                                                'text-xs flex-1 pr-2',
-                                                expandedIndex !== index && 'line-clamp-2'
-                                            )}
-                                        >
-                                            {memory}
-                                        </p>
-                                        <div className="flex items-center gap-1 shrink-0">
-                                            {expandedIndex === index ? (
-                                                <ChevronUp className="w-3 h-3 text-muted-foreground" />
-                                            ) : (
-                                                <ChevronDown className="w-3 h-3 text-muted-foreground" />
-                                            )}
-                                            <Button
-                                                variant="ghost"
-                                                size="icon"
-                                                className="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity"
-                                                onClick={(e) => {
-                                                    e.stopPropagation();
-                                                    setConfirmDeleteIndex(index);
-                                                }}
-                                            >
-                                                <Trash2 className="w-3 h-3 text-destructive" />
-                                            </Button>
+                                    {editingIndex === index ? (
+                                        <div className="space-y-2">
+                                            <Textarea
+                                                value={editValue}
+                                                onChange={(e) => setEditValue(e.target.value)}
+                                                className="text-xs min-h-[80px]"
+                                                autoFocus
+                                            />
+                                            <div className="flex justify-end gap-2">
+                                                <Button
+                                                    variant="ghost"
+                                                    size="sm"
+                                                    onClick={() => setEditingIndex(null)}
+                                                    className="h-7 text-[10px]"
+                                                >
+                                                    Cancel
+                                                </Button>
+                                                <Button
+                                                    size="sm"
+                                                    onClick={() => handleUpdateMemory(index)}
+                                                    className="h-7 text-[10px]"
+                                                >
+                                                    Save
+                                                </Button>
+                                            </div>
                                         </div>
-                                    </div>
+                                    ) : (
+                                        <div
+                                            className="flex items-start justify-between cursor-pointer"
+                                            onClick={() =>
+                                                setExpandedIndex(
+                                                    expandedIndex === index ? null : index
+                                                )
+                                            }
+                                        >
+                                            <p
+                                                className={cn(
+                                                    'text-xs flex-1 pr-2 leading-relaxed',
+                                                    expandedIndex !== index && 'line-clamp-2'
+                                                )}
+                                            >
+                                                {memory}
+                                            </p>
+                                            <div className="flex items-center gap-1 shrink-0">
+                                                <Button
+                                                    variant="ghost"
+                                                    size="icon"
+                                                    className="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity"
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        setEditValue(memory);
+                                                        setEditingIndex(index);
+                                                    }}
+                                                >
+                                                    <Edit2 className="w-3 h-3 text-muted-foreground" />
+                                                </Button>
+                                                <Button
+                                                    variant="ghost"
+                                                    size="icon"
+                                                    className="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-destructive/10"
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        setConfirmDeleteIndex(index);
+                                                    }}
+                                                >
+                                                    <Trash2 className="w-3 h-3 text-destructive" />
+                                                </Button>
+                                            </div>
+                                        </div>
+                                    )}
                                 </div>
                             ))
                         )}

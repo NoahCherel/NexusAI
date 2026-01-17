@@ -102,8 +102,9 @@ export function WorldStatePanel({
                     <span className="text-base">🌍</span> World Context
                 </span>
                 <ChevronUp
-                    className={`w-4 h-4 text-muted-foreground transition-transform duration-300 ${isCollapsed ? 'rotate-180' : ''
-                        }`}
+                    className={`w-4 h-4 text-muted-foreground transition-transform duration-300 ${
+                        isCollapsed ? 'rotate-180' : ''
+                    }`}
                 />
             </button>
 
@@ -228,24 +229,23 @@ export function WorldStatePanel({
                     </div>
 
                     {/* Relationships */}
-                    <div className="space-y-2.5">
+                    <div className="space-y-2.5 flex flex-col min-h-0">
                         <div className="flex items-center justify-between">
                             <div className="flex items-center gap-1.5 text-[10px] uppercase font-bold text-muted-foreground tracking-wider">
                                 <Heart className="w-3 h-3" />
                                 <span>Relationships</span>
                             </div>
                             {!isAddingRelation && (
-                                <Button
-                                    variant="ghost"
-                                    size="icon"
-                                    className="h-5 w-5 opacity-50 hover:opacity-100"
+                                <button
+                                    className="p-1 hover:bg-muted rounded-md transition-colors opacity-50 hover:opacity-100"
                                     onClick={() => setIsAddingRelation(true)}
                                 >
-                                    <Plus className="w-3 h-3" />
-                                </Button>
+                                    <Plus className="w-3.5 h-3.5" />
+                                </button>
                             )}
                         </div>
-                        <div className="space-y-3">
+
+                        <div className="max-h-[300px] overflow-y-auto pr-1 space-y-4 custom-scrollbar">
                             {relationshipEntries.map(([name, level]) => {
                                 const percent = Math.max(0, Math.min(100, (level + 100) / 2));
                                 let color = 'bg-gray-500';
@@ -255,84 +255,109 @@ export function WorldStatePanel({
                                 else if (level <= -10) color = 'bg-orange-500';
 
                                 return (
-                                    <div key={name} className="space-y-1.5 group">
-                                        <div className="flex items-center justify-between text-xs font-medium">
-                                            <span className="flex items-center gap-1">
+                                    <div
+                                        key={name}
+                                        className="space-y-2 group bg-background/20 p-2 rounded-lg border border-border/20"
+                                    >
+                                        <div className="flex items-center justify-between text-xs font-semibold">
+                                            <span className="flex items-center gap-1 truncate max-w-[140px]">
                                                 {name}
-                                                <Button
-                                                    variant="ghost"
-                                                    size="icon"
-                                                    className="h-4 w-4 opacity-0 group-hover:opacity-100 transition-opacity"
+                                                <button
                                                     onClick={() => handleRemoveRelation(name)}
+                                                    className="p-1 hover:bg-destructive/10 rounded opacity-0 group-hover:opacity-100 transition-opacity"
                                                 >
-                                                    <Trash2 className="w-2.5 h-2.5 text-destructive" />
-                                                </Button>
+                                                    <Trash2 className="w-3 h-3 text-destructive" />
+                                                </button>
                                             </span>
-                                            <input
-                                                type="number"
-                                                value={level}
-                                                onChange={(e) =>
-                                                    handleUpdateRelationValue(
-                                                        name,
-                                                        parseInt(e.target.value) || 0
-                                                    )
-                                                }
-                                                className={`w-12 text-right bg-transparent border-none outline-none appearance-none [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none ${level < 0 ? 'text-red-400' : 'text-green-500'} font-bold`}
-                                                min={-100}
-                                                max={100}
-                                            />
+
+                                            <div className="flex items-center gap-1">
+                                                <button
+                                                    onClick={() =>
+                                                        handleUpdateRelationValue(name, level - 5)
+                                                    }
+                                                    className="w-6 h-6 flex items-center justify-center bg-muted/40 hover:bg-muted rounded text-xs"
+                                                >
+                                                    -
+                                                </button>
+                                                <input
+                                                    type="number"
+                                                    value={level}
+                                                    onChange={(e) =>
+                                                        handleUpdateRelationValue(
+                                                            name,
+                                                            parseInt(e.target.value) || 0
+                                                        )
+                                                    }
+                                                    className={`w-10 text-center bg-transparent border-none outline-none text-[11px] ${level < 0 ? 'text-red-400' : 'text-green-500'} font-bold`}
+                                                    min={-100}
+                                                    max={100}
+                                                />
+                                                <button
+                                                    onClick={() =>
+                                                        handleUpdateRelationValue(name, level + 5)
+                                                    }
+                                                    className="w-6 h-6 flex items-center justify-center bg-muted/40 hover:bg-muted rounded text-xs"
+                                                >
+                                                    +
+                                                </button>
+                                            </div>
                                         </div>
-                                        <div className="h-2 bg-muted/60 rounded-full overflow-hidden relative shadow-inner">
-                                            <div className="absolute left-1/2 top-0 bottom-0 w-[1px] bg-foreground/20 z-10" />
+                                        <div className="h-1.5 bg-muted/40 rounded-full overflow-hidden relative">
+                                            <div className="absolute left-1/2 top-0 bottom-0 w-[1px] bg-foreground/10 z-10" />
                                             <motion.div
                                                 initial={{ width: '50%' }}
                                                 animate={{ width: `${percent}%` }}
-                                                transition={{ duration: 0.8, ease: 'easeOut' }}
-                                                className={`h-full rounded-full ${color} shadow-sm`}
+                                                className={`h-full rounded-full ${color}`}
                                             />
                                         </div>
                                     </div>
                                 );
                             })}
                             {relationshipEntries.length === 0 && !isAddingRelation && (
-                                <span className="text-xs text-muted-foreground italic">
-                                    No relationships
-                                </span>
+                                <div className="text-center py-6 text-xs text-muted-foreground italic border border-dashed rounded-lg border-border/40">
+                                    No tracked relationships
+                                </div>
                             )}
                         </div>
+
                         {isAddingRelation && (
-                            <div className="flex gap-1 mt-2">
-                                <Input
-                                    value={newRelationName}
-                                    onChange={(e) => setNewRelationName(e.target.value)}
-                                    placeholder="Name..."
-                                    className="h-7 text-xs flex-1"
-                                    autoFocus
-                                />
-                                <Input
-                                    type="number"
-                                    value={newRelationValue}
-                                    onChange={(e) =>
-                                        setNewRelationValue(parseInt(e.target.value) || 0)
-                                    }
-                                    className="h-7 text-xs w-16"
-                                    min={-100}
-                                    max={100}
-                                />
-                                <Button size="icon" className="h-7 w-7" onClick={handleAddRelation}>
-                                    <Check className="w-3 h-3" />
-                                </Button>
-                                <Button
-                                    size="icon"
-                                    variant="ghost"
-                                    className="h-7 w-7"
-                                    onClick={() => {
-                                        setIsAddingRelation(false);
-                                        setNewRelationName('');
-                                    }}
-                                >
-                                    <X className="w-3 h-3" />
-                                </Button>
+                            <div className="flex flex-col gap-2 mt-2 p-3 bg-muted/30 rounded-lg border border-primary/20">
+                                <div className="flex gap-2">
+                                    <Input
+                                        value={newRelationName}
+                                        onChange={(e) => setNewRelationName(e.target.value)}
+                                        placeholder="Character Name..."
+                                        className="h-8 text-xs flex-1"
+                                        autoFocus
+                                    />
+                                    <Input
+                                        type="number"
+                                        value={newRelationValue}
+                                        onChange={(e) =>
+                                            setNewRelationValue(parseInt(e.target.value) || 0)
+                                        }
+                                        className="h-8 text-xs w-16"
+                                        min={-100}
+                                        max={100}
+                                    />
+                                </div>
+                                <div className="flex gap-2">
+                                    <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        className="flex-1 h-8 text-[10px]"
+                                        onClick={() => setIsAddingRelation(false)}
+                                    >
+                                        Cancel
+                                    </Button>
+                                    <Button
+                                        size="sm"
+                                        className="flex-1 h-8 text-[10px]"
+                                        onClick={handleAddRelation}
+                                    >
+                                        Add Relationship
+                                    </Button>
+                                </div>
                             </div>
                         )}
                     </div>
@@ -355,6 +380,6 @@ export function WorldStatePanel({
                     </div>
                 </div>
             )}
-        </motion.div >
+        </motion.div>
     );
 }

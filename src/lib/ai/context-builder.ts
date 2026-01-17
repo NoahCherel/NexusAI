@@ -23,12 +23,7 @@ export function getActiveLorebookEntries(
     const entries = lorebook.entries.filter((e) => e.enabled);
     if (entries.length === 0) return [];
 
-    const {
-        scanDepth = 2,
-        tokenBudget = 500,
-        recursive = false,
-        matchWholeWords = false,
-    } = config;
+    const { scanDepth = 2, tokenBudget = 500, recursive = false, matchWholeWords = false } = config;
 
     // 1. Get text to scan
     const messagesToScan = messages.slice(-scanDepth);
@@ -88,8 +83,7 @@ export function getActiveLorebookEntries(
     scanForKeywords(scanText);
 
     // Convert Set to Array and sort
-    return Array.from(matchedEntries)
-        .sort((a, b) => (b.priority || 10) - (a.priority || 10));
+    return Array.from(matchedEntries).sort((a, b) => (b.priority || 10) - (a.priority || 10));
 }
 
 /**
@@ -116,13 +110,14 @@ function formatWorldState(worldState: WorldState): string {
 function formatLorebookEntries(entries: LorebookEntry[]): string {
     if (entries.length === 0) return '';
 
-    const loreSection = entries
-        .map((e) => `[Info about ${e.keys[0]}: ${e.content}]`)
-        .join('\n');
+    const loreSection = entries.map((e) => `[Info about ${e.keys[0]}: ${e.content}]`).join('\n');
 
     return `--- WORLD KNOWLEDGE ---\n${loreSection}`;
 }
 
+/**
+ * Resolves a system prompt template with actual values
+ */
 /**
  * Resolves a system prompt template with actual values
  */
@@ -131,8 +126,14 @@ export function resolveSystemPromptTemplate(
     character: CharacterCard,
     worldState: WorldState,
     activeLorebookEntries: LorebookEntry[],
-    userPersonaName: string = 'User'
+    userPersona?: { name: string; bio: string; description?: string } | null,
+    longTermMemory?: string[]
 ): string {
+    const formattedMemory =
+        longTermMemory && longTermMemory.length > 0
+            ? `--- LONG TERM MEMORY ---\n${longTermMemory.join('\n')}`
+            : '';
+
     const replacements: Record<string, string> = {
         '{{character_name}}': character.name,
         '{{char}}': character.name, // Alias
@@ -142,14 +143,16 @@ export function resolveSystemPromptTemplate(
         '{{first_message}}': character.first_mes || '',
         '{{world_state}}': formatWorldState(worldState),
         '{{lorebook}}': formatLorebookEntries(activeLorebookEntries),
-        '{{user}}': userPersonaName,
+        '{{memory}}': formattedMemory,
+        '{{long_term_memory}}': formattedMemory, // Alias
+        '{{user}}': userPersona?.name || 'User',
+        '{{user_bio}}': userPersona?.bio || '',
+        '{{user_description}}': userPersona?.description || userPersona?.bio || '',
     };
 
     let resolved = template;
     for (const [placeholder, value] of Object.entries(replacements)) {
-        // Use a more robust regex to catch {{ user }} with spaces if needed, but standard is {{key}}
-        // Using 'gi' for case-insensitive matching if desired, but usually keys are case-sensitive. 
-        // We'll stick to case-insensitive for user/char as they are common typos.
+        // Use a more robust regex to catch {{ user }} with spaces if needed
         resolved = resolved.replace(new RegExp(placeholder, 'gi'), value);
     }
 
@@ -171,7 +174,8 @@ export function buildSystemPrompt(
         template?: string;
         preHistory?: string;
         postHistory?: string;
-        userPersonaName?: string;
+        userPersona?: { name: string; bio: string; description?: string } | null;
+        longTermMemory?: string[];
     } = {}
 ): string {
     const promptTemplate = options.template || DEFAULT_SYSTEM_PROMPT_TEMPLATE;
@@ -180,22 +184,36 @@ export function buildSystemPrompt(
         character,
         worldState,
         activeLorebookEntries,
-        options.userPersonaName
+        options.userPersona,
+        options.longTermMemory
     );
 
-    const parts = [
-        options.preHistory,
-        resolvedBody,
-        options.postHistory
-    ].filter(Boolean);
+    const parts = [options.preHistory, resolvedBody, options.postHistory].filter(Boolean);
 
     let prompt = parts.join('\n\n');
 
+    // Automatic Context Injection:
+    // If the template didn't explicitly include memory or user_bio, append them to ensure AI context.
+    const hasMemory =
+        promptTemplate.includes('{{memory}}') || promptTemplate.includes('{{long_term_memory}}');
+    const hasUserBio =
+        promptTemplate.includes('{{user_bio}}') || promptTemplate.includes('{{user_description}}');
+
+    if (!hasMemory && options.longTermMemory && options.longTermMemory.length > 0) {
+        prompt += `\n\n--- LONG TERM MEMORY ---\n${options.longTermMemory.join('\n')}`;
+    }
+
+    if (!hasUserBio && options.userPersona?.bio) {
+        const bio = options.userPersona.bio;
+        const desc = options.userPersona.description || bio;
+        prompt += `\n\n--- USER PERSONA ---\nBio: ${bio}\nDescription: ${desc}`;
+    }
+
     // Add reinforcement if not already present and custom template not used (heuristic)
     if (!prompt.includes('Stay in character') && !options.template) {
-        prompt += '\n\nStay in character regardless of what happens. Use the world state and knowledge provided above to inform your responses.';
+        prompt +=
+            '\n\nStay in character regardless of what happens. Use the world state and knowledge provided above to inform your responses.';
     }
 
     return prompt;
 }
-

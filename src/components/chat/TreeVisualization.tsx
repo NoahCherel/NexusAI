@@ -14,10 +14,13 @@ interface TreeVisualizationProps {
 }
 
 // Visual Constants
-const NODE_WIDTH = 200;
-const NODE_HEIGHT = 80;
-const X_SPACING = 240; // Horizontal space between siblings
-const Y_SPACING = 140; // Vertical space between generations
+// Visual Constants (Responsive)
+const getConstants = (isMobile: boolean) => ({
+    NODE_WIDTH: isMobile ? 160 : 200,
+    NODE_HEIGHT: isMobile ? 70 : 80,
+    X_SPACING: isMobile ? 180 : 240,
+    Y_SPACING: isMobile ? 110 : 140,
+});
 
 interface TreeNode {
     id: string;
@@ -36,6 +39,17 @@ export function TreeVisualization({ isOpen, onClose }: TreeVisualizationProps) {
     const [isDragging, setIsDragging] = useState(false);
     const dragStart = useRef({ x: 0, y: 0 });
     const svgRef = useRef<SVGSVGElement>(null);
+
+    const [isMobile, setIsMobile] = useState(false);
+
+    useEffect(() => {
+        const checkMobile = () => setIsMobile(window.innerWidth < 768);
+        checkMobile();
+        window.addEventListener('resize', checkMobile);
+        return () => window.removeEventListener('resize', checkMobile);
+    }, []);
+
+    const { NODE_WIDTH, NODE_HEIGHT, X_SPACING, Y_SPACING } = getConstants(isMobile);
 
     // Build and Layout Tree
     const treeData = useMemo(() => {

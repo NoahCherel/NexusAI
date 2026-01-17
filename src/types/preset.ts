@@ -56,7 +56,11 @@ export const DEFAULT_SYSTEM_PROMPT_TEMPLATE = `You are {{character_name}}.
 
 {{world_state}}
 
+{{memory}}
+
 {{lorebook}}
+
+{{user_bio}}
 
 Stay in character at all times. Respond naturally and engagingly.`;
 
