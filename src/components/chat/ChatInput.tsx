@@ -2,37 +2,18 @@
 
 import { useState, useRef, useEffect, KeyboardEvent } from 'react';
 import { motion, AnimatePresence, Variants } from 'framer-motion';
-import { Send, Check, Square } from 'lucide-react';
+import { Send, Check, Square, User, Plus, StopCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
+import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import { cn } from '@/lib/utils';
 
 // Animation variants
-const sendButtonVariants: Variants = {
-    idle: { scale: 1 },
-    hover: { scale: 1.05 },
-    tap: { scale: 0.9 },
-    sending: {
-        scale: [1, 1.1, 1],
-        transition: { duration: 0.3 },
-    },
-};
-
-const iconVariants: Variants = {
-    hidden: { opacity: 0, scale: 0.5, rotate: -45 },
-    visible: {
-        opacity: 1,
-        scale: 1,
-        rotate: 0,
-        transition: { type: 'spring', stiffness: 300, damping: 20 },
-    },
-    exit: {
-        opacity: 0,
-        scale: 0.5,
-        rotate: 45,
-        transition: { duration: 0.15 },
-    },
-};
-
 const containerVariants: Variants = {
     initial: { opacity: 0, y: 20 },
     animate: {
@@ -48,6 +29,7 @@ interface ChatInputProps {
     isLoading?: boolean;
     placeholder?: string;
     disabled?: boolean;
+    onImpersonate?: () => Promise<string | void>;
 }
 
 export function ChatInput({
@@ -56,20 +38,27 @@ export function ChatInput({
     isLoading = false,
     placeholder = 'Écrivez votre message...',
     disabled = false,
+    onImpersonate,
 }: ChatInputProps) {
     const [message, setMessage] = useState('');
     const [isFocused, setIsFocused] = useState(false);
     const [justSent, setJustSent] = useState(false);
+    const [isImpersonating, setIsImpersonating] = useState(false);
+
     const textareaRef = useRef<HTMLTextAreaElement>(null);
 
     // Auto-resize textarea
     useEffect(() => {
+        adjustHeight();
+    }, [message]);
+
+    const adjustHeight = () => {
         const textarea = textareaRef.current;
         if (textarea) {
             textarea.style.height = 'auto';
             textarea.style.height = Math.min(textarea.scrollHeight, 200) + 'px';
         }
-    }, [message]);
+    };
 
     const handleSend = () => {
         if (message.trim() && !isLoading && !disabled) {
@@ -94,24 +83,51 @@ export function ChatInput({
         }
     };
 
+    const handleImpersonateClick = async () => {
+        if (!onImpersonate) return;
+        setIsImpersonating(true);
+        try {
+            const text = await onImpersonate();
+            if (text && typeof text === 'string') {
+                setMessage(text);
+                adjustHeight();
+            }
+        } finally {
+            setIsImpersonating(false);
+        }
+    };
+
     return (
         <motion.div
             variants={containerVariants}
             initial="initial"
             animate="animate"
-            className="flex gap-2 sm:gap-3 items-end"
+            className="w-full max-w-4xl mx-auto p-2"
         >
-            {/* Textarea with focus ring animation */}
-            <motion.div
-                className="flex-1 relative"
-                animate={{
-                    boxShadow: isFocused
-                        ? '0 0 0 2px hsl(var(--primary) / 0.3)'
-                        : '0 0 0 0px transparent',
-                }}
-                transition={{ duration: 0.2 }}
-                style={{ borderRadius: 'calc(var(--radius) + 2px)' }}
-            >
+            <div className="flex items-end gap-2 bg-secondary/30 p-2 rounded-xl border border-border/50 shadow-sm backdrop-blur-sm relative transition-colors focus-within:bg-secondary/50 focus-within:border-primary/20">
+
+                {/* Action Menu */}
+                <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                        <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-10 w-10 shrink-0 text-muted-foreground hover:text-foreground mb-[1px] rounded-lg"
+                            title="Actions"
+                        >
+                            <Plus className="h-5 w-5" />
+                        </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="start" className="w-56 mb-2">
+                        {onImpersonate && (
+                            <DropdownMenuItem onClick={handleImpersonateClick} disabled={isImpersonating || isLoading}>
+                                <User className="mr-2 h-4 w-4" />
+                                <span>{isImpersonating ? 'Impersonating...' : 'Impersonate Me'}</span>
+                            </DropdownMenuItem>
+                        )}
+                    </DropdownMenuContent>
+                </DropdownMenu>
+
                 <Textarea
                     ref={textareaRef}
                     value={message}
@@ -120,61 +136,27 @@ export function ChatInput({
                     onFocus={() => setIsFocused(true)}
                     onBlur={() => setIsFocused(false)}
                     placeholder={placeholder}
-                    disabled={disabled || isLoading}
-                    className="min-h-[48px] max-h-[200px] resize-none pr-4 bg-card/50 backdrop-blur-sm border-border/50 focus-visible:ring-0 focus-visible:ring-offset-0 transition-colors"
+                    className="flex-1 min-h-[40px] max-h-[200px] resize-none border-0 bg-transparent focus-visible:ring-0 focus-visible:ring-offset-0 py-2.5 px-3 leading-relaxed custom-scrollbar placeholder:text-muted-foreground/50"
+                    disabled={isLoading || disabled}
                     rows={1}
                 />
-            </motion.div>
 
-            {/* Animated Send Button */}
-            <motion.div
-                variants={sendButtonVariants}
-                initial="idle"
-                whileHover={!isLoading && message.trim() ? 'hover' : 'idle'}
-                whileTap={!isLoading && message.trim() ? 'tap' : 'idle'}
-                animate={justSent ? 'sending' : 'idle'}
-            >
                 <Button
                     onClick={isLoading ? onStop : handleSend}
                     disabled={(!message.trim() && !isLoading) || disabled}
                     size="icon"
-                    className="shrink-0 h-12 w-12 rounded-xl shadow-lg shadow-primary/20 transition-shadow hover:shadow-primary/40"
+                    className={cn(
+                        "h-10 w-10 shrink-0 mb-[1px] transition-all duration-200 rounded-lg",
+                        message.trim() || isLoading ? "opacity-100 scale-100" : "opacity-50 scale-95"
+                    )}
                 >
-                    <AnimatePresence mode="wait">
-                        {isLoading ? (
-                            <motion.div
-                                key="loading"
-                                variants={iconVariants}
-                                initial="hidden"
-                                animate="visible"
-                                exit="exit"
-                            >
-                                <Square className="h-4 w-4 fill-current" />
-                            </motion.div>
-                        ) : justSent ? (
-                            <motion.div
-                                key="check"
-                                variants={iconVariants}
-                                initial="hidden"
-                                animate="visible"
-                                exit="exit"
-                            >
-                                <Check className="h-5 w-5" />
-                            </motion.div>
-                        ) : (
-                            <motion.div
-                                key="send"
-                                variants={iconVariants}
-                                initial="hidden"
-                                animate="visible"
-                                exit="exit"
-                            >
-                                <Send className="h-5 w-5" />
-                            </motion.div>
-                        )}
-                    </AnimatePresence>
+                    {isLoading ? (
+                        <StopCircle className="h-5 w-5 animate-pulse" />
+                    ) : (
+                        <Send className="h-5 w-5" />
+                    )}
                 </Button>
-            </motion.div>
+            </div>
         </motion.div>
     );
 }

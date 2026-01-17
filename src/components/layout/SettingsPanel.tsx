@@ -1,16 +1,14 @@
-'use client';
-
 import { useState } from 'react';
 import { Settings, Key, Sliders, Eye, EyeOff, Check, X, Settings2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
-    Sheet,
-    SheetContent,
-    SheetDescription,
-    SheetHeader,
-    SheetTitle,
-} from '@/components/ui/sheet';
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogHeader,
+    DialogTitle,
+} from '@/components/ui/dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Separator } from '@/components/ui/separator';
 import { useSettingsStore } from '@/stores';
@@ -75,203 +73,213 @@ export function SettingsPanel({ open, onOpenChange }: SettingsPanelProps) {
     };
 
     return (
-        <Sheet open={open} onOpenChange={onOpenChange}>
-            <SheetContent className="w-[400px] sm:w-[540px] overflow-y-auto">
-                <SheetHeader>
-                    <SheetTitle className="flex items-center gap-2">
+        <Dialog open={open} onOpenChange={onOpenChange}>
+            <DialogContent className="max-w-5xl w-[95vw] h-[90vh] flex flex-col p-0 gap-0 overflow-hidden bg-background/95 backdrop-blur-xl border-border/50">
+                <DialogHeader className="p-6 pb-2 border-b shrink-0">
+                    <DialogTitle className="flex items-center gap-2 text-xl">
                         <Settings className="h-5 w-5" />
                         Settings
-                    </SheetTitle>
-                    <SheetDescription>
-                        Configure your API keys and chat preferences.
-                    </SheetDescription>
-                </SheetHeader>
+                    </DialogTitle>
+                    <DialogDescription>
+                        Configure your API keys, chat preferences, and generation presets.
+                    </DialogDescription>
+                </DialogHeader>
 
-                <Tabs defaultValue="api" className="mt-6">
-                    <TabsList className="w-full">
-                        <TabsTrigger value="api" className="flex-1 gap-2">
-                            <Key className="h-4 w-4" />
-                            API
-                        </TabsTrigger>
-                        <TabsTrigger value="chat" className="flex-1 gap-2">
-                            <Sliders className="h-4 w-4" />
-                            Chat
-                        </TabsTrigger>
-                        <TabsTrigger value="presets" className="flex-1 gap-2">
-                            <Settings2 className="h-4 w-4" />
-                            Presets
-                        </TabsTrigger>
-                    </TabsList>
-
-                    {/* API Keys Tab */}
-                    <TabsContent value="api" className="space-y-8 mt-6 px-1 pb-10">
-                        {/* Provider Selection */}
-                        <div className="space-y-4">
-                            <label className="text-sm font-medium">Provider</label>
-                            <div className="flex gap-3">
-                                {(['openrouter', 'openai', 'anthropic'] as Provider[]).map(
-                                    (provider) => {
-                                        const key = getKeyForProvider(provider);
-                                        return (
-                                            <Button
-                                                key={provider}
-                                                variant={
-                                                    selectedProvider === provider
-                                                        ? 'default'
-                                                        : 'outline'
-                                                }
-                                                size="sm"
-                                                onClick={() => setSelectedProvider(provider)}
-                                                className="flex-1 gap-2 h-10"
-                                            >
-                                                {provider === 'openrouter' && 'OpenRouter'}
-                                                {provider === 'openai' && 'OpenAI'}
-                                                {provider === 'anthropic' && 'Anthropic'}
-                                                {key &&
-                                                    (key.isValid ? (
-                                                        <Check className="h-3 w-3 text-green-500" />
-                                                    ) : (
-                                                        <X className="h-3 w-3 text-red-500" />
-                                                    ))}
-                                            </Button>
-                                        );
-                                    }
-                                )}
-                            </div>
+                <div className="flex-1 overflow-hidden">
+                    <Tabs defaultValue="api" className="h-full flex flex-col">
+                        <div className="px-6 py-2 border-b shrink-0 bg-muted/20">
+                            <TabsList className="w-full max-w-md grid grid-cols-3">
+                                <TabsTrigger value="api" className="gap-2">
+                                    <Key className="h-4 w-4" />
+                                    API
+                                </TabsTrigger>
+                                <TabsTrigger value="chat" className="gap-2">
+                                    <Sliders className="h-4 w-4" />
+                                    Chat
+                                </TabsTrigger>
+                                <TabsTrigger value="presets" className="gap-2">
+                                    <Settings2 className="h-4 w-4" />
+                                    Presets
+                                </TabsTrigger>
+                            </TabsList>
                         </div>
 
-                        {/* API Key Input */}
-                        <div className="space-y-4">
-                            <label className="text-sm font-medium">
-                                {selectedProvider} API Key
-                            </label>
-                            <div className="flex gap-3">
-                                <div className="relative flex-1">
-                                    <Input
-                                        type={showKey ? 'text' : 'password'}
-                                        value={newKey}
-                                        onChange={(e) => setNewKey(e.target.value)}
-                                        placeholder={`sk-... or your ${selectedProvider} key`}
-                                        className="pr-10 h-10"
-                                    />
-                                    <Button
-                                        type="button"
-                                        variant="ghost"
-                                        size="icon"
-                                        className="absolute right-0 top-0 h-full hover:bg-transparent"
-                                        onClick={() => setShowKey(!showKey)}
-                                    >
-                                        {showKey ? (
-                                            <EyeOff className="h-4 w-4 text-muted-foreground" />
-                                        ) : (
-                                            <Eye className="h-4 w-4 text-muted-foreground" />
+                        {/* API Keys Tab */}
+                        <TabsContent value="api" className="flex-1 overflow-y-auto p-6 space-y-8 m-0 outline-none">
+                            <div className="max-w-2xl mx-auto space-y-8">
+                                {/* Provider Selection */}
+                                <div className="space-y-4">
+                                    <label className="text-sm font-medium">Provider</label>
+                                    <div className="flex gap-3">
+                                        {(['openrouter', 'openai', 'anthropic'] as Provider[]).map(
+                                            (provider) => {
+                                                const key = getKeyForProvider(provider);
+                                                return (
+                                                    <Button
+                                                        key={provider}
+                                                        variant={
+                                                            selectedProvider === provider
+                                                                ? 'default'
+                                                                : 'outline'
+                                                        }
+                                                        size="sm"
+                                                        onClick={() => setSelectedProvider(provider)}
+                                                        className="flex-1 gap-2 h-10"
+                                                    >
+                                                        {provider === 'openrouter' && 'OpenRouter'}
+                                                        {provider === 'openai' && 'OpenAI'}
+                                                        {provider === 'anthropic' && 'Anthropic'}
+                                                        {key &&
+                                                            (key.isValid ? (
+                                                                <Check className="h-3 w-3 text-green-500" />
+                                                            ) : (
+                                                                <X className="h-3 w-3 text-red-500" />
+                                                            ))}
+                                                    </Button>
+                                                );
+                                            }
                                         )}
-                                    </Button>
+                                    </div>
                                 </div>
-                                <Button
-                                    onClick={handleSaveKey}
-                                    disabled={!newKey.trim() || isValidating}
-                                    className="h-10 px-6"
-                                >
-                                    {isValidating ? 'Validating...' : 'Save'}
-                                </Button>
-                            </div>
-                            <p className="text-xs text-muted-foreground leading-relaxed">
-                                🔒 Your key is encrypted locally using AES-256-GCM and stored only
-                                in your browser&apos;s LocalStorage. It is never sent to our
-                                servers.
-                            </p>
-                        </div>
-                    </TabsContent>
 
-                    {/* Chat Settings Tab */}
-                    <TabsContent value="chat" className="space-y-8 mt-6 px-1 pb-10">
-                        {/* Reasoning Mode Toggle */}
-                        <div className="space-y-4">
-                            <div className="flex items-center justify-between p-1">
-                                <div>
-                                    <p className="text-sm font-medium">Thinking Mode (Reasoning)</p>
-                                    <p className="text-xs text-muted-foreground mt-1">
-                                        Enables reasoning tokens for compatible models (e.g.
-                                        DeepSeek R1)
+                                {/* API Key Input */}
+                                <div className="space-y-4">
+                                    <label className="text-sm font-medium">
+                                        {selectedProvider} API Key
+                                    </label>
+                                    <div className="flex gap-3">
+                                        <div className="relative flex-1">
+                                            <Input
+                                                type={showKey ? 'text' : 'password'}
+                                                value={newKey}
+                                                onChange={(e) => setNewKey(e.target.value)}
+                                                placeholder={`sk-... or your ${selectedProvider} key`}
+                                                className="pr-10 h-10"
+                                            />
+                                            <Button
+                                                type="button"
+                                                variant="ghost"
+                                                size="icon"
+                                                className="absolute right-0 top-0 h-full hover:bg-transparent"
+                                                onClick={() => setShowKey(!showKey)}
+                                            >
+                                                {showKey ? (
+                                                    <EyeOff className="h-4 w-4 text-muted-foreground" />
+                                                ) : (
+                                                    <Eye className="h-4 w-4 text-muted-foreground" />
+                                                )}
+                                            </Button>
+                                        </div>
+                                        <Button
+                                            onClick={handleSaveKey}
+                                            disabled={!newKey.trim() || isValidating}
+                                            className="h-10 px-6"
+                                        >
+                                            {isValidating ? 'Validating...' : 'Save'}
+                                        </Button>
+                                    </div>
+                                    <p className="text-xs text-muted-foreground leading-relaxed">
+                                        🔒 Your key is encrypted locally using AES-256-GCM and stored only
+                                        in your browser&apos;s LocalStorage. It is never sent to our
+                                        servers.
                                     </p>
                                 </div>
-                                <Button
-                                    variant={enableReasoning ? 'default' : 'secondary'}
-                                    size="sm"
-                                    onClick={() => setEnableReasoning(!enableReasoning)}
-                                    className="w-16"
-                                >
-                                    {enableReasoning ? 'On' : 'Off'}
-                                </Button>
                             </div>
-                        </div>
+                        </TabsContent>
 
-                        <Separator />
-
-                        {/* UI Options */}
-                        <div className="space-y-5">
-                            <label className="text-sm font-medium">Interface Preferences</label>
-
-                            <div className="flex items-center justify-between p-1">
-                                <div>
-                                    <p className="text-sm">Show Thoughts (CoT)</p>
-                                    <p className="text-xs text-muted-foreground mt-0.5">
-                                        Expand/collapse AI reasoning chains
-                                    </p>
+                        {/* Chat Settings Tab */}
+                        <TabsContent value="chat" className="flex-1 overflow-y-auto p-6 space-y-8 m-0 outline-none">
+                            <div className="max-w-2xl mx-auto space-y-8">
+                                {/* Reasoning Mode Toggle */}
+                                <div className="space-y-4">
+                                    <div className="flex items-center justify-between p-4 border rounded-lg bg-card/50">
+                                        <div>
+                                            <p className="text-sm font-medium">Thinking Mode (Reasoning)</p>
+                                            <p className="text-xs text-muted-foreground mt-1">
+                                                Enables reasoning tokens for compatible models (e.g.
+                                                DeepSeek R1)
+                                            </p>
+                                        </div>
+                                        <Button
+                                            variant={enableReasoning ? 'default' : 'secondary'}
+                                            size="sm"
+                                            onClick={() => setEnableReasoning(!enableReasoning)}
+                                            className="w-16"
+                                        >
+                                            {enableReasoning ? 'On' : 'Off'}
+                                        </Button>
+                                    </div>
                                 </div>
-                                <Button
-                                    variant={showThoughts ? 'default' : 'secondary'}
-                                    size="sm"
-                                    onClick={() => setShowThoughts(!showThoughts)}
-                                    className="w-16"
-                                >
-                                    {showThoughts ? 'On' : 'Off'}
-                                </Button>
-                            </div>
 
-                            <div className="flex items-center justify-between p-1">
-                                <div>
-                                    <p className="text-sm">World State Panel</p>
-                                    <p className="text-xs text-muted-foreground mt-0.5">
-                                        Show Inventory, Location & Relationships
-                                    </p>
+                                <Separator />
+
+                                {/* UI Options */}
+                                <div className="space-y-5">
+                                    <label className="text-sm font-medium">Interface Preferences</label>
+
+                                    <div className="space-y-3">
+                                        <div className="flex items-center justify-between p-3 border rounded-lg bg-card/50">
+                                            <div>
+                                                <p className="text-sm">Show Thoughts (CoT)</p>
+                                                <p className="text-xs text-muted-foreground mt-0.5">
+                                                    Expand/collapse AI reasoning chains
+                                                </p>
+                                            </div>
+                                            <Button
+                                                variant={showThoughts ? 'default' : 'secondary'}
+                                                size="sm"
+                                                onClick={() => setShowThoughts(!showThoughts)}
+                                                className="w-16"
+                                            >
+                                                {showThoughts ? 'On' : 'Off'}
+                                            </Button>
+                                        </div>
+
+                                        <div className="flex items-center justify-between p-3 border rounded-lg bg-card/50">
+                                            <div>
+                                                <p className="text-sm">World State Panel</p>
+                                                <p className="text-xs text-muted-foreground mt-0.5">
+                                                    Show Inventory, Location & Relationships
+                                                </p>
+                                            </div>
+                                            <Button
+                                                variant={showWorldState ? 'default' : 'secondary'}
+                                                size="sm"
+                                                onClick={() => setShowWorldState(!showWorldState)}
+                                                className="w-16"
+                                            >
+                                                {showWorldState ? 'On' : 'Off'}
+                                            </Button>
+                                        </div>
+
+                                        <div className="flex items-center justify-between p-3 border rounded-lg bg-card/50">
+                                            <div>
+                                                <p className="text-sm">Immersive Mode</p>
+                                                <p className="text-xs text-muted-foreground mt-0.5">
+                                                    Hide headers/sidebars for focused reading
+                                                </p>
+                                            </div>
+                                            <Button
+                                                variant={immersiveMode ? 'default' : 'secondary'}
+                                                size="sm"
+                                                onClick={() => setImmersiveMode(!immersiveMode)}
+                                                className="w-16"
+                                            >
+                                                {immersiveMode ? 'On' : 'Off'}
+                                            </Button>
+                                        </div>
+                                    </div>
                                 </div>
-                                <Button
-                                    variant={showWorldState ? 'default' : 'secondary'}
-                                    size="sm"
-                                    onClick={() => setShowWorldState(!showWorldState)}
-                                    className="w-16"
-                                >
-                                    {showWorldState ? 'On' : 'Off'}
-                                </Button>
                             </div>
+                        </TabsContent>
 
-                            <div className="flex items-center justify-between p-1">
-                                <div>
-                                    <p className="text-sm">Immersive Mode</p>
-                                    <p className="text-xs text-muted-foreground mt-0.5">
-                                        Hide headers/sidebars for focused reading
-                                    </p>
-                                </div>
-                                <Button
-                                    variant={immersiveMode ? 'default' : 'secondary'}
-                                    size="sm"
-                                    onClick={() => setImmersiveMode(!immersiveMode)}
-                                    className="w-16"
-                                >
-                                    {immersiveMode ? 'On' : 'Off'}
-                                </Button>
-                            </div>
-                        </div>
-                    </TabsContent>
-
-                    {/* Presets Tab */}
-                    <TabsContent value="presets" className="h-[calc(100vh-180px)] mt-6">
-                        <PresetEditor />
-                    </TabsContent>
-                </Tabs>
-            </SheetContent>
-        </Sheet>
+                        {/* Presets Tab */}
+                        <TabsContent value="presets" className="flex-1 overflow-hidden m-0 data-[state=inactive]:hidden">
+                            <PresetEditor />
+                        </TabsContent>
+                    </Tabs>
+                </div>
+            </DialogContent>
+        </Dialog>
     );
 }

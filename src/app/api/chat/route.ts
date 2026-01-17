@@ -18,6 +18,9 @@ export async function POST(req: NextRequest) {
             topK,
             frequencyPenalty,
             presencePenalty,
+            repetitionPenalty,
+            minP,
+            stoppingStrings,
             apiKey,
             systemPrompt,
             userPersona,
@@ -35,21 +38,15 @@ export async function POST(req: NextRequest) {
             });
         }
 
-        // OpenRouter Configuration
-        // We use createOpenAI aimed at OpenRouter to have full control over extraBody if needed,
-        // or ensure 'include_reasoning' is passed correctly.
-
         let modelInstance;
+        const extraBody: Record<string, any> = {};
+
+        // Handle Provider-Specific Parameters
+        if (repetitionPenalty) extraBody.repetition_penalty = repetitionPenalty;
+        if (minP) extraBody.min_p = minP;
+        if (topK) extraBody.top_k = topK; // Some providers need this in extraBody
 
         if (provider === 'openrouter') {
-            // For OpenRouter, we need to pass 'include_reasoning: true' in the body.
-            // The most reliable way with AI SDK is to use the 'openai' provider with custom baseURL
-            // and pass 'extraBody' in the model config if supported, or rely on 'providerOptions'.
-            // However, strictly speaking, 'include_reasoning' is a non-standard parameter.
-
-            // Let's try to override the specific call options.
-            // Since streamText doesn't support extraBody directly, we rely on the provider.
-
             const openRouterClient = createOpenRouter({
                 apiKey,
                 headers: {
@@ -58,6 +55,7 @@ export async function POST(req: NextRequest) {
                 },
             });
 
+            // OpenRouter supports mapping extraBody via the provider config or specific options
             modelInstance = openRouterClient(model);
         } else if (provider === 'openai') {
             modelInstance = createOpenAI({ apiKey })(model);
@@ -67,13 +65,23 @@ export async function POST(req: NextRequest) {
             throw new Error('Invalid provider');
         }
 
-        // Inject Persona into System Prompt or Context
+        // Inject Persona into System Prompt
         let effectiveSystem = systemPrompt || 'You are a helpful AI assistant.';
         if (userPersona) {
             effectiveSystem += `\n\n[USER INFO]\nName: ${userPersona.name}\nBio: ${userPersona.bio}\n\n[INSTRUCTION]\nAdapt your responses to address the user as "${userPersona.name}" and take into account their bio.`;
         }
 
-        // Prepare parameters
+        // Prepare provider metadata for reasoning / specialized params
+        const providerMetadata = {
+            openrouter: {
+                ...(enableReasoning ? { include_reasoning: true } : {}),
+                ...extraBody, // Pass extra params like repetition_penalty here for OpenRouter
+            },
+            openai: {
+                ...(enableReasoning ? { include_reasoning: true } : {}),
+            },
+        };
+
         const result = streamText({
             model: modelInstance,
             messages,
@@ -81,25 +89,12 @@ export async function POST(req: NextRequest) {
             temperature: temperature ?? 0.8,
             maxTokens: maxTokens ?? 4096,
             topP: topP,
-            topK: topK,
-            frequencyPenalty: frequencyPenalty,
-            presencePenalty: presencePenalty,
-            // Attempt to pass reasoning parameters
-            // Check if enableReasoning is true
-            // We use 'experimental_providerMetadata' which relies on the provider implementation.
-            // For OpenRouter, we will try commonly used keys.
-            experimental_providerMetadata: enableReasoning
-                ? {
-                    openrouter: {
-                        includeReasoning: true,
-                        include_reasoning: true, // Try both snake_case and camelCase
-                        reasoning: { effort: 'medium' }, // Try new standard just in case
-                    },
-                    openai: {
-                        include_reasoning: true,
-                    },
-                }
-                : {},
+            // Standard AI SDK params
+            frequencyPenalty,
+            presencePenalty,
+            stopSequences: stoppingStrings,
+            // Provider specific via metadata or internal casting (since streamText types are strict)
+            experimental_providerMetadata: providerMetadata,
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
         } as any);
 

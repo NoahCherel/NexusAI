@@ -9,18 +9,37 @@ export interface APIPreset {
     temperature: number;
     maxOutputTokens: number;
     maxContextTokens: number;
-    topP?: number;
-    topK?: number;
-    frequencyPenalty?: number;
-    presencePenalty?: number;
+    topP: number;
+    topK: number;
+    minP?: number;
+    repetitionPenalty: number;
+    frequencyPenalty: number;
+    presencePenalty: number;
+    stoppingStrings: string[];
+    minLength?: number;
 
-    // System prompt template with placeholders:
-    // {{character_name}}, {{character_description}}, {{character_personality}}
-    // {{scenario}}, {{first_message}}, {{world_state}}, {{lorebook}}
+    // Prompt Structure
     systemPromptTemplate: string;
+    preHistoryInstructions?: string; // Added before chat history
+    postHistoryInstructions?: string; // Added after chat history
+    promptNote?: string; // Inserted at specific depth
+    promptNoteDepth?: number;
+    impersonationPrompt?: string; // For the "Robot" button
+    assistantPrefill?: string; // Forces start of response
 
-    // Flags
+    // Toggles & Behavior
     enableReasoning: boolean;
+    includeNames: boolean;
+    banEmojis: boolean;
+    useLorebooks: boolean;
+    useAutoSummarization: boolean;
+    trimIncompleteSentences?: boolean;
+
+    // Lorebook Settings
+    lorebookScanDepth?: number;
+    lorebookTokenBudget?: number;
+    lorebookRecursiveScanning?: boolean;
+    matchWholeWords?: boolean;
 
     isDefault?: boolean;
     createdAt: Date;
@@ -50,8 +69,17 @@ export const DEFAULT_PRESETS: Omit<APIPreset, 'id' | 'createdAt'>[] = [
         maxOutputTokens: 2048,
         maxContextTokens: 8192,
         topP: 0.95,
+        topK: 40,
+        repetitionPenalty: 1.05,
+        frequencyPenalty: 0,
+        presencePenalty: 0,
+        stoppingStrings: [],
         systemPromptTemplate: DEFAULT_SYSTEM_PROMPT_TEMPLATE,
         enableReasoning: false,
+        includeNames: true,
+        banEmojis: false,
+        useLorebooks: true,
+        useAutoSummarization: true,
         isDefault: true,
     },
     {
@@ -61,8 +89,17 @@ export const DEFAULT_PRESETS: Omit<APIPreset, 'id' | 'createdAt'>[] = [
         maxOutputTokens: 3000,
         maxContextTokens: 8192,
         topP: 0.98,
+        topK: 100,
+        repetitionPenalty: 1.02,
+        frequencyPenalty: 0.1,
+        presencePenalty: 0.1,
+        stoppingStrings: [],
         systemPromptTemplate: DEFAULT_SYSTEM_PROMPT_TEMPLATE,
         enableReasoning: false,
+        includeNames: true,
+        banEmojis: false,
+        useLorebooks: true,
+        useAutoSummarization: true,
         isDefault: true,
     },
     {
@@ -72,8 +109,17 @@ export const DEFAULT_PRESETS: Omit<APIPreset, 'id' | 'createdAt'>[] = [
         maxOutputTokens: 2048,
         maxContextTokens: 8192,
         topP: 0.85,
+        topK: 20,
+        repetitionPenalty: 1.1,
+        frequencyPenalty: 0,
+        presencePenalty: 0,
+        stoppingStrings: [],
         systemPromptTemplate: DEFAULT_SYSTEM_PROMPT_TEMPLATE,
         enableReasoning: true,
+        includeNames: true,
+        banEmojis: false,
+        useLorebooks: true,
+        useAutoSummarization: true,
         isDefault: true,
     },
 ];

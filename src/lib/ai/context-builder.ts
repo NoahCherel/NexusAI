@@ -2,45 +2,94 @@ import type { CharacterCard, Lorebook, LorebookEntry } from '@/types/character';
 import type { Message, WorldState } from '@/types/chat';
 import { DEFAULT_SYSTEM_PROMPT_TEMPLATE } from '@/types/preset';
 
+interface LorebookConfig {
+    scanDepth?: number;
+    tokenBudget?: number; // Approximate
+    recursive?: boolean;
+    matchWholeWords?: boolean;
+}
+
 /**
  * Scans recent messages for lorebook keywords and returns matching entries.
+ * Supports recursive scanning and token budgets.
  */
 export function getActiveLorebookEntries(
     messages: Message[],
     lorebook: Lorebook | undefined,
-    maxEntries: number = 5
+    config: LorebookConfig = {}
 ): LorebookEntry[] {
     if (!lorebook?.entries) return [];
 
     const entries = lorebook.entries.filter((e) => e.enabled);
     if (entries.length === 0) return [];
 
-    // Get text from last N messages to scan
-    // We scan the last 3 messages usually
-    const recentText = messages
-        .slice(-3)
-        .map((m) => m.content.toLowerCase())
-        .join('\n');
+    const {
+        scanDepth = 2,
+        tokenBudget = 500,
+        recursive = false,
+        matchWholeWords = false,
+    } = config;
 
-    const matchedEntries: LorebookEntry[] = [];
+    // 1. Get text to scan
+    const messagesToScan = messages.slice(-scanDepth);
+    let scanText = messagesToScan.map((m) => m.content.toLowerCase()).join('\n');
 
-    // Simple keyword matching
-    for (const entry of entries) {
-        const keywords = entry.keys; // Array of strings
+    const matchedEntries = new Set<LorebookEntry>();
+    let currentTokenCount = 0;
 
-        for (const keyword of keywords) {
-            const cleanKey = keyword.trim().toLowerCase();
-            if (cleanKey && recentText.includes(cleanKey)) {
-                matchedEntries.push(entry);
-                break; // Found a match for this entry, move to next
+    // Helper to estimate tokens (approx 4 chars per token)
+    const estimateTokens = (text: string) => Math.ceil(text.length / 4);
+
+    // 2. recursive scan function
+    const scanForKeywords = (text: string) => {
+        let foundNew = false;
+
+        for (const entry of entries) {
+            if (matchedEntries.has(entry)) continue;
+
+            const contentTokens = estimateTokens(entry.content);
+            if (currentTokenCount + contentTokens > tokenBudget) continue;
+
+            for (const keyword of entry.keys) {
+                const cleanKey = keyword.trim().toLowerCase();
+                if (!cleanKey) continue;
+
+                let isMatch = false;
+
+                if (matchWholeWords) {
+                    // Regex match for whole word
+                    // Escape regex special chars in keyword
+                    const escapedKey = cleanKey.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                    const regex = new RegExp(`\\b${escapedKey}\\b`, 'i');
+                    isMatch = regex.test(text);
+                } else {
+                    isMatch = text.includes(cleanKey);
+                }
+
+                if (isMatch) {
+                    matchedEntries.add(entry);
+                    currentTokenCount += contentTokens;
+                    foundNew = true;
+                    // If recursive, we append this entry's content to the scan text for next pass?
+                    // Actually standard recursion scans the NEW entry's content for OTHER keys.
+                    if (recursive) {
+                        // We can either recurse immediately or just collect content to scan next
+                        // Let's recurse immediately
+                        scanForKeywords(entry.content.toLowerCase());
+                    }
+                    break; // Move to next entry after matching this one
+                }
             }
         }
-    }
+        return foundNew;
+    };
 
-    // Sort by priority (higher first) and limit
-    return matchedEntries
-        .sort((a, b) => (b.priority || 10) - (a.priority || 10))
-        .slice(0, maxEntries);
+    // Initial scan
+    scanForKeywords(scanText);
+
+    // Convert Set to Array and sort
+    return Array.from(matchedEntries)
+        .sort((a, b) => (b.priority || 10) - (a.priority || 10));
 }
 
 /**
@@ -81,21 +130,27 @@ export function resolveSystemPromptTemplate(
     template: string,
     character: CharacterCard,
     worldState: WorldState,
-    activeLorebookEntries: LorebookEntry[]
+    activeLorebookEntries: LorebookEntry[],
+    userPersonaName: string = 'User'
 ): string {
     const replacements: Record<string, string> = {
         '{{character_name}}': character.name,
+        '{{char}}': character.name, // Alias
         '{{character_description}}': character.description || '',
         '{{character_personality}}': character.personality || '',
         '{{scenario}}': character.scenario || '',
         '{{first_message}}': character.first_mes || '',
         '{{world_state}}': formatWorldState(worldState),
         '{{lorebook}}': formatLorebookEntries(activeLorebookEntries),
+        '{{user}}': userPersonaName,
     };
 
     let resolved = template;
     for (const [placeholder, value] of Object.entries(replacements)) {
-        resolved = resolved.replace(new RegExp(placeholder, 'g'), value);
+        // Use a more robust regex to catch {{ user }} with spaces if needed, but standard is {{key}}
+        // Using 'gi' for case-insensitive matching if desired, but usually keys are case-sensitive. 
+        // We'll stick to case-insensitive for user/char as they are common typos.
+        resolved = resolved.replace(new RegExp(placeholder, 'gi'), value);
     }
 
     // Clean up empty lines from unused placeholders
@@ -106,19 +161,38 @@ export function resolveSystemPromptTemplate(
 
 /**
  * Builds the final system prompt.
- * Uses template if provided, otherwise uses default structure.
+ * Joins Pre-History + Template + Post-History.
  */
 export function buildSystemPrompt(
     character: CharacterCard,
     worldState: WorldState,
     activeLorebookEntries: LorebookEntry[],
-    template?: string
+    options: {
+        template?: string;
+        preHistory?: string;
+        postHistory?: string;
+        userPersonaName?: string;
+    } = {}
 ): string {
-    const promptTemplate = template || DEFAULT_SYSTEM_PROMPT_TEMPLATE;
-    let prompt = resolveSystemPromptTemplate(promptTemplate, character, worldState, activeLorebookEntries);
+    const promptTemplate = options.template || DEFAULT_SYSTEM_PROMPT_TEMPLATE;
+    const resolvedBody = resolveSystemPromptTemplate(
+        promptTemplate,
+        character,
+        worldState,
+        activeLorebookEntries,
+        options.userPersonaName
+    );
 
-    // Add reinforcement if not already present
-    if (!prompt.includes('Stay in character')) {
+    const parts = [
+        options.preHistory,
+        resolvedBody,
+        options.postHistory
+    ].filter(Boolean);
+
+    let prompt = parts.join('\n\n');
+
+    // Add reinforcement if not already present and custom template not used (heuristic)
+    if (!prompt.includes('Stay in character') && !options.template) {
         prompt += '\n\nStay in character regardless of what happens. Use the world state and knowledge provided above to inform your responses.';
     }
 
