@@ -86,9 +86,13 @@ const FormattedText = memo(({ text }: { text: string }) => {
     let currentText = "";
     let i = 0;
 
+    // Use a separate counter for keys to avoid collisions
+    // (e.g. flushText uses i, then bold block uses i)
+    let keyIndex = 0;
+
     const flushText = () => {
         if (currentText) {
-            nodes.push(<span key={i}>{currentText}</span>);
+            nodes.push(<span key={keyIndex++}>{currentText}</span>);
             currentText = "";
         }
     };
@@ -100,7 +104,7 @@ const FormattedText = memo(({ text }: { text: string }) => {
             if (endIdx !== -1) {
                 flushText();
                 const boldContent = text.slice(i + 2, endIdx);
-                nodes.push(<strong key={i} className="font-semibold text-foreground">{boldContent}</strong>);
+                nodes.push(<strong key={keyIndex++} className="font-semibold text-foreground">{boldContent}</strong>);
                 i = endIdx + 2;
                 continue;
             }
@@ -113,7 +117,7 @@ const FormattedText = memo(({ text }: { text: string }) => {
                 flushText();
                 const italicContent = text.slice(i + 1, endIdx);
                 // Standard visual style for RP actions: italic + slightly muted color
-                nodes.push(<em key={i} className="italic text-muted-foreground">{italicContent}</em>);
+                nodes.push(<em key={keyIndex++} className="italic text-muted-foreground">{italicContent}</em>);
                 i = endIdx + 1;
                 continue;
             }
@@ -125,7 +129,7 @@ const FormattedText = memo(({ text }: { text: string }) => {
             if (endIdx !== -1) {
                 flushText();
                 const italicContent = text.slice(i + 1, endIdx);
-                nodes.push(<em key={i} className="italic text-muted-foreground">{italicContent}</em>);
+                nodes.push(<em key={keyIndex++} className="italic text-muted-foreground">{italicContent}</em>);
                 i = endIdx + 1;
                 continue;
             }
