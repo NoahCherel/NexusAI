@@ -39,6 +39,7 @@ export default function ChatPage() {
     const [isTreeOpen, setIsTreeOpen] = useState(false);
     const [isMemoryOpen, setIsMemoryOpen] = useState(false);
     const [isWorldStateSheetOpen, setIsWorldStateSheetOpen] = useState(false); // Mobile bottom sheet
+    const [isWorldStateDialogOpen, setIsWorldStateDialogOpen] = useState(false); // Desktop dialog
     const [currentApiKey, setCurrentApiKey] = useState<string | null>(null);
 
     // Initialize IndexedDB and load data
@@ -748,32 +749,6 @@ export default function ChatPage() {
                                 </div>
                             </div>
 
-                            {/* World State Panel (Overlay or Side) */}
-                            {showWorldState && (
-                                <div
-                                    className={`hidden lg:block absolute right-0 top-0 bottom-0 border-l bg-background/95 backdrop-blur z-10 transition-all duration-300 ${isWorldStateCollapsed ? 'w-[50px] overflow-hidden' : 'w-64 p-4'}`}
-                                >
-                                    <WorldStatePanel
-                                        inventory={worldState.inventory.map((i) =>
-                                            i.replace(
-                                                /{{user}}/gi,
-                                                personas.find((p) => p.id === activePersonaId)
-                                                    ?.name || 'You'
-                                            )
-                                        )}
-                                        location={worldState.location.replace(
-                                            /{{user}}/gi,
-                                            personas.find((p) => p.id === activePersonaId)?.name ||
-                                            'You'
-                                        )}
-                                        relationships={worldState.relationships}
-                                        isCollapsed={isWorldStateCollapsed}
-                                        onToggle={() =>
-                                            setIsWorldStateCollapsed(!isWorldStateCollapsed)
-                                        }
-                                    />
-                                </div>
-                            )}
                         </div>
 
                         {/* Input Area - Floating in immersive mode */}
@@ -801,6 +776,25 @@ export default function ChatPage() {
                                         >
                                             <Book className="h-4 w-4" />
                                         </Button>
+                                        {/* WorldState Button - Dialog on desktop, Sheet on mobile */}
+                                        {showWorldState && (
+                                            <Button
+                                                variant="ghost"
+                                                size="sm"
+                                                className="h-8 w-8 p-0 text-muted-foreground hover:text-foreground shrink-0"
+                                                onClick={() => {
+                                                    // Desktop: open dialog, Mobile: opensheet
+                                                    if (window.innerWidth >= 1024) {
+                                                        setIsWorldStateDialogOpen(true);
+                                                    } else {
+                                                        setIsWorldStateSheetOpen(true);
+                                                    }
+                                                }}
+                                                title="World Context"
+                                            >
+                                                <Globe2Icon className="h-4 w-4" />
+                                            </Button>
+                                        )}
                                         <Button
                                             variant="ghost"
                                             size="sm"
@@ -819,18 +813,6 @@ export default function ChatPage() {
                                         >
                                             <Brain className="h-4 w-4" />
                                         </Button>
-                                        {/* Mobile WorldState Button */}
-                                        {showWorldState && (
-                                            <Button
-                                                variant="ghost"
-                                                size="sm"
-                                                className="h-8 w-8 p-0 text-muted-foreground hover:text-foreground shrink-0 lg:hidden"
-                                                onClick={() => setIsWorldStateSheetOpen(true)}
-                                                title="World Context"
-                                            >
-                                                <Globe2Icon className="h-4 w-4" />
-                                            </Button>
-                                        )}
                                     </div>
                                 )}
                                 <ChatInput
@@ -881,6 +863,40 @@ export default function ChatPage() {
             <TreeVisualization isOpen={isTreeOpen} onClose={() => setIsTreeOpen(false)} />
 
             <MemoryPanel isOpen={isMemoryOpen} onClose={() => setIsMemoryOpen(false)} />
+
+            {/* Desktop WorldState Dialog */}
+            <Dialog open={isWorldStateDialogOpen} onOpenChange={setIsWorldStateDialogOpen}>
+                <DialogContent className="!max-w-[600px] !w-[600px] h-[85vh] p-0 overflow-hidden">
+                    <DialogTitle className="sr-only">World Context</DialogTitle>
+                    <DialogDescription className="sr-only">
+                        Track inventory, location, and relationships in the current conversation.
+                    </DialogDescription>
+                    <div className="flex flex-col h-full">
+                        <div className="p-4 border-b">
+                            <h2 className="text-lg font-semibold">🌍 World Context</h2>
+                            <p className="text-sm text-muted-foreground">
+                                Track inventory, relationships, and location
+                            </p>
+                        </div>
+                        <div className="flex-1 overflow-y-auto p-4">
+                            <WorldStatePanel
+                                inventory={worldState.inventory.map((i) =>
+                                    i.replace(
+                                        /{{user}}/gi,
+                                        personas.find((p) => p.id === activePersonaId)?.name || 'You'
+                                    )
+                                )}
+                                location={worldState.location.replace(
+                                    /{{user}}/gi,
+                                    personas.find((p) => p.id === activePersonaId)?.name || 'You'
+                                )}
+                                relationships={worldState.relationships}
+                                isCollapsed={false}
+                            />
+                        </div>
+                    </div>
+                </DialogContent>
+            </Dialog>
 
             {/* Mobile WorldState Bottom Sheet */}
             <Sheet open={isWorldStateSheetOpen} onOpenChange={setIsWorldStateSheetOpen}>

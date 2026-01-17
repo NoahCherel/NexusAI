@@ -60,12 +60,16 @@ export function normalizeCoT(response: string, provider?: string): CoTResult {
         }
     }
 
-    // Clean up content - remove extra whitespace
-    content = content.replace(/\n{3,}/g, '\n\n').trim();
+    // Clean up content - remove extra whitespace (preserve single newlines/spaces)
+    content = content.replace(/\n{3,}/g, '\n\n');
+
+    // Only trim if specifically requested or if it's the full final response?
+    // For safety in streaming, we should NOT trim here.
+    // Let the calling code trim if it wants the final result trimmed.
 
     return {
         thought,
-        content,
+        content, // Removed .trim() to preserve leading/trailing spaces in chunks
         hasThoughts: thought !== null && thought.length > 0,
     };
 }
@@ -120,7 +124,8 @@ export function parseStreamingChunk(
         thoughtContent = result.thought || '';
     }
 
-    return { inThought, thoughtContent: thoughtContent.trim(), visibleContent };
+    // Do NOT trim visibleContent here either as it destroys stream spacing
+    return { inThought, thoughtContent: thoughtContent, visibleContent };
 }
 
 /**

@@ -414,6 +414,13 @@ export const useChatStore = create<ChatState>()((set, get) => ({
                 c.id === currentMsg.conversationId ? { ...c, worldState: stateToRestore } : c
             );
 
+            // Persist all changed messages to DB
+            const changedMessages = newMessages.filter((newMsg, idx) => {
+                const oldMsg = state.messages[idx];
+                return oldMsg && oldMsg.isActiveBranch !== newMsg.isActiveBranch;
+            });
+            changedMessages.forEach((msg) => saveMessage(msg).catch(console.error));
+
             return { messages: newMessages, conversations: newConversations };
         }),
 
@@ -492,6 +499,13 @@ export const useChatStore = create<ChatState>()((set, get) => ({
                     ? { ...c, worldState: stateToRestore || c.worldState }
                     : c
             );
+
+            // Persist all changed messages to DB
+            const changedMessages = newMessages.filter((newMsg, idx) => {
+                const oldMsg = state.messages[idx];
+                return oldMsg && oldMsg.isActiveBranch !== newMsg.isActiveBranch;
+            });
+            changedMessages.forEach((msg) => saveMessage(msg).catch(console.error));
 
             return { messages: newMessages, conversations: newConversations };
         }),

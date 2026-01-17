@@ -1,96 +1,141 @@
-import React from 'react';
+import React, { memo, useCallback } from 'react';
 
 interface ChatFormatterProps {
     content: string;
 }
 
-export function ChatFormatter({ content }: ChatFormatterProps) {
+export const ChatFormatter = memo(function ChatFormatter({ content }: ChatFormatterProps) {
     if (!content) return null;
 
-    // Split by newlines to handle line-based formatting (like "Name:") properly
-    const lines = content.split('\n');
+    // 1. Handle Code Blocks first (they are distinct blocks)
+    // We split by ``` to separate code/text
+    const parts = content.split(/(```[\s\S]*?```)/g);
 
     return (
-        <div className="space-y-1">
-            {lines.map((line, i) => (
-                <div key={i} className="min-h-[1.2em]">
-                    <FormattedLine text={line} />
-                </div>
-            ))}
+        <div className="text-[15px] leading-relaxed break-words space-y-2">
+            {parts.map((part, index) => {
+                if (part.startsWith('```') && part.endsWith('```')) {
+                    // It's a code block
+                    const content = part.slice(3, -3).replace(/^\w+\n/, ''); // remove lang tag if present
+                    const langMatch = part.match(/^```(\w+)/);
+                    const lang = langMatch ? langMatch[1] : '';
+
+                    return (
+                        <div key={index} className="rounded-md overflow-hidden my-2 border border-border/50 bg-muted/50">
+                            {lang && (
+                                <div className="px-3 py-1.5 border-b border-border/50 text-xs text-muted-foreground bg-muted/80">
+                                    {lang}
+                                </div>
+                            )}
+                            <div className="p-3 overflow-x-auto text-sm font-mono bg-[#1e1e1e] text-gray-200">
+                                <pre>{content}</pre>
+                            </div>
+                        </div>
+                    );
+                }
+
+                // It's regular text, process lines
+                return part.split('\n').map((line, lineIdx) => (
+                    <FormattedLine key={`${index}-${lineIdx}`} text={line} />
+                ));
+            })}
         </div>
     );
-}
+});
 
-function FormattedLine({ text }: { text: string }) {
-    if (!text.trim()) return <br />;
+const FormattedLine = memo(({ text }: { text: string }) => {
+    if (!text.trim()) return <div className="h-2" />; // Empty line spacing
 
-    // Regex to match:
-    // 1. **bold**
-    // 2. *italic/action*
-    // 3. Name: at start of line (approximated by checking start of string)
-
-    // We need to tokenize the string.
-    // Let's use a simpler approach: process bold, then italics.
-    // Note: Nested formatting is complex with simple regex split, but for MVP:
-    // We typically want *actions* to be distinct.
-
-    // Check for "Name:" prefix at start
+    // Check for "Name:" prefix
     let prefixNode: React.ReactNode = null;
-    let remainingText = text;
+    let actualText = text;
 
+    // Default styling
+    let className = "block mb-1";
+
+    // Check for "Name:" pattern at start
     const nameMatch = text.match(/^([A-Za-z0-9 _'-]+):(\s+)/);
     if (nameMatch) {
-        prefixNode = <strong className="font-bold text-foreground/90">{nameMatch[1]}:</strong>;
-        remainingText = text.slice(nameMatch[0].length); // Keep the space? No, usually allow it to be separate or just appended-space.
-        // Actually nameMatch[2] is the whitespace.
-        // Let's render the whitespace in the following text or after prefix.
+        // Create the bold name prefix
         prefixNode = (
-            <>
-                <strong className="font-bold text-foreground/90">{nameMatch[1]}:</strong>
-                {nameMatch[2]}
-            </>
+            <span className="font-bold text-foreground/90 tabular-nums">
+                {nameMatch[1]}:
+            </span>
         );
-        remainingText = text.substring(nameMatch[0].length);
+        // Keep the whitespace but don't bold it, or just just rely on the span spacing
+        actualText = text.slice(nameMatch[0].length);
+
+        // Add the whitespace back to the rendering, usually just a space
+        // We can put it after the prefix
     }
 
     return (
-        <span>
+        <div className={className}>
             {prefixNode}
-            <FormattedContent text={remainingText} />
-        </span>
+            {nameMatch ? ' ' : ''}
+            <FormattedText text={actualText} />
+        </div>
     );
-}
+});
 
-function FormattedContent({ text }: { text: string }) {
-    // 1. Split for **bold**
-    // 2. Split for *italic*
+const FormattedText = memo(({ text }: { text: string }) => {
+    // Parser for inline styles: **bold** and *italics*
+    // We scan the string and build nodes
 
-    // We can use a parser loop or nested splitting.
-    // Let's use a combined regex.
-    // (\*\*.*?\*\*)|(\*.*?\*)
+    const nodes: React.ReactNode[] = [];
+    let currentText = "";
+    let i = 0;
 
-    const parts = text.split(/(\*\*.*?\*\*|\*.*?\*)/g);
+    const flushText = () => {
+        if (currentText) {
+            nodes.push(<span key={i}>{currentText}</span>);
+            currentText = "";
+        }
+    };
 
-    return (
-        <>
-            {parts.map((part, index) => {
-                if (part.startsWith('**') && part.endsWith('**')) {
-                    return (
-                        <strong key={index} className="font-bold">
-                            {part.slice(2, -2)}
-                        </strong>
-                    );
-                }
-                if (part.startsWith('*') && part.endsWith('*')) {
-                    // Actions usually look better slightly distinct in RPG context
-                    return (
-                        <em key={index} className="italic opacity-80">
-                            {part.slice(1, -1)}
-                        </em>
-                    );
-                }
-                return <span key={index}>{part}</span>;
-            })}
-        </>
-    );
-}
+    while (i < text.length) {
+        // Check for Bold (**...)
+        if (text.startsWith('**', i)) {
+            const endIdx = text.indexOf('**', i + 2);
+            if (endIdx !== -1) {
+                flushText();
+                const boldContent = text.slice(i + 2, endIdx);
+                nodes.push(<strong key={i} className="font-semibold text-foreground">{boldContent}</strong>);
+                i = endIdx + 2;
+                continue;
+            }
+        }
+
+        // Check for Italics (*...) - Note: also handles actions in RP
+        if (text[i] === '*') {
+            const endIdx = text.indexOf('*', i + 1);
+            if (endIdx !== -1) {
+                flushText();
+                const italicContent = text.slice(i + 1, endIdx);
+                // Standard visual style for RP actions: italic + slightly muted color
+                nodes.push(<em key={i} className="italic text-muted-foreground">{italicContent}</em>);
+                i = endIdx + 1;
+                continue;
+            }
+        }
+
+        // Check for Italics (_...)
+        if (text[i] === '_') {
+            const endIdx = text.indexOf('_', i + 1);
+            if (endIdx !== -1) {
+                flushText();
+                const italicContent = text.slice(i + 1, endIdx);
+                nodes.push(<em key={i} className="italic text-muted-foreground">{italicContent}</em>);
+                i = endIdx + 1;
+                continue;
+            }
+        }
+
+        currentText += text[i];
+        i++;
+    }
+
+    flushText();
+
+    return <>{nodes}</>;
+});
