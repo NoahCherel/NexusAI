@@ -45,7 +45,6 @@ export default function ChatPage() {
     const [isLoading, setIsLoading] = useState(false);
     const scrollRef = useRef<HTMLDivElement>(null);
     const abortControllerRef = useRef<AbortController | null>(null);
-
     const { getActiveCharacter } = useCharacterStore();
     const {
         conversations,
@@ -61,13 +60,14 @@ export default function ChatPage() {
         deleteMessage,
         isLoading: isLoadingConversations,
         loadedCharacterId,
+        messages: storeMessages, // Get raw messages for reactivity
     } = useChatStore();
     const { activeLorebook, setActiveLorebook } = useLorebookStore();
 
-    // Get active messages from store - stabilized
+    // Get active messages from store - depends on raw messages for reactivity
     const messages = useMemo(
         () => (activeConversationId ? getActiveBranchMessages(activeConversationId) : []),
-        [activeConversationId, getActiveBranchMessages]
+        [activeConversationId, getActiveBranchMessages, storeMessages] // storeMessages triggers re-render
     );
     const { analyzeMessage } = useWorldStateAnalyzer();
     const {
@@ -114,9 +114,9 @@ export default function ChatPage() {
     useEffect(() => {
         if (character) {
             if (character.character_book) {
-                setActiveLorebook(character.character_book);
+                setActiveLorebook(character.character_book, character.id);
             } else {
-                setActiveLorebook({ entries: [] });
+                setActiveLorebook({ entries: [] }, character.id);
             }
         }
     }, [character, setActiveLorebook]);
@@ -453,7 +453,7 @@ export default function ChatPage() {
                                     <div className="flex items-center gap-2 sm:gap-3 min-w-0">
                                         {/* Mobile Menu Button */}
                                         <MobileSidebar
-                                            onCharacterSelect={() => {}}
+                                            onCharacterSelect={() => { }}
                                             onSettingsClick={() => setIsSettingsOpen(true)}
                                         />
                                         <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center overflow-hidden shrink-0">
@@ -527,15 +527,15 @@ export default function ChatPage() {
                                                     avatar={
                                                         msg.role === 'user'
                                                             ? personas.find(
-                                                                  (p) => p.id === activePersonaId
-                                                              )?.avatar
+                                                                (p) => p.id === activePersonaId
+                                                            )?.avatar
                                                             : character.avatar
                                                     }
                                                     name={
                                                         msg.role === 'user'
                                                             ? personas.find(
-                                                                  (p) => p.id === activePersonaId
-                                                              )?.name || 'You'
+                                                                (p) => p.id === activePersonaId
+                                                            )?.name || 'You'
                                                             : character.name
                                                     }
                                                     showThoughts={showThoughts}
@@ -571,7 +571,7 @@ export default function ChatPage() {
                                         location={worldState.location.replace(
                                             /{{user}}/gi,
                                             personas.find((p) => p.id === activePersonaId)?.name ||
-                                                'You'
+                                            'You'
                                         )}
                                         relationships={worldState.relationships}
                                         isCollapsed={isWorldStateCollapsed}
@@ -586,11 +586,10 @@ export default function ChatPage() {
                         {/* Input Area - Floating in immersive mode */}
                         <motion.div
                             layout
-                            className={`z-20 ${
-                                immersiveMode
-                                    ? 'absolute bottom-4 left-4 right-4 rounded-2xl glass-heavy shadow-2xl'
-                                    : 'p-4 border-t border-white/5 glass-heavy'
-                            }`}
+                            className={`z-20 ${immersiveMode
+                                ? 'absolute bottom-4 left-4 right-4 rounded-2xl glass-heavy shadow-2xl'
+                                : 'p-4 border-t border-white/5 glass-heavy'
+                                }`}
                         >
                             <div
                                 className={`mx-auto w-full space-y-2 ${immersiveMode ? 'p-4 max-w-3xl' : 'max-w-4xl'}`}

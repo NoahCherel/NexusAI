@@ -40,74 +40,99 @@ export const useLorebookStore = create<LorebookState>()((set, get) => ({
 
     updateLorebook: (lorebook) => set({ activeLorebook: lorebook }),
 
-    addEntry: (entry) =>
-        set((state) => {
-            if (!state.activeLorebook) return {};
+    addEntry: (entry) => {
+        const state = get();
+        if (!state.activeLorebook) return;
 
-            // For user-added entries, we could optionally log to history
-            // But per requirements, only AI additions are tracked in blockchain style
+        const updatedLorebook = {
+            ...state.activeLorebook,
+            entries: [...state.activeLorebook.entries, entry],
+        };
 
-            return {
-                activeLorebook: {
-                    ...state.activeLorebook,
-                    entries: [...state.activeLorebook.entries, entry],
-                },
+        set({ activeLorebook: updatedLorebook });
+
+        // Auto-persist to character's character_book
+        if (state.activeCharacterId) {
+            import('@/stores/character-store').then(({ useCharacterStore }) => {
+                useCharacterStore.getState().updateCharacter(state.activeCharacterId!, {
+                    character_book: updatedLorebook,
+                });
+            });
+        }
+    },
+
+    updateEntry: (index, entry) => {
+        const state = get();
+        if (!state.activeLorebook) return;
+
+        const newEntries = [...state.activeLorebook.entries];
+        newEntries[index] = entry;
+
+        const updatedLorebook = {
+            ...state.activeLorebook,
+            entries: newEntries,
+        };
+
+        // Log user edits to history for full audit trail
+        const characterId = state.activeCharacterId;
+        if (characterId) {
+            const historyEntry: LorebookHistoryEntry = {
+                id: generateId(),
+                characterId,
+                timestamp: Date.now(),
+                type: 'user_edit',
+                entryData: entry,
             };
-        }),
+            addLorebookHistoryEntry(historyEntry).catch(console.error);
+        }
 
-    updateEntry: (index, entry) =>
-        set((state) => {
-            if (!state.activeLorebook) return {};
-            const newEntries = [...state.activeLorebook.entries];
-            newEntries[index] = entry;
+        set({ activeLorebook: updatedLorebook });
 
-            // Log user edits to history for full audit trail
-            const characterId = state.activeCharacterId;
-            if (characterId) {
-                const historyEntry: LorebookHistoryEntry = {
-                    id: generateId(),
-                    characterId,
-                    timestamp: Date.now(),
-                    type: 'user_edit',
-                    entryData: entry,
-                };
-                addLorebookHistoryEntry(historyEntry).catch(console.error);
-            }
+        // Auto-persist to character's character_book
+        if (characterId) {
+            import('@/stores/character-store').then(({ useCharacterStore }) => {
+                useCharacterStore.getState().updateCharacter(characterId, {
+                    character_book: updatedLorebook,
+                });
+            });
+        }
+    },
 
-            return {
-                activeLorebook: {
-                    ...state.activeLorebook,
-                    entries: newEntries,
-                },
+    deleteEntry: (index) => {
+        const state = get();
+        if (!state.activeLorebook) return;
+
+        const deletedEntry = state.activeLorebook.entries[index];
+        const characterId = state.activeCharacterId;
+
+        // Log deletion to history (preserves previous state in chain)
+        if (characterId && deletedEntry) {
+            const historyEntry: LorebookHistoryEntry = {
+                id: generateId(),
+                characterId,
+                timestamp: Date.now(),
+                type: 'user_delete',
+                entryData: deletedEntry,
             };
-        }),
+            addLorebookHistoryEntry(historyEntry).catch(console.error);
+        }
 
-    deleteEntry: (index) =>
-        set((state) => {
-            if (!state.activeLorebook) return {};
+        const updatedLorebook = {
+            ...state.activeLorebook,
+            entries: state.activeLorebook.entries.filter((_, i) => i !== index),
+        };
 
-            const deletedEntry = state.activeLorebook.entries[index];
-            const characterId = state.activeCharacterId;
+        set({ activeLorebook: updatedLorebook });
 
-            // Log deletion to history (preserves previous state in chain)
-            if (characterId && deletedEntry) {
-                const historyEntry: LorebookHistoryEntry = {
-                    id: generateId(),
-                    characterId,
-                    timestamp: Date.now(),
-                    type: 'user_delete',
-                    entryData: deletedEntry,
-                };
-                addLorebookHistoryEntry(historyEntry).catch(console.error);
-            }
-
-            return {
-                activeLorebook: {
-                    ...state.activeLorebook,
-                    entries: state.activeLorebook.entries.filter((_, i) => i !== index),
-                },
-            };
-        }),
+        // Auto-persist to character's character_book
+        if (characterId) {
+            import('@/stores/character-store').then(({ useCharacterStore }) => {
+                useCharacterStore.getState().updateCharacter(characterId, {
+                    character_book: updatedLorebook,
+                });
+            });
+        }
+    },
 
     // Load blockchain-style history from IndexedDB
     loadHistory: async (characterId) => {

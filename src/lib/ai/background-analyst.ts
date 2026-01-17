@@ -68,7 +68,11 @@ export function parseAnalystResponse(text: string): WorldStateChanges | null {
         const jsonMatch = text.match(/\{[\s\S]*\}/);
         if (!jsonMatch) return null;
 
-        const parsed = JSON.parse(jsonMatch[0]);
+        // Sanitize JSON: fix common AI mistakes like "+20" (should be "20")
+        // Replace ": +" with ": " to handle cases like {"key": +20}
+        const sanitizedJson = jsonMatch[0].replace(/:\s*\+(\d)/g, ': $1');
+
+        const parsed = JSON.parse(sanitizedJson);
 
         // Validate structure
         return {
