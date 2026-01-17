@@ -162,19 +162,43 @@ export const useChatStore = create<ChatState>()((set, get) => ({
     },
 
     addMessage: (message) => {
+        // Calculate messageOrder and regenerationIndex
+        const state = get();
+        const messages = state.messages;
+
+        // Calculate messageOrder by finding parent chain depth
+        let messageOrder = 1;
+        let currentParentId = message.parentId;
+        while (currentParentId) {
+            messageOrder++;
+            const parent = messages.find(m => m.id === currentParentId);
+            currentParentId = parent?.parentId || null;
+        }
+
+        // Calculate regenerationIndex by counting siblings
+        const siblings = messages.filter(m => m.parentId === message.parentId);
+        const regenerationIndex = siblings.length;
+
+        // Add calculated fields to message
+        const enrichedMessage: Message = {
+            ...message,
+            messageOrder,
+            regenerationIndex
+        };
+
         set((state) => {
             // Deactivate siblings (same parent) to ensure only the new message is active in this branch
             const newMessages = state.messages.map((m) => {
-                if (m.parentId === message.parentId && m.isActiveBranch) {
+                if (m.parentId === enrichedMessage.parentId && m.isActiveBranch) {
                     return { ...m, isActiveBranch: false };
                 }
                 return m;
             });
-            return { messages: [...newMessages, message] };
+            return { messages: [...newMessages, enrichedMessage] };
         });
 
         // Persist message
-        saveMessage(message).catch(console.error);
+        saveMessage(enrichedMessage).catch(console.error);
     },
 
     updateMessage: (id, updates) => {
@@ -345,9 +369,31 @@ export const useChatStore = create<ChatState>()((set, get) => ({
 
             const targetMsg = siblings[targetIndex];
 
+            // Helper: Get all descendants of a message (recursive)
+            const getDescendants = (parentId: string): string[] => {
+                const children = state.messages.filter((m) => m.parentId === parentId);
+                const result: string[] = children.map((c) => c.id);
+                children.forEach((c) => {
+                    result.push(...getDescendants(c.id));
+                });
+                return result;
+            };
+
+            // Get all descendants of current message (to deactivate)
+            const currentDescendants = getDescendants(currentMsg.id);
+
+            // Get all descendants of target message (to activate)
+            const targetDescendants = getDescendants(targetMsg.id);
+
             const newMessages = state.messages.map((m) => {
-                if (m.id === currentMessageId) return { ...m, isActiveBranch: false };
-                if (m.id === targetMsg.id) return { ...m, isActiveBranch: true };
+                // Deactivate current message and all its descendants
+                if (m.id === currentMessageId || currentDescendants.includes(m.id)) {
+                    return { ...m, isActiveBranch: false };
+                }
+                // Activate target message and all its descendants
+                if (m.id === targetMsg.id || targetDescendants.includes(m.id)) {
+                    return { ...m, isActiveBranch: true };
+                }
                 return m;
             });
 
@@ -384,33 +430,38 @@ export const useChatStore = create<ChatState>()((set, get) => ({
                 iterator = state.messages.find((m) => m.id === iterator?.parentId);
             }
 
-            // 2. Update strict branches
-            // For every level where we have a choice (siblings), pick the one on our path
-            const newMessages = state.messages.map((m) => {
-                // If this message is on the target path, it must be active
-                if (pathIds.has(m.id)) return { ...m, isActiveBranch: true };
+            // Helper: Get all descendants of a message (recursive)
+            const getDescendants = (parentId: string): string[] => {
+                const children = state.messages.filter((m) => m.parentId === parentId);
+                const result: string[] = children.map((c) => c.id);
+                children.forEach((c) => {
+                    result.push(...getDescendants(c.id));
+                });
+                return result;
+            };
 
-                // If this message is NOT on the path, but shares a parent with someone who IS,
-                // it must be inactive.
-                // We find the "active sibling" for this message's level
-                // (The one that IS in pathIds and has same parent)
-                // If such a sibling exists, then 'm' (which is not it) must be inactive.
+            // Build set of all descendants of messages NOT on path
+            const toDeactivate = new Set<string>();
+            state.messages.forEach((m) => {
+                // If this message is not on the path but has a sibling that IS
+                // Then this message and ALL its descendants should be deactivated
                 const siblingOnPath = state.messages.find(
                     (sib) => sib.parentId === m.parentId && pathIds.has(sib.id)
                 );
 
-                if (siblingOnPath) {
-                    return { ...m, isActiveBranch: false };
+                if (siblingOnPath && !pathIds.has(m.id)) {
+                    toDeactivate.add(m.id);
+                    getDescendants(m.id).forEach((descId) => toDeactivate.add(descId));
                 }
+            });
 
-                // If no sibling is on the path (e.g. branch divergent from path), leave it alone?
-                // Or if we are fully switching, we normally only care about the path from root.
-                // However, to be safe/consistent, we usually want a single active leaf.
-                // The loop above ensures the path IS active.
-                // The only edge case is "what about branches that were active but are not on path?"
-                // If we walk down from root, we will deactivate divergent branches because
-                // at the divergence point, the path-node will become active and its sibling (old active)
-                // will become inactive.
+            // 2. Update branch flags
+            const newMessages = state.messages.map((m) => {
+                // Activate path messages
+                if (pathIds.has(m.id)) return { ...m, isActiveBranch: true };
+
+                // Deactivate non-path messages and their descendants
+                if (toDeactivate.has(m.id)) return { ...m, isActiveBranch: false };
 
                 return m;
             });

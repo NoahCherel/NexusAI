@@ -21,14 +21,22 @@ export interface Lorebook {
     entries: LorebookEntry[];
 }
 
-export interface LorebookEntry {
+// Lorebook types
+export enum LorebookCategory {
+    CHARACTER = 'character',
+    LOCATION = 'location',
+    NOTION = 'notion'  // concepts, factions, objects, events
+}
+
+export interface Lorebook Entry {
     keys: string[];
     content: string;
     enabled: boolean;
-    insertion_order?: number;
-    case_sensitive?: boolean;
-    priority?: number;
-    position?: 'before_char' | 'after_char';
+    insertion_order ?: number;
+    case_sensitive ?: boolean;
+    priority ?: number;
+    category ?: LorebookCategory;  // Semantic categorization
+    position ?: 'before_char' | 'after_char';
 }
 
 // V2 Character Card spec (PNG metadata)

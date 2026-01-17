@@ -39,19 +39,22 @@ export async function extractLorebookEntries(
             ? `Existing keys to avoid duplicating: ${existingKeys.join(', ')}`
             : 'No existing keys.';
 
-    const systemPrompt = `You are a world-building assistant. Analyze the AI response and extract NEW important world facts that should be remembered.
+    const systemPrompt = `You are a world-building assistant Analyze the AI response and extract NEW important world facts that should be remembered.
 
 Rules:
 1. Only extract NOVEL information not already in existing keys
 2. Be VERY concise - each entry max 2-3 sentences
-3. Focus on: characters, locations, items, relationships, plot points
+3. Categorize each entry as: "character", "location", or "notion"
+   - character: Named individuals, NPCs, companions
+   - location: Places, regions, buildings
+   - notion: Concepts, factions, organizations, items, plot points, events
 4. Return ONLY a valid JSON array, no markdown, no explanation
 5. If no new facts, return exactly: []
 
 ${existingKeysStr}
 
 Output format (JSON array only, nothing else):
-[{"keys":["keyword1","keyword2"],"content":"Brief description","priority":10}]`;
+[{"keys":["keyword1","keyword2"],"content":"Brief description","priority":10,"category":"character"|"location"|"notion"}]`;
 
     try {
         const response = await fetch('/api/chat', {
@@ -100,7 +103,7 @@ Output format (JSON array only, nothing else):
 
             return entries
                 .filter(
-                    (e: unknown): e is { keys: string[]; content: string; priority?: number } =>
+                    (e: unknown): e is { keys: string[]; content: string; priority?: number; category?: string } =>
                         typeof e === 'object' &&
                         e !== null &&
                         Array.isArray((e as { keys?: unknown }).keys) &&
@@ -111,6 +114,7 @@ Output format (JSON array only, nothing else):
                     content: e.content,
                     enabled: true,
                     priority: e.priority || 10,
+                    category: e.category as 'character' | 'location' | 'notion' | undefined,
                 }));
         } catch {
             console.error('Failed to parse lorebook extraction response:', cleanContent);

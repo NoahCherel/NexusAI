@@ -102,13 +102,12 @@ export function WorldStatePanel({
                     <span className="text-base">🌍</span> World Context
                 </span>
                 <ChevronUp
-                    className={`w-4 h-4 text-muted-foreground transition-transform duration-300 ${
-                        isCollapsed ? 'rotate-180' : ''
-                    }`}
+                    className={`w-4 h-4 text-muted-foreground transition-transform duration-300 ${isCollapsed ? 'rotate-180' : ''
+                        }`}
                 />
             </button>
 
-            {!isCollapsed && (
+            {!isCollapsed ? (
                 <div className="p-4 space-y-5">
                     {/* Location */}
                     <div className="space-y-1.5">
@@ -338,7 +337,24 @@ export function WorldStatePanel({
                         )}
                     </div>
                 </div>
+            ) : (
+                <div className="p-3 space-y-2 bg-background/30 min-h-[60px]">
+                    <div className="flex items-center gap-2 text-xs text-foreground/70">
+                        <MapPin className="w-3 h-3 shrink-0" />
+                        <span className="truncate">{location || 'Unknown'}</span>
+                    </div>
+                    <div className="flex items-center gap-3">
+                        <div className="flex items-center gap-1.5 text-xs text-foreground">
+                            <Package className="w-3 h-3 text-muted-foreground" />
+                            <span className="font-medium">{inventory.length}</span>
+                        </div>
+                        <div className="flex items-center gap-1.5 text-xs text-foreground">
+                            <Heart className="w-3 h-3 text-muted-foreground" />
+                            <span className="font-medium">{relationshipEntries.length}</span>
+                        </div>
+                    </div>
+                </div>
             )}
-        </motion.div>
+        </motion.div >
     );
 }

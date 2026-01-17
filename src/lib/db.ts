@@ -3,7 +3,7 @@ import type { CharacterCard, Conversation, Message, LorebookEntry } from '@/type
 
 // Database version - increment when schema changes
 // Database version - increment when schema changes
-const DB_VERSION = 3;
+const DB_VERSION = 4;
 const DB_NAME = 'nexusai-db';
 
 // Lorebook history entry for blockchain-style tracking
@@ -121,6 +121,69 @@ export async function initDB(): Promise<IDBPDatabase<NexusAIDB>> {
                     }
                 } catch (e) {
                     console.error('[DB Migration] Error migrating messages:', e);
+                }
+            }
+
+            // Migration from v3 to v4: Add messageOrder and regenerationIndex
+            if (oldVersion >= 1 && oldVersion < 4) {
+                try {
+                    console.log('[DB Migration v3→v4] Assigning messageOrder and regenerationIndex...');
+                    const msgStore = transaction.objectStore('messages');
+                    const conversationStore = transaction.objectStore('conversations');
+
+                    // Get all conversations
+                    const conversations = await conversationStore.getAll();
+
+                    for (const conversation of conversations) {
+                        // Get all messages for this conversation
+                        const messages = await msgStore.index('by-conversation').getAll(conversation.id);
+
+                        // Build tree structure
+                        const messageMap = new Map<string, Message>();
+                        const rootMessages: Message[] = [];
+
+                        messages.forEach(msg => {
+                            messageMap.set(msg.id, msg);
+                            if (!msg.parentId) rootMessages.push(msg);
+                        });
+
+                        // Helper to walk tree and assign order/index
+                        const walkTree = async (message: Message, depth: number, siblings: Message[]): Promise<void> => {
+                            // Assign messageOrder based on depth
+                            const messageOrder = depth + 1;
+
+                            // Find position among siblings to determine regenerationIndex
+                            const regenerationIndex = siblings.findIndex(s => s.id === message.id);
+
+                            // Update message with new fields
+                            const updatedMessage = {
+                                ...message,
+                                messageOrder,
+                                regenerationIndex: regenerationIndex >= 0 ? regenerationIndex : 0
+                            };
+
+                            await msgStore.put(updatedMessage);
+
+                            // Find children
+                            const children = messages.filter(m => m.parentId === message.id);
+
+                            // Group children by their parent (they are siblings)
+                            for (const child of children) {
+                                const childSiblings = messages.filter(m => m.parentId === child.parentId);
+                                await walkTree(child, depth + 1, childSiblings);
+                            }
+                        };
+
+                        // Process each root message
+                        for (const root of rootMessages) {
+                            const rootSiblings = messages.filter(m => !m.parentId);
+                            await walkTree(root, 0, rootSiblings);
+                        }
+                    }
+
+                    console.log('[DB Migration v3→v4] Migration complete');
+                } catch (e) {
+                    console.error('[DB Migration] Error migrating to v4:', e);
                 }
             }
 

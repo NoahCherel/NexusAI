@@ -21,7 +21,8 @@ import { parseStreamingChunk, normalizeCoT } from '@/lib/ai/cot-middleware';
 import { buildSystemPrompt, getActiveLorebookEntries } from '@/lib/ai/context-builder';
 import { LorebookEditor } from '@/components/lorebook';
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from '@/components/ui/dialog';
-import { Book } from 'lucide-react';
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '@/components/ui/sheet';
+import { Book, Globe2Icon } from 'lucide-react';
 import { TreeVisualization } from '@/components/chat/TreeVisualization';
 import { MemoryPanel } from '@/components/chat/MemoryPanel';
 import { LandingPage } from '@/components/chat/LandingPage';
@@ -37,6 +38,7 @@ export default function ChatPage() {
     const [isLorebookOpen, setIsLorebookOpen] = useState(false);
     const [isTreeOpen, setIsTreeOpen] = useState(false);
     const [isMemoryOpen, setIsMemoryOpen] = useState(false);
+    const [isWorldStateSheetOpen, setIsWorldStateSheetOpen] = useState(false); // Mobile bottom sheet
     const [currentApiKey, setCurrentApiKey] = useState<string | null>(null);
 
     // Initialize IndexedDB and load data
@@ -817,6 +819,18 @@ export default function ChatPage() {
                                         >
                                             <Brain className="h-4 w-4" />
                                         </Button>
+                                        {/* Mobile WorldState Button */}
+                                        {showWorldState && (
+                                            <Button
+                                                variant="ghost"
+                                                size="sm"
+                                                className="h-8 w-8 p-0 text-muted-foreground hover:text-foreground shrink-0 lg:hidden"
+                                                onClick={() => setIsWorldStateSheetOpen(true)}
+                                                title="World Context"
+                                            >
+                                                <Globe2Icon className="h-4 w-4" />
+                                            </Button>
+                                        )}
                                     </div>
                                 )}
                                 <ChatInput
@@ -867,6 +881,32 @@ export default function ChatPage() {
             <TreeVisualization isOpen={isTreeOpen} onClose={() => setIsTreeOpen(false)} />
 
             <MemoryPanel isOpen={isMemoryOpen} onClose={() => setIsMemoryOpen(false)} />
+
+            {/* Mobile WorldState Bottom Sheet */}
+            <Sheet open={isWorldStateSheetOpen} onOpenChange={setIsWorldStateSheetOpen}>
+                <SheetContent side="bottom" className="h-[70vh] p-0">
+                    <SheetHeader className="p-4 border-b">
+                        <SheetTitle>🌍 World Context</SheetTitle>
+                        <SheetDescription>Track inventory, relationships, and location</SheetDescription>
+                    </SheetHeader>
+                    <div className="p-4 overflow-y-auto h-[calc(70vh-5rem)]">
+                        <WorldStatePanel
+                            inventory={worldState.inventory.map((i) =>
+                                i.replace(
+                                    /{{user}}/gi,
+                                    personas.find((p) => p.id === activePersonaId)?.name || 'You'
+                                )
+                            )}
+                            location={worldState.location.replace(
+                                /{{user}}/gi,
+                                personas.find((p) => p.id === activePersonaId)?.name || 'You'
+                            )}
+                            relationships={worldState.relationships}
+                            isCollapsed={false}
+                        />
+                    </div>
+                </SheetContent>
+            </Sheet>
 
             <APINotificationToast />
         </div>
