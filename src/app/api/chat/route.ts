@@ -13,6 +13,11 @@ export async function POST(req: NextRequest) {
             provider,
             model,
             temperature,
+            maxTokens,
+            topP,
+            topK,
+            frequencyPenalty,
+            presencePenalty,
             apiKey,
             systemPrompt,
             userPersona,
@@ -20,7 +25,7 @@ export async function POST(req: NextRequest) {
         } = await req.json();
 
         console.log(
-            `[API] Request: provider=${provider}, model=${model}, reasoning=${enableReasoning}, persona=${userPersona?.name}`
+            `[API] Request: provider=${provider}, model=${model}, temp=${temperature}, maxTokens=${maxTokens}, reasoning=${enableReasoning}`
         );
 
         if (!apiKey) {
@@ -69,32 +74,31 @@ export async function POST(req: NextRequest) {
         }
 
         // Prepare parameters
-        // Note: 'include_reasoning' is specific to OpenRouter via extraBody or provider options usually
-        // But the AI SDK abstracts this.
-        // For OpenRouter, we might need to pass it in extraBody if the SDK doesn't map it.
-        // DeepSeek R1 via OpenRouter uses 'include_reasoning: true' to show thoughts in the response body field 'reasoning'.
-
         const result = streamText({
             model: modelInstance,
             messages,
             system: effectiveSystem,
-            temperature,
-            maxTokens: 4096,
+            temperature: temperature ?? 0.8,
+            maxTokens: maxTokens ?? 4096,
+            topP: topP,
+            topK: topK,
+            frequencyPenalty: frequencyPenalty,
+            presencePenalty: presencePenalty,
             // Attempt to pass reasoning parameters
             // Check if enableReasoning is true
             // We use 'experimental_providerMetadata' which relies on the provider implementation.
             // For OpenRouter, we will try commonly used keys.
             experimental_providerMetadata: enableReasoning
                 ? {
-                      openrouter: {
-                          includeReasoning: true,
-                          include_reasoning: true, // Try both snake_case and camelCase
-                          reasoning: { effort: 'medium' }, // Try new standard just in case
-                      },
-                      openai: {
-                          include_reasoning: true,
-                      },
-                  }
+                    openrouter: {
+                        includeReasoning: true,
+                        include_reasoning: true, // Try both snake_case and camelCase
+                        reasoning: { effort: 'medium' }, // Try new standard just in case
+                    },
+                    openai: {
+                        include_reasoning: true,
+                    },
+                }
                 : {},
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
         } as any);

@@ -1,5 +1,6 @@
 import type { CharacterCard, Lorebook, LorebookEntry } from '@/types/character';
 import type { Message, WorldState } from '@/types/chat';
+import { DEFAULT_SYSTEM_PROMPT_TEMPLATE } from '@/types/preset';
 
 /**
  * Scans recent messages for lorebook keywords and returns matching entries.
@@ -43,48 +44,84 @@ export function getActiveLorebookEntries(
 }
 
 /**
- * Builds the final system prompt including:
- * 1. Base system prompt (Persona)
- * 2. World State (Inventory, Location, etc.)
- * 3. Lorebook Entries (World Info)
+ * Formats world state for template insertion
  */
-export function buildSystemPrompt(
-    character: CharacterCard,
-    worldState: WorldState,
-    activeLorebookEntries: LorebookEntry[]
-): string {
-    let prompt = character.system_prompt || `You are ${character.name}. ${character.description}`;
-
-    // 1. Inject World State
-    const worldStateSection = [
+function formatWorldState(worldState: WorldState): string {
+    const parts = [
         '--- CURRENT WORLD STATE ---',
         worldState.location ? `Location: ${worldState.location}` : null,
         worldState.inventory.length > 0 ? `Inventory: ${worldState.inventory.join(', ')}` : null,
         Object.keys(worldState.relationships).length > 0
             ? `Relationships: ${Object.entries(worldState.relationships)
-                  .map(([name, val]) => `${name}: ${val}%`)
-                  .join(', ')}`
+                .map(([name, val]) => `${name}: ${val}%`)
+                .join(', ')}`
             : null,
-    ]
-        .filter(Boolean)
+    ].filter(Boolean);
+
+    return parts.length > 1 ? parts.join('\n') : '';
+}
+
+/**
+ * Formats lorebook entries for template insertion
+ */
+function formatLorebookEntries(entries: LorebookEntry[]): string {
+    if (entries.length === 0) return '';
+
+    const loreSection = entries
+        .map((e) => `[Info about ${e.keys[0]}: ${e.content}]`)
         .join('\n');
 
-    if (worldStateSection.length > 30) {
-        // arbitrary length check
-        prompt += `\n\n${worldStateSection}`;
+    return `--- WORLD KNOWLEDGE ---\n${loreSection}`;
+}
+
+/**
+ * Resolves a system prompt template with actual values
+ */
+export function resolveSystemPromptTemplate(
+    template: string,
+    character: CharacterCard,
+    worldState: WorldState,
+    activeLorebookEntries: LorebookEntry[]
+): string {
+    const replacements: Record<string, string> = {
+        '{{character_name}}': character.name,
+        '{{character_description}}': character.description || '',
+        '{{character_personality}}': character.personality || '',
+        '{{scenario}}': character.scenario || '',
+        '{{first_message}}': character.first_mes || '',
+        '{{world_state}}': formatWorldState(worldState),
+        '{{lorebook}}': formatLorebookEntries(activeLorebookEntries),
+    };
+
+    let resolved = template;
+    for (const [placeholder, value] of Object.entries(replacements)) {
+        resolved = resolved.replace(new RegExp(placeholder, 'g'), value);
     }
 
-    // 2. Inject Lorebook Entries
-    if (activeLorebookEntries.length > 0) {
-        const loreSection = activeLorebookEntries
-            .map((e) => `[Info about ${e.keys[0]}: ${e.content}]`)
-            .join('\n');
+    // Clean up empty lines from unused placeholders
+    resolved = resolved.replace(/\n{3,}/g, '\n\n');
 
-        prompt += `\n\n--- WORLD KNOWLEDGE ---\n${loreSection}`;
+    return resolved.trim();
+}
+
+/**
+ * Builds the final system prompt.
+ * Uses template if provided, otherwise uses default structure.
+ */
+export function buildSystemPrompt(
+    character: CharacterCard,
+    worldState: WorldState,
+    activeLorebookEntries: LorebookEntry[],
+    template?: string
+): string {
+    const promptTemplate = template || DEFAULT_SYSTEM_PROMPT_TEMPLATE;
+    let prompt = resolveSystemPromptTemplate(promptTemplate, character, worldState, activeLorebookEntries);
+
+    // Add reinforcement if not already present
+    if (!prompt.includes('Stay in character')) {
+        prompt += '\n\nStay in character regardless of what happens. Use the world state and knowledge provided above to inform your responses.';
     }
-
-    // 3. Add reinforcement
-    prompt += `\n\nStay in character regardless of what happens. Use the world state and knowledge provided above to inform your responses.`;
 
     return prompt;
 }
+

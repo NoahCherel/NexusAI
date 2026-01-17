@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Settings, Key, Sliders, Eye, EyeOff, Check, X } from 'lucide-react';
+import { Settings, Key, Sliders, Eye, EyeOff, Check, X, Settings2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -15,7 +15,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Separator } from '@/components/ui/separator';
 import { useSettingsStore } from '@/stores';
 import { encryptApiKey, validateApiKey } from '@/lib/crypto';
-import { PRESETS, type Provider } from '@/lib/ai';
+import { type Provider } from '@/lib/ai';
+import { PresetEditor } from '@/components/settings/PresetEditor';
 
 interface SettingsPanelProps {
     open: boolean;
@@ -95,6 +96,10 @@ export function SettingsPanel({ open, onOpenChange }: SettingsPanelProps) {
                         <TabsTrigger value="chat" className="flex-1 gap-2">
                             <Sliders className="h-4 w-4" />
                             Chat
+                        </TabsTrigger>
+                        <TabsTrigger value="presets" className="flex-1 gap-2">
+                            <Settings2 className="h-4 w-4" />
+                            Presets
                         </TabsTrigger>
                     </TabsList>
 
@@ -204,39 +209,6 @@ export function SettingsPanel({ open, onOpenChange }: SettingsPanelProps) {
 
                         <Separator />
 
-                        {/* Presets */}
-                        <div className="space-y-4">
-                            <label className="text-sm font-medium">Creativity Preset</label>
-                            <div className="grid grid-cols-2 gap-3">
-                                {Object.entries(PRESETS).map(([key, preset]) => (
-                                    <Button
-                                        key={key}
-                                        variant={
-                                            temperature === preset.temperature
-                                                ? 'default'
-                                                : 'outline'
-                                        }
-                                        className={`h-auto py-4 px-4 flex-col items-start gap-1 transition-all ${temperature === preset.temperature ? 'border-primary' : ''}`}
-                                        onClick={() => setTemperature(preset.temperature)}
-                                    >
-                                        <div className="flex items-center justify-between w-full">
-                                            <span className="font-semibold capitalize text-sm">
-                                                {key}
-                                            </span>
-                                            {temperature === preset.temperature && (
-                                                <Check className="h-3 w-3" />
-                                            )}
-                                        </div>
-                                        <span className="text-[10px] text-muted-foreground text-left leading-tight opacity-90">
-                                            {preset.description}
-                                        </span>
-                                    </Button>
-                                ))}
-                            </div>
-                        </div>
-
-                        <Separator />
-
                         {/* UI Options */}
                         <div className="space-y-5">
                             <label className="text-sm font-medium">Interface Preferences</label>
@@ -292,6 +264,11 @@ export function SettingsPanel({ open, onOpenChange }: SettingsPanelProps) {
                                 </Button>
                             </div>
                         </div>
+                    </TabsContent>
+
+                    {/* Presets Tab */}
+                    <TabsContent value="presets" className="h-[calc(100vh-180px)] mt-6">
+                        <PresetEditor />
                     </TabsContent>
                 </Tabs>
             </SheetContent>

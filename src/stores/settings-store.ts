@@ -1,5 +1,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import type { APIPreset } from '@/types/preset';
+import { DEFAULT_PRESETS, DEFAULT_SYSTEM_PROMPT_TEMPLATE } from '@/types/preset';
 
 export interface ApiKeyConfig {
     provider: 'openrouter' | 'openai' | 'anthropic';
@@ -134,6 +136,10 @@ interface SettingsState {
     personas: Persona[];
     activePersonaId: string | null;
 
+    // API Presets
+    presets: APIPreset[];
+    activePresetId: string | null;
+
     // UI Settings
     theme: 'dark' | 'light' | 'system';
     showThoughts: boolean;
@@ -161,11 +167,19 @@ interface SettingsState {
     setShowThoughts: (show: boolean) => void;
     setShowWorldState: (show: boolean) => void;
     setImmersiveMode: (immersive: boolean) => void;
+
+    // Preset Actions
+    addPreset: (preset: APIPreset) => void;
+    updatePreset: (id: string, updates: Partial<APIPreset>) => void;
+    deletePreset: (id: string) => void;
+    setActivePreset: (id: string | null) => void;
+    getActivePreset: () => APIPreset | null;
+    initializeDefaultPresets: () => void;
 }
 
 export const useSettingsStore = create<SettingsState>()(
     persist(
-        (set) => ({
+        (set, get) => ({
             // Default state
             apiKeys: [],
             activeProvider: 'openrouter',
@@ -176,6 +190,8 @@ export const useSettingsStore = create<SettingsState>()(
             enableReasoning: false,
             personas: [],
             activePersonaId: null,
+            presets: [],
+            activePresetId: null,
             theme: 'dark',
             showThoughts: true,
             showWorldState: true,
@@ -228,6 +244,50 @@ export const useSettingsStore = create<SettingsState>()(
             setShowThoughts: (showThoughts) => set({ showThoughts }),
             setShowWorldState: (showWorldState) => set({ showWorldState }),
             setImmersiveMode: (immersiveMode) => set({ immersiveMode }),
+
+            // Preset Actions
+            addPreset: (preset) =>
+                set((state) => ({
+                    presets: [...state.presets, preset],
+                })),
+
+            updatePreset: (id, updates) =>
+                set((state) => ({
+                    presets: state.presets.map((p) =>
+                        p.id === id ? { ...p, ...updates } : p
+                    ),
+                })),
+
+            deletePreset: (id) =>
+                set((state) => ({
+                    presets: state.presets.filter((p) => p.id !== id),
+                    activePresetId: state.activePresetId === id ? null : state.activePresetId,
+                })),
+
+            setActivePreset: (activePresetId) => set({ activePresetId }),
+
+            getActivePreset: () => {
+                const state = get();
+                if (!state.activePresetId) return null;
+                return state.presets.find((p) => p.id === state.activePresetId) || null;
+            },
+
+            initializeDefaultPresets: () =>
+                set((state) => {
+                    // Only initialize if no presets exist
+                    if (state.presets.length > 0) return {};
+
+                    const newPresets: APIPreset[] = DEFAULT_PRESETS.map((p, i) => ({
+                        ...p,
+                        id: `default-${i}`,
+                        createdAt: new Date(),
+                    }));
+
+                    return {
+                        presets: newPresets,
+                        activePresetId: newPresets[0]?.id || null,
+                    };
+                }),
         }),
         {
             name: 'nexusai-settings',

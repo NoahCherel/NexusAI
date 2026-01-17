@@ -81,6 +81,7 @@ export default function ChatPage() {
         personas,
         enableReasoning,
         immersiveMode,
+        getActivePreset,
     } = useSettingsStore();
     const character = getActiveCharacter();
 
@@ -230,8 +231,14 @@ export default function ChatPage() {
             activeLorebook || undefined
         );
 
-        // 2. Build Enhanced System Prompt (Char + World + Lore)
-        const systemPrompt = buildSystemPrompt(character, worldState, activeEntries);
+        // 2. Build Enhanced System Prompt (Char + World + Lore) using preset template
+        const activePreset = getActivePreset();
+        const systemPrompt = buildSystemPrompt(
+            character,
+            worldState,
+            activeEntries,
+            activePreset?.systemPromptTemplate
+        );
 
         // PRE-EMPTIVELY Add empty assistant message to store (Instant UI feedback)
         const assistantId = crypto.randomUUID();
@@ -256,10 +263,15 @@ export default function ChatPage() {
                     provider: activeProvider,
                     model: activeModel,
                     apiKey: currentApiKey,
-                    temperature,
+                    temperature: activePreset?.temperature ?? temperature,
+                    maxTokens: activePreset?.maxOutputTokens ?? 2048,
+                    topP: activePreset?.topP,
+                    topK: activePreset?.topK,
+                    frequencyPenalty: activePreset?.frequencyPenalty,
+                    presencePenalty: activePreset?.presencePenalty,
                     systemPrompt, // We pass the fully constructed prompt here
                     userPersona: activePersona,
-                    enableReasoning,
+                    enableReasoning: activePreset?.enableReasoning ?? enableReasoning,
                 }),
                 signal: abortControllerRef.current.signal,
             });
