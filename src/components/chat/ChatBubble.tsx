@@ -31,37 +31,26 @@ import {
 const bubbleVariants: Variants = {
     hidden: {
         opacity: 0,
-        y: 20,
-        scale: 0.95,
     },
     visible: {
         opacity: 1,
-        y: 0,
-        scale: 1,
         transition: {
-            type: 'spring',
-            stiffness: 260,
-            damping: 20,
-            mass: 0.8,
+            duration: 0.3,
+            ease: 'easeOut',
         },
     },
     exit: {
         opacity: 0,
-        scale: 0.9,
-        y: -10,
         transition: { duration: 0.2 },
     },
 };
 
 const contentVariants = {
     rest: {
-        boxShadow: '0 0 0 rgba(0,0,0,0)',
         y: 0,
     },
     hover: {
-        boxShadow: '0 4px 20px rgba(0,0,0,0.1)',
-        y: -1,
-        transition: { duration: 0.2 },
+        y: 0,
     },
 };
 
@@ -139,27 +128,24 @@ export function ChatBubble({
             initial="hidden"
             animate="visible"
             exit="exit"
-            layout
-            className={`flex gap-3 group ${isUser ? 'flex-row-reverse' : ''}`}
+            layout="position"
+            className="flex gap-3 group items-start py-4 border-b border-white/[0.03] last:border-0"
             onMouseEnter={() => setIsHovered(true)}
             onMouseLeave={() => setIsHovered(false)}
         >
             {/* Avatar */}
-            <Avatar className="w-10 h-10 shrink-0">
+            <Avatar className="w-8 h-8 shrink-0 mt-0.5">
                 <AvatarImage src={avatar} alt={name} />
                 <AvatarFallback className={isUser ? 'bg-primary' : 'bg-secondary'}>
                     {name?.[0]?.toUpperCase() || (isUser ? 'U' : 'AI')}
                 </AvatarFallback>
             </Avatar>
 
-            <div
-                className={`flex flex-col gap-1 max-w-[85%] ${isUser ? 'items-end' : 'items-start'
-                    }`}
-            >
+            <div className="flex flex-col gap-1.5 flex-1 min-w-0">
                 {/* Name */}
                 <div className="flex items-center gap-2 px-1">
                     {name && (
-                        <span className="text-xs font-semibold text-muted-foreground">{name}</span>
+                        <span className="text-sm font-bold text-foreground/90">{name}</span>
                     )}
                     {/* Thought Button */}
                     {thought && showThoughts && (
@@ -185,7 +171,7 @@ export function ChatBubble({
                             transition={{ duration: 0.2 }}
                             className="overflow-hidden w-full"
                         >
-                            <div className="text-xs bg-muted/50 border border-border/50 rounded-lg p-3 italic text-muted-foreground mb-2">
+                            <div className="text-sm bg-muted/30 border-l-2 border-primary/30 pl-3 py-1 italic text-muted-foreground mb-2">
                                 {thought}
                             </div>
                         </motion.div>
@@ -194,7 +180,7 @@ export function ChatBubble({
 
                 {/* Main Content */}
                 {isEditing ? (
-                    <div className="w-[300px] sm:w-[500px] max-w-full bg-background border border-primary/20 rounded-xl p-3 shadow-lg">
+                    <div className="w-[300px] sm:w-[500px] max-w-full bg-[#242525] border border-white/10 rounded-xl p-3 shadow-2xl">
                         <textarea
                             ref={textareaRef}
                             className="w-full bg-transparent resize-none outline-none text-base text-foreground placeholder:text-muted-foreground min-h-[80px] overflow-hidden"
@@ -210,7 +196,7 @@ export function ChatBubble({
                                 <span className="text-[10px] text-muted-foreground uppercase font-bold block mb-2 tracking-wider">
                                     Preview
                                 </span>
-                                <div className="text-sm text-foreground/90 bg-card/50 p-3 rounded-lg border border-border/30">
+                                <div className="text-sm text-foreground/90 bg-white/5 p-3 rounded-lg border border-white/5">
                                     <ChatFormatter content={editContent || '...'} />
                                 </div>
                             </div>
@@ -249,16 +235,14 @@ export function ChatBubble({
                         variants={contentVariants}
                         initial="rest"
                         whileHover="hover"
-                        className={`rounded-2xl px-4 py-3 whitespace-pre-wrap break-words cursor-default transition-colors ${isUser
-                                ? 'bg-primary text-primary-foreground rounded-br-sm hover:bg-primary/95'
-                                : 'bg-card border border-border rounded-bl-sm hover:bg-card/80'
+                        className={`text-sm sm:text-base leading-relaxed whitespace-pre-wrap break-words min-h-[1.5em] ${isUser ? 'text-foreground/70' : 'text-foreground/90 font-medium'
                             }`}
                     >
                         {!content && !isUser ? (
-                            <div className="flex gap-1 py-2">
-                                <span className="w-1.5 h-1.5 bg-foreground/30 rounded-full animate-bounce" />
-                                <span className="w-1.5 h-1.5 bg-foreground/30 rounded-full animate-bounce [animation-delay:0.1s]" />
-                                <span className="w-1.5 h-1.5 bg-foreground/30 rounded-full animate-bounce [animation-delay:0.2s]" />
+                            <div className="flex gap-1 py-1">
+                                <span className="w-1 h-1 bg-foreground/40 rounded-full" />
+                                <span className="w-1 h-1 bg-foreground/40 rounded-full opacity-60" />
+                                <span className="w-1 h-1 bg-foreground/40 rounded-full opacity-30" />
                             </div>
                         ) : (
                             <ChatFormatter content={content} />
@@ -269,8 +253,7 @@ export function ChatBubble({
                 {/* Action buttons (always rendered to prevent layout shift, toggled via opacity) */}
                 <div
                     className={`flex gap-1 mt-1 transition-opacity duration-200 ${!isEditing && isHovered ? 'opacity-100' : 'opacity-0'
-                        } ${isUser ? 'flex-row-reverse' : ''}`}
-                    // Keep it physically present but allow pointer events only when visible
+                        }`}
                     style={{ pointerEvents: !isEditing && isHovered ? 'auto' : 'none' }}
                 >
                     <ActionTooltip label="Edit">

@@ -119,15 +119,17 @@ export default function ChatPage() {
         loadApiKey();
     }, [apiKeys, activeProvider]);
 
-    // Auto-scroll to bottom when switching conversations or loading
+    // Auto-scroll to bottom when messages change (streaming) or conversation changes
     useEffect(() => {
         if (activeConversationId) {
-            // Small delay to ensure content is rendered
-            setTimeout(() => {
-                scrollRef.current?.scrollIntoView({ behavior: 'instant' });
-            }, 100);
+            // Instant scroll for initial load, smooth for streaming
+            const behavior = messages.length > 0 ? 'smooth' : 'instant';
+            const timer = setTimeout(() => {
+                scrollRef.current?.scrollIntoView({ behavior, block: 'end' });
+            }, 50);
+            return () => clearTimeout(timer);
         }
-    }, [activeConversationId]);
+    }, [activeConversationId, messages.length, messages[messages.length - 1]?.content]);
 
     // Sync lorebook when character changes
     useEffect(() => {
@@ -650,7 +652,7 @@ export default function ChatPage() {
     }
 
     return (
-        <div className="flex h-screen bg-background overflow-hidden">
+        <div className="flex h-screen bg-[#242525] overflow-hidden">
 
             <main className="flex-1 flex flex-col min-w-0">
                 {/* Header - Hidden in immersive mode */}
@@ -665,7 +667,7 @@ export default function ChatPage() {
                                 stiffness: 300,
                                 damping: 30,
                             }}
-                            className="h-14 border-b border-white/5 flex items-center px-4 justify-between glass-heavy sticky top-0 z-30 shrink-0"
+                            className="h-14 border-b border-white/5 flex items-center px-4 justify-between bg-[#242525] sticky top-0 z-30 shrink-0"
                         >
                             <div className="flex items-center gap-2 sm:gap-3 min-w-0">
                                 {/* Mobile Menu Button */}
@@ -780,7 +782,7 @@ export default function ChatPage() {
                             layout
                             className={`z-20 ${immersiveMode
                                 ? 'absolute bottom-4 left-4 right-4 rounded-2xl glass-heavy shadow-2xl'
-                                : 'p-4 border-t border-white/5 glass-heavy'
+                                : 'p-4 border-t border-white/5 bg-[#242525]'
                                 }`}
                         >
                             <div

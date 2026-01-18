@@ -1,7 +1,7 @@
 'use client';
 
 import { motion } from 'framer-motion';
-import { MoreVertical, Trash2, Edit } from 'lucide-react';
+import { MoreVertical, Trash2, Edit, Download } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import {
@@ -20,6 +20,7 @@ interface CharacterCardProps {
     onClick?: () => void;
     onEdit?: () => void;
     onDelete?: () => void;
+    onExport?: () => void;
 }
 
 export function CharacterCard({
@@ -29,6 +30,7 @@ export function CharacterCard({
     onClick,
     onEdit,
     onDelete,
+    onExport,
 }: CharacterCardProps) {
     if (isCollapsed) {
         return (
@@ -158,6 +160,17 @@ export function CharacterCard({
                             <Trash2 className="h-4 w-4 mr-2" />
                             Delete
                         </DropdownMenuItem>
+                        {onExport && (
+                            <DropdownMenuItem
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    onExport?.();
+                                }}
+                            >
+                                <Download className="h-4 w-4 mr-2" />
+                                Export JSON
+                            </DropdownMenuItem>
+                        )}
                     </DropdownMenuContent>
                 </DropdownMenu>
             </div>

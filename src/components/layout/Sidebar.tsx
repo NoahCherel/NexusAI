@@ -12,6 +12,8 @@ import { Search, Plus, PanelLeftClose, PanelLeftOpen, Settings, Users, Upload } 
 
 import { CharacterImporter } from '@/components/character/CharacterImporter';
 import { cn } from '@/lib/utils';
+import { exportToJson } from '@/lib/export-utils';
+import { useChatStore } from '@/stores/chat-store';
 import type { CharacterCard as CharacterCardType } from '@/types';
 
 interface SidebarProps {
@@ -46,6 +48,50 @@ export function Sidebar({ isCollapsed, onToggle }: SidebarProps) {
     const handleCloseEditor = () => {
         setIsEditorOpen(false);
         setEditingCharacter(null);
+    };
+
+    const { getConversationMessages, conversations: allConversations } = useChatStore();
+
+    const handleExport = async (character: CharacterCardType) => {
+        // Find most recent conversation for this character
+        const charConvs = allConversations
+            .filter((c) => c.characterId === character.id)
+            .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime());
+
+        if (charConvs.length === 0) {
+            alert('No conversation found for this character.');
+            return;
+        }
+
+        const latestConv = charConvs[0];
+        const messages = await getConversationMessages(latestConv.id);
+
+        const exportData = {
+            character: {
+                name: character.name,
+                description: character.description,
+                personality: character.personality,
+                scenario: character.scenario,
+                first_mes: character.first_mes,
+                mes_example: character.mes_example,
+            },
+            conversation: {
+                title: latestConv.title,
+                createdAt: latestConv.createdAt,
+                updatedAt: latestConv.updatedAt,
+                worldState: latestConv.worldState,
+            },
+            messages: messages.map(m => ({
+                role: m.role,
+                content: m.content,
+                thought: m.thought,
+                createdAt: m.createdAt,
+                isActiveBranch: m.isActiveBranch,
+            })),
+            exportedAt: new Date().toISOString(),
+        };
+
+        exportToJson(exportData, `Conversation_${character.name}_${new Date().toISOString().split('T')[0]}`);
     };
 
     return (
@@ -167,6 +213,7 @@ export function Sidebar({ isCollapsed, onToggle }: SidebarProps) {
                                     onClick={() => setActiveCharacterId(char.id)}
                                     onEdit={() => handleEdit(char)}
                                     onDelete={() => removeCharacter(char.id)}
+                                    onExport={() => handleExport(char)}
                                     isCollapsed={isCollapsed}
                                 />
                             ))}

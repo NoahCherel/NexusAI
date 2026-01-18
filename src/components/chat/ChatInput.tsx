@@ -19,7 +19,7 @@ const containerVariants: Variants = {
     animate: {
         opacity: 1,
         y: 0,
-        transition: { type: 'spring', stiffness: 300, damping: 25 },
+        transition: { duration: 0.3, ease: 'easeOut' },
     },
 };
 
@@ -106,7 +106,7 @@ export function ChatInput({
             animate="animate"
             className="w-full max-w-4xl mx-auto p-2"
         >
-            <div className="flex items-end gap-2 bg-secondary/30 p-2 rounded-xl border border-border/50 shadow-sm backdrop-blur-sm relative transition-colors focus-within:bg-secondary/50 focus-within:border-primary/20">
+            <div className="flex items-end gap-2 bg-white/5 p-2 rounded-xl border border-white/10 shadow-sm backdrop-blur-sm relative transition-colors focus-within:bg-white/10 focus-within:border-white/20">
                 {/* Action Menu */}
                 <DropdownMenu>
                     <DropdownMenuTrigger asChild>
