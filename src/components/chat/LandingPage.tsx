@@ -1,8 +1,10 @@
-import { Bot, Sparkles, MessageSquare, ArrowRight } from 'lucide-react';
+import { Bot, Sparkles, MessageSquare, ArrowRight, Upload } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { motion } from 'framer-motion';
 
-export function LandingPage({ onImportClick }: { onImportClick: () => void }) {
+import { CharacterImporter } from '@/components/character/CharacterImporter';
+
+export function LandingPage({ onImportClick }: { onImportClick?: () => void }) {
     return (
         <div className="flex-1 h-full flex flex-col items-center justify-center bg-gradient-to-br from-background via-background to-primary/5 p-8 relative overflow-hidden">
             {/* Background Decorations */}
@@ -33,7 +35,21 @@ export function LandingPage({ onImportClick }: { onImportClick: () => void }) {
                     </p>
                 </div>
 
-                {/* Actions intentionally removed on landing to keep import in sidebar only */}
+                {/* Actions */}
+                <div className="flex flex-col sm:flex-row gap-4 w-full max-w-sm">
+                    <CharacterImporter
+                        trigger={
+                            <Button
+                                size="lg"
+                                className="flex-1 gap-2 text-lg h-14 bg-primary hover:bg-primary/90 text-primary-foreground shadow-xl shadow-primary/20 hover-lift"
+                                onClick={onImportClick}
+                            >
+                                <Upload className="w-5 h-5" />
+                                Import Character
+                            </Button>
+                        }
+                    />
+                </div>
             </motion.div>
 
             {/* Features / Hints */}
