@@ -2,14 +2,16 @@
 
 import { useState } from 'react';
 import { motion } from 'framer-motion';
-import { MessageCircle, Settings, Upload, Sparkles, Menu } from 'lucide-react';
+import { MessageCircle, Settings, Upload, Sparkles, Menu, Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
 import { CharacterCard } from '@/components/character/CharacterCard';
 import { CharacterImporter } from '@/components/character/CharacterImporter';
+import { CharacterEditor } from '@/components/character/CharacterEditor';
 import { useCharacterStore } from '@/stores';
+import type { CharacterCard as CharacterCardType } from '@/types';
 
 interface MobileSidebarProps {
     onCharacterSelect?: (characterId: string) => void;
@@ -41,6 +43,8 @@ const itemVariants = {
 
 export function MobileSidebar({ onCharacterSelect, onSettingsClick }: MobileSidebarProps) {
     const [isOpen, setIsOpen] = useState(false);
+    const [isEditorOpen, setIsEditorOpen] = useState(false);
+    const [editingCharacter, setEditingCharacter] = useState<CharacterCardType | null>(null);
     const { characters, activeCharacterId, setActiveCharacter, removeCharacter } =
         useCharacterStore();
 
@@ -55,10 +59,25 @@ export function MobileSidebar({ onCharacterSelect, onSettingsClick }: MobileSide
         setIsOpen(false);
     };
 
+    const handleEdit = (character: CharacterCardType) => {
+        setEditingCharacter(character);
+        setIsEditorOpen(true);
+    };
+
+    const handleCreateNew = () => {
+        setEditingCharacter(null);
+        setIsEditorOpen(true);
+    };
+
+    const handleCloseEditor = () => {
+        setIsEditorOpen(false);
+        setEditingCharacter(null);
+    };
+
     return (
         <Sheet open={isOpen} onOpenChange={setIsOpen}>
             <SheetTrigger asChild>
-                <Button variant="ghost" size="icon" className="lg:hidden h-10 w-10">
+                <Button variant="ghost" size="icon" className="h-10 w-10">
                     <Menu className="h-5 w-5" />
                 </Button>
             </SheetTrigger>
@@ -86,16 +105,24 @@ export function MobileSidebar({ onCharacterSelect, onSettingsClick }: MobileSide
                         </div>
                     </SheetHeader>
 
-                    {/* Import Button */}
-                    <motion.div className="p-3" variants={itemVariants} custom={0}>
+                    {/* Import/New Buttons */}
+                    <motion.div className="p-3 flex gap-2" variants={itemVariants} custom={0}>
                         <CharacterImporter
                             trigger={
-                                <Button variant="outline" className="w-full gap-2 hover-lift">
+                                <Button variant="outline" className="flex-1 gap-2 hover-lift">
                                     <Upload className="h-4 w-4" />
-                                    Importer un personnage
+                                    Import
                                 </Button>
                             }
                         />
+                        <Button
+                            variant="outline"
+                            className="flex-1 gap-2 hover-lift"
+                            onClick={handleCreateNew}
+                        >
+                            <Plus className="h-4 w-4" />
+                            New
+                        </Button>
                     </motion.div>
 
                     <Separator className="bg-white/5" />
@@ -126,6 +153,7 @@ export function MobileSidebar({ onCharacterSelect, onSettingsClick }: MobileSide
                                             character={character}
                                             isActive={activeCharacterId === character.id}
                                             onClick={() => handleCharacterClick(character.id)}
+                                            onEdit={() => handleEdit(character)}
                                             onDelete={() => removeCharacter(character.id)}
                                         />
                                     </motion.div>
@@ -152,6 +180,13 @@ export function MobileSidebar({ onCharacterSelect, onSettingsClick }: MobileSide
                     </motion.div>
                 </motion.div>
             </SheetContent>
+
+            {/* Character Editor Dialog */}
+            <CharacterEditor
+                isOpen={isEditorOpen}
+                onClose={handleCloseEditor}
+                character={editingCharacter}
+            />
         </Sheet>
     );
 }

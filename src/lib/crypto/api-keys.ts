@@ -91,30 +91,15 @@ export async function validateApiKey(
     apiKey: string
 ): Promise<boolean> {
     try {
-        const endpoints = {
-            openrouter: 'https://openrouter.ai/api/v1/models',
-            openai: 'https://api.openai.com/v1/models',
-            anthropic: 'https://api.anthropic.com/v1/models',
-        };
-
-        const headers: Record<string, string> = {
-            openrouter: `Bearer ${apiKey}`,
-            openai: `Bearer ${apiKey}`,
-            anthropic: apiKey,
-        };
-
-        const response = await fetch(endpoints[provider], {
-            method: 'GET',
-            headers: {
-                Authorization: headers[provider],
-                ...(provider === 'anthropic' && {
-                    'x-api-key': apiKey,
-                    'anthropic-version': '2023-06-01',
-                }),
-            },
+        const response = await fetch('/api/validate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ provider, apiKey }),
         });
 
-        return response.ok;
+        if (!response.ok) return false;
+        const data = await response.json();
+        return data.isValid;
     } catch {
         return false;
     }

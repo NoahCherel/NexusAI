@@ -33,18 +33,7 @@ export function LandingPage({ onImportClick }: { onImportClick: () => void }) {
                     </p>
                 </div>
 
-                {/* Actions */}
-                <div className="flex flex-col sm:flex-row gap-4 pt-4">
-                    <Button
-                        size="lg"
-                        onClick={onImportClick}
-                        className="h-14 px-8 rounded-2xl gap-2 text-lg shadow-lg hover:shadow-xl hover:shadow-primary/20 transition-all transform hover:-translate-y-0.5"
-                    >
-                        <Sparkles className="w-5 h-5" />
-                        Import Character
-                        <ArrowRight className="w-4 h-4 opacity-50" />
-                    </Button>
-                </div>
+                {/* Actions intentionally removed on landing to keep import in sidebar only */}
             </motion.div>
 
             {/* Features / Hints */}

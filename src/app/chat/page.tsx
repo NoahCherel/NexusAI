@@ -12,7 +12,7 @@ import {
     PersonaSelector,
     ModelSelector,
 } from '@/components/chat';
-import { Sidebar, SettingsPanel, MobileSidebar } from '@/components/layout';
+import { SettingsPanel, MobileSidebar } from '@/components/layout';
 import { useCharacterStore, useSettingsStore, useChatStore, useLorebookStore } from '@/stores';
 import { useNotificationStore } from '@/components/ui/api-notification';
 import { useWorldStateAnalyzer } from '@/hooks';
@@ -39,7 +39,6 @@ import type { Message } from '@/types';
 
 export default function ChatPage() {
     const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-    const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
     const [isWorldStateCollapsed, setIsWorldStateCollapsed] = useState(false);
     const [isLorebookOpen, setIsLorebookOpen] = useState(false);
     const [isTreeOpen, setIsTreeOpen] = useState(false);
@@ -363,7 +362,8 @@ export default function ChatPage() {
             });
 
             if (!response.ok) {
-                throw new Error('Failed to get response');
+                const errorData = await response.json().catch(() => ({}));
+                throw new Error(errorData.error || `API Error: ${response.status} ${response.statusText}`);
             }
 
             const reader = response.body?.getReader();
@@ -464,7 +464,7 @@ export default function ChatPage() {
                 updateMessage(targetId, {
                     content:
                         fullContent +
-                        '\n[Error: Failed to get response. Check API Key or Network.]',
+                        `\n[Error: ${error instanceof Error ? error.message : 'Failed to get response. Check API Key or Network.'}]`,
                 });
             }
         } finally {
@@ -651,78 +651,70 @@ export default function ChatPage() {
 
     return (
         <div className="flex h-screen bg-background overflow-hidden">
-            {/* Desktop Sidebar - hidden on mobile */}
-            <div className="hidden lg:block">
-                <Sidebar
-                    isCollapsed={isSidebarCollapsed}
-                    onToggle={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
-                    onSettingsClick={() => setIsSettingsOpen(true)}
-                />
-            </div>
 
             <main className="flex-1 flex flex-col min-w-0">
+                {/* Header - Hidden in immersive mode */}
+                <AnimatePresence>
+                    {!immersiveMode && (
+                        <motion.header
+                            initial={{ y: -60, opacity: 0 }}
+                            animate={{ y: 0, opacity: 1 }}
+                            exit={{ y: -60, opacity: 0 }}
+                            transition={{
+                                type: 'spring' as const,
+                                stiffness: 300,
+                                damping: 30,
+                            }}
+                            className="h-14 border-b border-white/5 flex items-center px-4 justify-between glass-heavy sticky top-0 z-30 shrink-0"
+                        >
+                            <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+                                {/* Mobile Menu Button */}
+                                <MobileSidebar
+                                    onCharacterSelect={() => { }}
+                                    onSettingsClick={() => setIsSettingsOpen(true)}
+                                />
+                                <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center overflow-hidden shrink-0">
+                                    {character?.avatar ? (
+                                        <div className="w-8 h-8 rounded-full overflow-hidden border border-border/50 shrink-0">
+                                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                                            <img
+                                                src={character.avatar}
+                                                alt={character.name}
+                                                className="w-full h-full object-cover"
+                                            />
+                                        </div>
+                                    ) : (
+                                        <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center">
+                                            <Sparkles className="h-4 w-4 text-primary" />
+                                        </div>
+                                    )}
+                                </div>
+                                <div className="flex flex-col min-w-0">
+                                    <h2 className="font-semibold text-xs sm:text-sm truncate">
+                                        {character?.name || 'NexusAI'}
+                                    </h2>
+                                    <p className="text-[10px] text-muted-foreground truncate opacity-80">
+                                        {character ? activeModel : 'Roleplay Platform'}
+                                    </p>
+                                </div>
+                            </div>
+
+                            <div className="flex items-center gap-1 sm:gap-2">
+                                <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    onClick={() => setIsSettingsOpen(true)}
+                                    className="shrink-0 h-8 w-8"
+                                >
+                                    <Settings2 className="h-4 w-4" />
+                                </Button>
+                            </div>
+                        </motion.header>
+                    )}
+                </AnimatePresence>
+
                 {character ? (
                     <>
-                        {/* Header - Hidden in immersive mode */}
-                        <AnimatePresence>
-                            {!immersiveMode && (
-                                <motion.header
-                                    initial={{ y: -60, opacity: 0 }}
-                                    animate={{ y: 0, opacity: 1 }}
-                                    exit={{ y: -60, opacity: 0 }}
-                                    transition={{
-                                        type: 'spring' as const,
-                                        stiffness: 300,
-                                        damping: 30,
-                                    }}
-                                    className="h-14 border-b border-white/5 flex items-center px-4 justify-between glass-heavy sticky top-0 z-30 shrink-0"
-                                >
-                                    <div className="flex items-center gap-2 sm:gap-3 min-w-0">
-                                        {/* Mobile Menu Button */}
-                                        <MobileSidebar
-                                            onCharacterSelect={() => { }}
-                                            onSettingsClick={() => setIsSettingsOpen(true)}
-                                        />
-                                        <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center overflow-hidden shrink-0">
-                                            {character.avatar ? (
-                                                <div className="w-8 h-8 rounded-full overflow-hidden border border-border/50 shrink-0">
-                                                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                                                    <img
-                                                        src={character.avatar}
-                                                        alt={character.name}
-                                                        className="w-full h-full object-cover"
-                                                    />
-                                                </div>
-                                            ) : (
-                                                <span className="font-semibold text-xs text-primary">
-                                                    {character.name.slice(0, 2).toUpperCase()}
-                                                </span>
-                                            )}
-                                        </div>
-                                        <div className="flex flex-col min-w-0">
-                                            <h2 className="font-semibold text-xs sm:text-sm truncate">
-                                                {character.name}
-                                            </h2>
-                                            <p className="text-[10px] text-muted-foreground truncate opacity-80">
-                                                {activeModel}
-                                            </p>
-                                        </div>
-                                    </div>
-
-                                    <div className="flex items-center gap-1 sm:gap-2">
-                                        <Button
-                                            variant="ghost"
-                                            size="icon"
-                                            onClick={() => setIsSettingsOpen(true)}
-                                            className="shrink-0 h-8 w-8"
-                                        >
-                                            <Settings2 className="h-4 w-4" />
-                                        </Button>
-                                    </div>
-                                </motion.header>
-                            )}
-                        </AnimatePresence>
-
                         <div className="flex-1 flex flex-col min-h-0 relative">
                             {/* Messages Area */}
                             <div className="flex-1 overflow-y-auto w-full scroll-smooth">
@@ -787,8 +779,8 @@ export default function ChatPage() {
                         <motion.div
                             layout
                             className={`z-20 ${immersiveMode
-                                    ? 'absolute bottom-4 left-4 right-4 rounded-2xl glass-heavy shadow-2xl'
-                                    : 'p-4 border-t border-white/5 glass-heavy'
+                                ? 'absolute bottom-4 left-4 right-4 rounded-2xl glass-heavy shadow-2xl'
+                                : 'p-4 border-t border-white/5 glass-heavy'
                                 }`}
                         >
                             <div
@@ -876,7 +868,7 @@ export default function ChatPage() {
                         </motion.div>
                     </>
                 ) : (
-                    <LandingPage onImportClick={() => setIsSidebarCollapsed(false)} />
+                    <LandingPage />
                 )}
             </main>
 
@@ -960,6 +952,6 @@ export default function ChatPage() {
             </Sheet>
 
             <APINotificationToast />
-        </div>
+        </div >
     );
 }

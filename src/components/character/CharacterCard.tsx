@@ -137,15 +137,17 @@ export function CharacterCard({
                         </Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end" className="w-40">
-                        <DropdownMenuItem
-                            onClick={(e) => {
-                                e.stopPropagation();
-                                onEdit?.();
-                            }}
-                        >
-                            <Edit className="h-4 w-4 mr-2" />
-                            Edit
-                        </DropdownMenuItem>
+                        {onEdit && (
+                            <DropdownMenuItem
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    onEdit?.();
+                                }}
+                            >
+                                <Edit className="h-4 w-4 mr-2" />
+                                Edit
+                            </DropdownMenuItem>
+                        )}
                         <DropdownMenuItem
                             className="text-destructive focus:text-destructive"
                             onClick={(e) => {

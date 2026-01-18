@@ -38,29 +38,38 @@ export async function POST(req: NextRequest) {
             });
         }
 
+        const origin = req.headers.get('origin') || 'http://localhost:3000';
+
         let modelInstance;
+        let effectiveModelId = model;
         const extraBody: Record<string, any> = {};
 
         // Handle Provider-Specific Parameters
         if (repetitionPenalty) extraBody.repetition_penalty = repetitionPenalty;
         if (minP) extraBody.min_p = minP;
-        if (topK) extraBody.top_k = topK; // Some providers need this in extraBody
+        if (topK) extraBody.top_k = topK;
+
+        // Sanitize model ID for direct providers (remove prefixes like openai/ or anthropic/)
+        if (provider === 'openai' || provider === 'anthropic') {
+            if (model.includes('/')) {
+                effectiveModelId = model.split('/').pop() || model;
+            }
+        }
 
         if (provider === 'openrouter') {
             const openRouterClient = createOpenRouter({
                 apiKey,
                 headers: {
-                    'HTTP-Referer': 'http://localhost:3000',
+                    'HTTP-Referer': origin,
                     'X-Title': 'NexusAI',
                 },
             });
 
-            // OpenRouter supports mapping extraBody via the provider config or specific options
-            modelInstance = openRouterClient(model);
+            modelInstance = openRouterClient(effectiveModelId);
         } else if (provider === 'openai') {
-            modelInstance = createOpenAI({ apiKey })(model);
+            modelInstance = createOpenAI({ apiKey })(effectiveModelId);
         } else if (provider === 'anthropic') {
-            modelInstance = createAnthropic({ apiKey })(model);
+            modelInstance = createAnthropic({ apiKey })(effectiveModelId);
         } else {
             throw new Error('Invalid provider');
         }

@@ -56,7 +56,9 @@ export function ChatInput({
         const textarea = textareaRef.current;
         if (textarea) {
             textarea.style.height = 'auto';
-            textarea.style.height = Math.min(textarea.scrollHeight, 200) + 'px';
+            // Reduce max height on small screens to avoid very tall input bars
+            const maxHeight = typeof window !== 'undefined' && window.innerWidth < 640 ? 80 : 200;
+            textarea.style.height = Math.min(textarea.scrollHeight, maxHeight) + 'px';
         }
     };
 
@@ -140,7 +142,7 @@ export function ChatInput({
                     onFocus={() => setIsFocused(true)}
                     onBlur={() => setIsFocused(false)}
                     placeholder={placeholder}
-                    className="flex-1 min-h-[40px] max-h-[200px] resize-none border-0 bg-transparent focus-visible:ring-0 focus-visible:ring-offset-0 py-2.5 px-3 leading-relaxed custom-scrollbar placeholder:text-muted-foreground/50"
+                    className="flex-1 min-h-[40px] max-h-[80px] sm:max-h-[200px] resize-none border-0 bg-transparent focus-visible:ring-0 focus-visible:ring-offset-0 py-2.5 px-3 leading-relaxed custom-scrollbar placeholder:text-muted-foreground/50"
                     disabled={isLoading || disabled}
                     rows={1}
                 />
