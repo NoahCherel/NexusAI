@@ -153,7 +153,7 @@ export function PersonaSelector() {
                                             {persona.name}
                                         </span>
                                         {persona.bio && (
-                                            <span className="text-[10px] text-muted-foreground truncate block">
+                                            <span className="text-[10px] text-muted-foreground truncate hidden sm:block">
                                                 {persona.bio}
                                             </span>
                                         )}

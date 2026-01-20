@@ -188,6 +188,28 @@ export function TreeVisualization({ isOpen, onClose }: TreeVisualizationProps) {
 
     const handleMouseUp = () => setIsDragging(false);
 
+    // Touch Handlers
+    const handleTouchStart = (e: React.TouchEvent) => {
+        if ((e.target as Element).tagName === 'svg' || (e.target as Element).tagName === 'g') {
+            setIsDragging(true);
+            const touch = e.touches[0];
+            dragStart.current = { x: touch.clientX - view.x, y: touch.clientY - view.y };
+        }
+    };
+
+    const handleTouchMove = (e: React.TouchEvent) => {
+        if (isDragging) {
+            const touch = e.touches[0];
+            setView((v) => ({
+                ...v,
+                x: touch.clientX - dragStart.current.x,
+                y: touch.clientY - dragStart.current.y,
+            }));
+        }
+    };
+
+    const handleTouchEnd = () => setIsDragging(false);
+
     const hasData = treeData && treeData.nodes.length > 0;
 
     // Center on first node or active node on open
@@ -270,6 +292,9 @@ export function TreeVisualization({ isOpen, onClose }: TreeVisualizationProps) {
                     onMouseMove={handleMouseMove}
                     onMouseUp={handleMouseUp}
                     onMouseLeave={handleMouseUp}
+                    onTouchStart={handleTouchStart}
+                    onTouchMove={handleTouchMove}
+                    onTouchEnd={handleTouchEnd}
                     onWheel={handleWheel}
                 >
                     {!hasData ? (

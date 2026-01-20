@@ -102,9 +102,8 @@ export function WorldStatePanel({
                     <span className="text-base">🌍</span> World Context
                 </span>
                 <ChevronUp
-                    className={`w-4 h-4 text-muted-foreground transition-transform duration-300 ${
-                        isCollapsed ? 'rotate-180' : ''
-                    }`}
+                    className={`w-4 h-4 text-muted-foreground transition-transform duration-300 ${isCollapsed ? 'rotate-180' : ''
+                        }`}
                 />
             </button>
 
@@ -264,7 +263,7 @@ export function WorldStatePanel({
                                                 {name}
                                                 <button
                                                     onClick={() => handleRemoveRelation(name)}
-                                                    className="p-1 hover:bg-destructive/10 rounded opacity-0 group-hover:opacity-100 transition-opacity"
+                                                    className="p-1 hover:bg-destructive/10 rounded opacity-100 lg:opacity-0 lg:group-hover:opacity-100 transition-opacity"
                                                 >
                                                     <Trash2 className="w-3 h-3 text-destructive" />
                                                 </button>

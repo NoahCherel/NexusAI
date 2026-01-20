@@ -82,7 +82,7 @@ export function CharacterCard({
             onClick={onClick}
         >
             {/* Card contents */}
-            <div className="p-3 flex gap-3 items-start">
+            <div className="p-3 flex gap-3 items-start overflow-hidden">
                 <Avatar className="w-12 h-12 rounded-lg shrink-0 border border-border/50 shadow-sm text-xs">
                     <AvatarImage
                         src={character.avatar}
@@ -133,7 +133,7 @@ export function CharacterCard({
                         <Button
                             variant="ghost"
                             size="icon"
-                            className="h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity -mr-1 -mt-1 text-muted-foreground hover:text-foreground"
+                            className="h-7 w-7 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity -mr-1 -mt-1 text-muted-foreground hover:text-foreground"
                         >
                             <MoreVertical className="h-3.5 w-3.5" />
                         </Button>

@@ -39,22 +39,20 @@ export async function extractLorebookEntries(
             ? `Existing keys to avoid duplicating: ${existingKeys.join(', ')}`
             : 'No existing keys.';
 
-    const systemPrompt = `You are a world-building assistant Analyze the AI response and extract NEW important world facts that should be remembered.
+    const systemPrompt = `You are a world-building assistant. Analyze the AI response and extract/update world facts.
 
 Rules:
-1. Only extract NOVEL information not already in existing keys
-2. Be VERY concise - each entry max 2-3 sentences
-3. Categorize each entry as: "character", "location", or "notion"
-   - character: Named individuals, NPCs, companions
-   - location: Places, regions, buildings
-   - notion: Concepts, factions, organizations, items, plot points, events
-4. Return ONLY a valid JSON array, no markdown, no explanation
-5. If no new facts, return exactly: []
+1. Extract NOVEL information.
+2. If info relates to an existing key (from the list below), USE THAT KEY to allow updates/merging.
+3. Be VERY concise - each entry max 2-3 sentences.
+4. Categorize each entry as: "character", "location", or "notion".
+5. IMPORTANT: For actions/events involving specific characters, ALWAYS include their names as keys.
+6. Return ONLY a valid JSON array, no markdown.
 
 ${existingKeysStr}
 
-Output format (JSON array only, nothing else):
-[{"keys":["keyword1","keyword2"],"content":"Brief description","priority":10,"category":"character"|"location"|"notion"}]`;
+Output format (JSON array only):
+[{"keys":["keyword1","keyword2"],"content":"Brief description","priority":10,"category":"character"}]`;
 
     try {
         const response = await fetch('/api/chat', {

@@ -463,11 +463,13 @@ export default function ChatPage() {
             );
 
             if (activeConversationId) {
-                updateMessage(targetId, {
-                    content:
-                        fullContent +
-                        `\n[Error: ${error instanceof Error ? error.message : 'Failed to get response. Check API Key or Network.'}]`,
-                });
+                if (!fullContent) {
+                    removeMessage(targetId);
+                } else {
+                    updateMessage(targetId, {
+                        content: fullContent, // Keep partial content, don't append error text
+                    });
+                }
             }
         } finally {
             setIsLoading(false);

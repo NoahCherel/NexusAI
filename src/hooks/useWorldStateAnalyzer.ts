@@ -243,7 +243,7 @@ export function useWorldStateAnalyzer(): UseWorldStateAnalyzerReturn {
                 const newCount = currentCount + 1;
                 localStorage.setItem(MSG_COUNT_KEY, newCount.toString());
 
-                if (newCount % 10 === 0) {
+                if (newCount % 1 === 0) {
                     // Fire and forget consolidation
                     consolidateLorebook(targetConversationId, apiKey).catch(console.error);
                 }
