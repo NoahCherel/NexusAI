@@ -128,7 +128,7 @@ export function MobileSidebar({ onCharacterSelect, onSettingsClick }: MobileSide
             </SheetTrigger>
             <SheetContent
                 side="left"
-                className="w-[300px] sm:w-[350px] p-0 glass-heavy border-r border-white/5"
+                className="w-[300px] sm:w-[350px] p-0 glass-heavy border-r border-white/5 flex flex-col"
             >
                 <motion.div
                     variants={sidebarVariants}

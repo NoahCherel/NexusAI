@@ -235,7 +235,7 @@ export function ChatBubble({
                         variants={contentVariants}
                         initial="rest"
                         whileHover="hover"
-                        className={`text-sm sm:text-base leading-relaxed whitespace-pre-wrap break-words min-h-[1.5em] ${isUser ? 'text-foreground' : 'text-foreground/90 font-medium'
+                        className={`text-sm sm:text-base leading-relaxed whitespace-pre-wrap break-words min-h-[1.5em] ${isUser ? 'text-foreground italic' : 'text-foreground/90 font-medium'
                             }`}
                     >
                         {!content && !isUser ? (

@@ -122,7 +122,7 @@ export function PersonaSelector() {
                         <ChevronUp className="h-3 w-3 opacity-50 hidden sm:block" />
                     </Button>
                 </PopoverTrigger>
-                <PopoverContent className="w-[220px] p-2" align="start" side="top" sideOffset={8}>
+                <PopoverContent className="w-72 p-2" align="start" side="top" sideOffset={8}>
                     <div className="space-y-1">
                         <div className="px-2 py-1 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
                             Select Persona
@@ -159,7 +159,7 @@ export function PersonaSelector() {
                                         )}
                                     </div>
                                 </div>
-                                <div className="sm:hidden flex items-center gap-2 pr-1">
+                                <div className="sm:hidden flex items-center gap-2 pr-1 shrink-0">
                                     <Button
                                         variant="ghost"
                                         size="icon"
