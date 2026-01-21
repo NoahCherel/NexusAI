@@ -2,9 +2,10 @@ import React, { memo, useCallback } from 'react';
 
 interface ChatFormatterProps {
     content: string;
+    isUser?: boolean;
 }
 
-export const ChatFormatter = memo(function ChatFormatter({ content }: ChatFormatterProps) {
+export const ChatFormatter = memo(function ChatFormatter({ content, isUser }: ChatFormatterProps) {
     if (!content) return null;
 
     // 1. Handle Code Blocks first (they are distinct blocks)
@@ -41,14 +42,14 @@ export const ChatFormatter = memo(function ChatFormatter({ content }: ChatFormat
                 return part
                     .split('\n')
                     .map((line, lineIdx) => (
-                        <FormattedLine key={`${index}-${lineIdx}`} text={line} />
+                        <FormattedLine key={`${index}-${lineIdx}`} text={line} isUser={isUser} />
                     ));
             })}
         </div>
     );
 });
 
-const FormattedLine = memo(({ text }: { text: string }) => {
+const FormattedLine = memo(({ text, isUser }: { text: string; isUser?: boolean }) => {
     if (!text.trim()) return <div className="h-2" />; // Empty line spacing
 
     // Check for "Name:" prefix
@@ -67,94 +68,93 @@ const FormattedLine = memo(({ text }: { text: string }) => {
         );
         // Keep the whitespace but don't bold it, or just just rely on the span spacing
         actualText = text.slice(nameMatch[0].length);
-
-        // Add the whitespace back to the rendering, usually just a space
-        // We can put it after the prefix
     }
 
     return (
         <div className={className}>
             {prefixNode}
             {nameMatch ? ' ' : ''}
-            <FormattedText text={actualText} />
+            <FormattedText text={actualText} isUser={isUser} />
         </div>
     );
 });
 
-const FormattedText = memo(({ text }: { text: string }) => {
+const FormattedText = memo(({ text, isUser }: { text: string; isUser?: boolean }) => {
     // Parser for inline styles: **bold** and *italics*
     // We scan the string and build nodes
 
     const nodes: React.ReactNode[] = [];
-    let currentText = '';
     let i = 0;
-
-    // Use a separate counter for keys to avoid collisions
-    // (e.g. flushText uses i, then bold block uses i)
     let keyIndex = 0;
 
-    const flushText = () => {
-        if (currentText) {
-            nodes.push(<span key={keyIndex++}>{currentText}</span>);
-            currentText = '';
-        }
-    };
-
-    while (i < text.length) {
-        // Check for Bold (**...)
-        if (text.startsWith('**', i)) {
-            const endIdx = text.indexOf('**', i + 2);
-            if (endIdx !== -1) {
-                flushText();
-                const boldContent = text.slice(i + 2, endIdx);
-                nodes.push(
-                    <strong key={keyIndex++} className="font-semibold text-foreground">
-                        {boldContent}
-                    </strong>
-                );
-                i = endIdx + 2;
-                continue;
+    // Strict Mode: If it's a User, render strictly without implicit narration.
+    if (isUser) {
+        let currentText = '';
+        const flushUserText = () => {
+            if (currentText) {
+                nodes.push(<span key={keyIndex++} className="text-foreground">{currentText}</span>);
+                currentText = '';
             }
-        }
+        };
 
-        // Check for Italics (*...) - Note: also handles actions in RP
-        if (text[i] === '*') {
-            const endIdx = text.indexOf('*', i + 1);
-            if (endIdx !== -1) {
-                flushText();
-                const italicContent = text.slice(i + 1, endIdx);
-                // Standard visual style for RP actions: italic + slightly muted color
-                nodes.push(
-                    <em key={keyIndex++} className="italic opacity-80">
-                        {italicContent}
-                    </em>
-                );
-                i = endIdx + 1;
-                continue;
+        while (i < text.length) {
+            // Bold (**...**)
+            if (text.startsWith('**', i)) {
+                const endIdx = text.indexOf('**', i + 2);
+                if (endIdx !== -1) {
+                    flushUserText();
+                    nodes.push(
+                        <strong key={keyIndex++} className="font-bold text-foreground">
+                            {text.slice(i + 2, endIdx)}
+                        </strong>
+                    );
+                    i = endIdx + 2;
+                    continue;
+                }
             }
-        }
-
-        // Check for Italics (_...)
-        if (text[i] === '_') {
-            const endIdx = text.indexOf('_', i + 1);
-            if (endIdx !== -1) {
-                flushText();
-                const italicContent = text.slice(i + 1, endIdx);
-                nodes.push(
-                    <em key={keyIndex++} className="italic opacity-80">
-                        {italicContent}
-                    </em>
-                );
-                i = endIdx + 1;
-                continue;
+            // Italic (*...* or _..._)
+            if ((text[i] === '*' || text[i] === '_') && text.indexOf(text[i], i + 1) !== -1) {
+                const char = text[i];
+                const startIdx = i;
+                // Find closing char
+                const endIdx = text.indexOf(char, i + 1);
+                // Ensure valid slice
+                if (endIdx !== -1) {
+                    flushUserText();
+                    nodes.push(
+                        <em key={keyIndex++} className="italic opacity-80">
+                            {text.slice(startIdx + 1, endIdx)}
+                        </em>
+                    );
+                    i = endIdx + 1;
+                    continue;
+                }
             }
-        }
 
-        currentText += text[i];
-        i++;
+            currentText += text[i];
+            i++;
+        }
+        flushUserText();
+        return <>{nodes}</>;
     }
 
-    flushText();
+    // AI Logic: Implicit Narration + Markdown
+    const parts = text.split(/(".*?")/g);
+
+    parts.forEach((part, idx) => {
+        if (idx % 2 === 1) {
+            // Quoted Text -> Dialogue
+            nodes.push(<span key={`quote-${keyIndex++}`} className="text-foreground">{part}</span>);
+        } else {
+            // Unquoted -> Narration
+            if (!part) return;
+            nodes.push(
+                <span key={`narr-${keyIndex++}`} className="font-medium text-foreground/80 italic">
+                    {part}
+                </span>
+            );
+        }
+    });
 
     return <>{nodes}</>;
 });

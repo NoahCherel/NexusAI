@@ -197,7 +197,7 @@ export function ChatBubble({
                                     Preview
                                 </span>
                                 <div className="text-sm text-foreground/90 bg-white/5 p-3 rounded-lg border border-white/5">
-                                    <ChatFormatter content={editContent || '...'} />
+                                    <ChatFormatter content={editContent || '...'} isUser={isUser} />
                                 </div>
                             </div>
                         )}
@@ -235,7 +235,7 @@ export function ChatBubble({
                         variants={contentVariants}
                         initial="rest"
                         whileHover="hover"
-                        className={`text-sm sm:text-base leading-relaxed whitespace-pre-wrap break-words min-h-[1.5em] ${isUser ? 'text-foreground italic' : 'text-foreground/90 font-medium'
+                        className={`text-sm sm:text-base leading-relaxed whitespace-pre-wrap break-words min-h-[1.5em] ${isUser ? 'text-foreground' : 'text-foreground/90 font-medium'
                             }`}
                     >
                         {!content && !isUser ? (
@@ -245,7 +245,7 @@ export function ChatBubble({
                                 <span className="w-1 h-1 bg-foreground/40 rounded-full opacity-30" />
                             </div>
                         ) : (
-                            <ChatFormatter content={content} />
+                            <ChatFormatter content={content} isUser={isUser} />
                         )}
                     </motion.div>
                 )}

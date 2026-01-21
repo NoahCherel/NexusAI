@@ -127,51 +127,53 @@ export function CharacterCard({
                 </div>
 
                 {/* Hover Actions */}
-                <DropdownMenu>
-                    <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
-                        <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-7 w-7 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity -mr-1 -mt-1 text-muted-foreground hover:text-foreground"
-                        >
-                            <MoreVertical className="h-3.5 w-3.5" />
-                        </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end" className="w-40">
-                        {onEdit && (
+                <div className="shrink-0 flex items-start">
+                    <DropdownMenu>
+                        <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
+                            <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-7 w-7 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity -mr-1 -mt-1 text-muted-foreground hover:text-foreground"
+                            >
+                                <MoreVertical className="h-3.5 w-3.5" />
+                            </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" className="w-40">
+                            {onEdit && (
+                                <DropdownMenuItem
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        onEdit?.();
+                                    }}
+                                >
+                                    <Edit className="h-4 w-4 mr-2" />
+                                    Edit
+                                </DropdownMenuItem>
+                            )}
                             <DropdownMenuItem
+                                className="text-destructive focus:text-destructive"
                                 onClick={(e) => {
                                     e.stopPropagation();
-                                    onEdit?.();
+                                    onDelete?.();
                                 }}
                             >
-                                <Edit className="h-4 w-4 mr-2" />
-                                Edit
+                                <Trash2 className="h-4 w-4 mr-2" />
+                                Delete
                             </DropdownMenuItem>
-                        )}
-                        <DropdownMenuItem
-                            className="text-destructive focus:text-destructive"
-                            onClick={(e) => {
-                                e.stopPropagation();
-                                onDelete?.();
-                            }}
-                        >
-                            <Trash2 className="h-4 w-4 mr-2" />
-                            Delete
-                        </DropdownMenuItem>
-                        {onExport && (
-                            <DropdownMenuItem
-                                onClick={(e) => {
-                                    e.stopPropagation();
-                                    onExport?.();
-                                }}
-                            >
-                                <Download className="h-4 w-4 mr-2" />
-                                Export JSON
-                            </DropdownMenuItem>
-                        )}
-                    </DropdownMenuContent>
-                </DropdownMenu>
+                            {onExport && (
+                                <DropdownMenuItem
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        onExport?.();
+                                    }}
+                                >
+                                    <Download className="h-4 w-4 mr-2" />
+                                    Export JSON
+                                </DropdownMenuItem>
+                            )}
+                        </DropdownMenuContent>
+                    </DropdownMenu>
+                </div>
             </div>
 
             {/* Active Indication: Left highlight */}
