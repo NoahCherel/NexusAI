@@ -28,7 +28,15 @@ import {
     SheetTitle,
     SheetDescription,
 } from '@/components/ui/sheet';
-import { Book, Globe2Icon } from 'lucide-react';
+import { Book, Globe2Icon, MoreVertical, Edit, Trash2, Download } from 'lucide-react';
+import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import { CharacterEditor } from '@/components/character/CharacterEditor';
+import { exportToJson } from '@/lib/export-utils';
 import { TreeVisualization } from '@/components/chat/TreeVisualization';
 import { MemoryPanel } from '@/components/chat/MemoryPanel';
 import { LandingPage } from '@/components/chat/LandingPage';
@@ -464,7 +472,7 @@ export default function ChatPage() {
 
             if (activeConversationId) {
                 if (!fullContent) {
-                    removeMessage(targetId);
+                    deleteMessage(targetId);
                 } else {
                     updateMessage(targetId, {
                         content: fullContent, // Keep partial content, don't append error text
@@ -638,6 +646,67 @@ export default function ChatPage() {
         deleteMessage(id);
     };
 
+    // Character Actions Handlers
+    const [isCharacterEditorOpen, setIsCharacterEditorOpen] = useState(false);
+    const { removeCharacter } = useCharacterStore();
+
+    const handleExportCharacter = async () => {
+        if (!character) return;
+
+        // Find most recent conversation
+        const charConvs = conversations
+            .filter((c) => c.characterId === character.id)
+            .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime());
+
+        if (charConvs.length === 0) {
+            alert('No conversation found to export.');
+            return;
+        }
+
+        const latestConv = charConvs[0];
+        let exportMessages: CAMessage[] = [];
+        if (activeConversationId === latestConv.id) {
+            exportMessages = messages;
+        } else {
+            exportMessages = messages; // Fallback to current loaded messages for now
+        }
+
+        const exportData = {
+            character: {
+                name: character.name,
+                description: character.description,
+                personality: character.personality,
+                scenario: character.scenario,
+                first_mes: character.first_mes,
+                mes_example: character.mes_example,
+            },
+            conversation: {
+                title: latestConv.title,
+                createdAt: latestConv.createdAt,
+                updatedAt: latestConv.updatedAt,
+                worldState: latestConv.worldState,
+            },
+            messages: exportMessages.map(m => ({
+                role: m.role,
+                content: m.content,
+                thought: m.thought,
+                createdAt: m.createdAt,
+                isActiveBranch: m.isActiveBranch,
+            })),
+            exportedAt: new Date().toISOString(),
+        };
+
+        exportToJson(exportData, `Conversation_${character.name}_${new Date().toISOString().split('T')[0]}`);
+    };
+
+    const handleDeleteCharacter = () => {
+        if (!character) return;
+        if (confirm(`Delete ${character.name}? This cannot be undone.`)) {
+            removeCharacter(character.id);
+            window.location.reload();
+        }
+    };
+
     const handleBranch = (id: string) => {
         // Logic for branching (for now, simply regenerate from this point)
         handleRegenerate(id);
@@ -704,6 +773,37 @@ export default function ChatPage() {
                             </div>
 
                             <div className="flex items-center gap-1 sm:gap-2">
+                                {/* Character Actions Menu */}
+                                <DropdownMenu>
+                                    <DropdownMenuTrigger asChild>
+                                        <Button
+                                            variant="ghost"
+                                            size="icon"
+                                            className="shrink-0 h-8 w-8 text-muted-foreground hover:text-foreground"
+                                            title="Character Actions"
+                                        >
+                                            <MoreVertical className="h-4 w-4" />
+                                        </Button>
+                                    </DropdownMenuTrigger>
+                                    <DropdownMenuContent align="end">
+                                        <DropdownMenuItem onClick={() => setIsCharacterEditorOpen(true)}>
+                                            <Edit className="h-3.5 w-3.5 mr-2" />
+                                            Edit Character
+                                        </DropdownMenuItem>
+                                        <DropdownMenuItem onClick={handleExportCharacter}>
+                                            <Download className="h-3.5 w-3.5 mr-2" />
+                                            Export Chat
+                                        </DropdownMenuItem>
+                                        <DropdownMenuItem
+                                            onClick={handleDeleteCharacter}
+                                            className="text-destructive focus:text-destructive"
+                                        >
+                                            <Trash2 className="h-3.5 w-3.5 mr-2" />
+                                            Delete
+                                        </DropdownMenuItem>
+                                    </DropdownMenuContent>
+                                </DropdownMenu>
+
                                 <Button
                                     variant="ghost"
                                     size="icon"
@@ -855,8 +955,39 @@ export default function ChatPage() {
                                             : `Message for ${character.name}...`
                                     }
                                 />
-                                {immersiveMode && (
-                                    <div className="absolute top-2 right-2">
+                                <div className="absolute top-2 right-2 flex items-center gap-1">
+                                    {/* Character Actions Menu */}
+                                    <DropdownMenu>
+                                        <DropdownMenuTrigger asChild>
+                                            <Button
+                                                variant="ghost"
+                                                size="icon"
+                                                className="h-6 w-6 opacity-30 hover:opacity-100 transition-opacity"
+                                                title="Character Actions"
+                                            >
+                                                <MoreVertical className="h-3 w-3" />
+                                            </Button>
+                                        </DropdownMenuTrigger>
+                                        <DropdownMenuContent align="end">
+                                            <DropdownMenuItem onClick={() => setIsCharacterEditorOpen(true)}>
+                                                <Edit className="h-3.5 w-3.5 mr-2" />
+                                                Edit Character
+                                            </DropdownMenuItem>
+                                            <DropdownMenuItem onClick={handleExportCharacter}>
+                                                <Download className="h-3.5 w-3.5 mr-2" />
+                                                Export Chat
+                                            </DropdownMenuItem>
+                                            <DropdownMenuItem
+                                                onClick={handleDeleteCharacter}
+                                                className="text-destructive focus:text-destructive"
+                                            >
+                                                <Trash2 className="h-3.5 w-3.5 mr-2" />
+                                                Delete
+                                            </DropdownMenuItem>
+                                        </DropdownMenuContent>
+                                    </DropdownMenu>
+
+                                    {immersiveMode && (
                                         <Button
                                             variant="ghost"
                                             size="icon"
@@ -866,8 +997,8 @@ export default function ChatPage() {
                                         >
                                             <Settings2 className="h-3 w-3" />
                                         </Button>
-                                    </div>
-                                )}
+                                    )}
+                                </div>
                             </div>
                         </motion.div>
                     </>
@@ -956,6 +1087,12 @@ export default function ChatPage() {
             </Sheet>
 
             <APINotificationToast />
+
+            <CharacterEditor
+                isOpen={isCharacterEditorOpen}
+                onClose={() => setIsCharacterEditorOpen(false)}
+                character={character}
+            />
         </div >
     );
 }
