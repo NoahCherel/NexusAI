@@ -174,7 +174,7 @@ export function MobileSidebar({ onCharacterSelect, onSettingsClick }: MobileSide
 
                     {/* Character List */}
                     <ScrollArea className="flex-1 px-3">
-                        <div className="space-y-2 py-3">
+                        <div className="space-y-2 py-3 pr-2">
                             {characters.length === 0 ? (
                                 <motion.div
                                     className="text-center py-8 text-muted-foreground text-sm"

@@ -177,7 +177,7 @@ export function PersonaSelector() {
                                         <Trash2 className="h-3.5 w-3.5" />
                                     </Button>
                                 </div>
-                                <div className="hidden sm:flex group-hover:flex items-center gap-0.5">
+                                <div className="hidden sm:flex group-hover:flex items-center gap-0.5 shrink-0 ml-2">
                                     <Button
                                         variant="ghost"
                                         size="icon"

@@ -155,7 +155,7 @@ export function LorebookEditor({ onClose }: { onClose: () => void }) {
                                             : 'hover:bg-muted/80 text-muted-foreground hover:text-foreground'
                                     )}
                                 >
-                                    <span className="truncate font-semibold px-1">
+                                    <span className="truncate font-semibold px-1 flex-1">
                                         {entry.keys[0] || 'Untitled'}
                                     </span>
                                     <div className="flex items-center gap-1.5 opacity-60">
@@ -167,6 +167,20 @@ export function LorebookEditor({ onClose }: { onClose: () => void }) {
                                         {!entry.enabled && (
                                             <div className="w-1.5 h-1.5 rounded-full bg-destructive" />
                                         )}
+                                        <Button
+                                            variant="ghost"
+                                            size="icon"
+                                            className="h-6 w-6 opacity-60 hover:opacity-100 hover:bg-destructive/10 hover:text-destructive"
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                deleteEntry(index);
+                                                if (selectedEntryIndex === index) {
+                                                    setSelectedEntryIndex(null);
+                                                }
+                                            }}
+                                        >
+                                            <Trash2 className="w-3.5 h-3.5" />
+                                        </Button>
                                     </div>
                                 </button>
                             ))}
