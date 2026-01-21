@@ -1,4 +1,6 @@
 'use client';
+import * as React from 'react';
+import { useState } from 'react';
 
 import { motion } from 'framer-motion';
 import { MoreVertical, Trash2, Edit, Download } from 'lucide-react';
@@ -32,6 +34,40 @@ export function CharacterCard({
     onDelete,
     onExport,
 }: CharacterCardProps) {
+    const [isMenuOpen, setIsMenuOpen] = useState(false);
+    const longPressTimer = React.useRef<NodeJS.Timeout | null>(null);
+    const isLongPress = React.useRef(false);
+
+    const handleStart = () => {
+        isLongPress.current = false;
+        longPressTimer.current = setTimeout(() => {
+            isLongPress.current = true;
+            setIsMenuOpen(true);
+        }, 500); // 500ms for long press
+    };
+
+    const handleEnd = (e: React.MouseEvent | React.TouchEvent | MouseEvent | TouchEvent) => {
+        if (longPressTimer.current) {
+            clearTimeout(longPressTimer.current);
+            longPressTimer.current = null;
+        }
+
+        if (isLongPress.current) {
+            e.preventDefault();
+            e.stopPropagation();
+        }
+    };
+
+    const handleClick = (e: React.MouseEvent) => {
+        if (isLongPress.current) {
+            e.preventDefault();
+            e.stopPropagation();
+            isLongPress.current = false;
+            return;
+        }
+        onClick?.();
+    };
+
     if (isCollapsed) {
         return (
             <motion.div
@@ -128,7 +164,7 @@ export function CharacterCard({
 
                 {/* Hover Actions */}
                 <div className="shrink-0 flex items-start">
-                    <DropdownMenu>
+                    <DropdownMenu open={isMenuOpen} onOpenChange={setIsMenuOpen}>
                         <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
                             <Button
                                 variant="ghost"
