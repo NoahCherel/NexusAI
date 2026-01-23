@@ -2,7 +2,7 @@
 
 import { useRef, useEffect, useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Settings2, Sparkles, GitBranch, Brain, MoreVertical, Edit, Trash2, Download } from 'lucide-react';
+import { Settings2, Sparkles, GitBranch, Brain, MoreVertical, Edit, Trash2, Download, Upload } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
     DropdownMenu,
@@ -62,7 +62,7 @@ export default function ChatPage() {
     const [isLoading, setIsLoading] = useState(false);
     const scrollRef = useRef<HTMLDivElement>(null);
     const abortControllerRef = useRef<AbortController | null>(null);
-    const { getActiveCharacter, removeCharacter, updateCharacter } = useCharacterStore();
+    const { getActiveCharacter, removeCharacter, updateCharacter, addCharacter } = useCharacterStore();
     const {
         conversations,
         activeConversationId,
@@ -725,6 +725,102 @@ export default function ChatPage() {
         exportToJson(exportData, `Conversation_${character.name}_${new Date().toISOString().split('T')[0]}`);
     };
 
+    const handleImportConversation = async () => {
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = 'application/json,.json';
+        
+        input.onchange = async (e) => {
+            const file = (e.target as HTMLInputElement).files?.[0];
+            if (!file) return;
+            
+            try {
+                const text = await file.text();
+                const data = JSON.parse(text);
+                
+                // Validate structure
+                if (!data.character || !data.conversation || !Array.isArray(data.messages)) {
+                    alert('Invalid conversation export format');
+                    return;
+                }
+                
+                // Check if character already exists by name
+                const { useCharacterStore } = await import('@/stores');
+                const existingChar = useCharacterStore.getState().characters.find(
+                    (c) => c.name === data.character.name
+                );
+                
+                let characterId: string;
+                
+                if (existingChar) {
+                    // Use existing character
+                    characterId = existingChar.id;
+                    if (confirm(`Character "${data.character.name}" already exists. Import conversation for this character?`)) {
+                        // Continue with import
+                    } else {
+                        return;
+                    }
+                } else {
+                    // Create new character from imported data
+                    characterId = crypto.randomUUID();
+                    const newCharacter = {
+                        id: characterId,
+                        name: data.character.name,
+                        description: data.character.description || '',
+                        personality: data.character.personality || '',
+                        scenario: data.character.scenario || '',
+                        first_mes: data.character.first_mes || '',
+                        mes_example: data.character.mes_example || '',
+                        createdAt: new Date(),
+                    };
+                    await addCharacter(newCharacter);
+                }
+                
+                // Create new conversation
+                const convId = await createConversation(
+                    characterId,
+                    data.conversation.title || `Imported Chat - ${new Date().toLocaleDateString()}`
+                );
+                
+                // Import messages
+                const { useChatStore } = await import('@/stores');
+                const chatStore = useChatStore.getState();
+                
+                for (let i = 0; i < data.messages.length; i++) {
+                    const msg = data.messages[i];
+                    chatStore.addMessage({
+                        id: crypto.randomUUID(),
+                        conversationId: convId,
+                        parentId: i > 0 ? null : null, // Simplified - all messages in main branch
+                        role: msg.role,
+                        content: msg.content,
+                        thought: msg.thought,
+                        isActiveBranch: true,
+                        createdAt: new Date(msg.createdAt || new Date()),
+                        messageOrder: i + 1,
+                        regenerationIndex: 0,
+                    });
+                }
+                
+                // Update world state if present
+                if (data.conversation.worldState) {
+                    const { updateWorldState } = useChatStore.getState();
+                    updateWorldState(convId, data.conversation.worldState);
+                }
+                
+                // Switch to the imported conversation
+                setActiveConversation(convId);
+                
+                alert(`Successfully imported conversation "${data.conversation.title}" with ${data.messages.length} messages!`);
+            } catch (error) {
+                console.error('Import error:', error);
+                alert(`Failed to import conversation: ${error instanceof Error ? error.message : 'Unknown error'}`);
+            }
+        };
+        
+        input.click();
+    };
+
     // Hydration check
     const [isMounted, setIsMounted] = useState(false);
     useEffect(() => {
@@ -810,6 +906,10 @@ export default function ChatPage() {
                                                 <DropdownMenuItem onClick={handleEditCharacter}>
                                                     <Edit className="h-4 w-4 mr-2" />
                                                     Edit Character
+                                                </DropdownMenuItem>
+                                                <DropdownMenuItem onClick={handleImportConversation}>
+                                                    <Upload className="h-4 w-4 mr-2" />
+                                                    Import Conversation
                                                 </DropdownMenuItem>
                                                 <DropdownMenuItem onClick={handleExportCharacter}>
                                                     <Download className="h-4 w-4 mr-2" />
