@@ -1,10 +1,13 @@
-import { streamText } from 'ai';
-import { createOpenAI } from '@ai-sdk/openai';
-import { createAnthropic } from '@ai-sdk/anthropic';
-import { createOpenRouter } from '@openrouter/ai-sdk-provider';
+import OpenAI from 'openai';
 import { NextRequest } from 'next/server';
 
 export const runtime = 'edge';
+
+// Type for OpenRouter's extended message with reasoning
+type OpenRouterMessage = OpenAI.Chat.Completions.ChatCompletionMessage & {
+    reasoning?: string;
+    reasoning_details?: unknown;
+};
 
 export async function POST(req: NextRequest) {
     try {
@@ -40,74 +43,186 @@ export async function POST(req: NextRequest) {
 
         const origin = req.headers.get('origin') || 'http://localhost:3000';
 
-        let modelInstance;
+        // Build system message
+        let effectiveSystem = systemPrompt || 'You are a helpful AI assistant.';
+        if (userPersona) {
+            effectiveSystem += `\n\n[USER INFO]\nName: ${userPersona.name}\nBio: ${userPersona.bio}\n\n[INSTRUCTION]\nAdapt your responses to address the user as "${userPersona.name}" and take into account their bio.`;
+        }
+
+        // Build messages array with system prompt
+        const fullMessages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
+            { role: 'system', content: effectiveSystem },
+            ...messages,
+        ];
+
+        // Determine effective model ID
         let effectiveModelId = model;
-        const extraBody: Record<string, any> = {};
-
-        // Handle Provider-Specific Parameters
-        if (repetitionPenalty) extraBody.repetition_penalty = repetitionPenalty;
-        if (minP) extraBody.min_p = minP;
-        if (topK) extraBody.top_k = topK;
-
-        // Sanitize model ID for direct providers (remove prefixes like openai/ or anthropic/)
         if (provider === 'openai' || provider === 'anthropic') {
             if (model.includes('/')) {
                 effectiveModelId = model.split('/').pop() || model;
             }
         }
 
+        // Configure client based on provider
+        let client: OpenAI;
+        let requestBody: any;
+
         if (provider === 'openrouter') {
-            const openRouterClient = createOpenRouter({
+            client = new OpenAI({
+                baseURL: 'https://openrouter.ai/api/v1',
                 apiKey,
-                headers: {
+                defaultHeaders: {
                     'HTTP-Referer': origin,
                     'X-Title': 'NexusAI',
                 },
             });
 
-            modelInstance = openRouterClient(effectiveModelId);
+            // Build request body for OpenRouter
+            requestBody = {
+                model: effectiveModelId,
+                messages: fullMessages,
+                temperature: temperature ?? 0.8,
+                max_tokens: maxTokens ?? 4096,
+                top_p: topP,
+                frequency_penalty: frequencyPenalty,
+                presence_penalty: presencePenalty,
+                stop: stoppingStrings,
+            } as any;
+
+            // Add OpenRouter-specific parameters
+            if (topK) requestBody.top_k = topK;
+            if (minP) requestBody.min_p = minP;
+            if (repetitionPenalty) requestBody.repetition_penalty = repetitionPenalty;
+
+            // Add reasoning configuration per OpenRouter docs
+            if (enableReasoning) {
+                const isGeminiModel = effectiveModelId.toLowerCase().includes('gemini');
+                const isDeepSeekModel = effectiveModelId.toLowerCase().includes('deepseek');
+                const isAnthropicModel = effectiveModelId.toLowerCase().includes('claude') || effectiveModelId.toLowerCase().includes('anthropic');
+                const isOpenAIReasoning = effectiveModelId.toLowerCase().includes('o1') || effectiveModelId.toLowerCase().includes('o3');
+
+                if (isGeminiModel) {
+                    // Gemini thinking models support max_tokens
+                    requestBody.reasoning = {
+                        enabled: true,
+                        max_tokens: Math.min(maxTokens ? Math.floor(maxTokens * 0.5) : 4096, 8192),
+                    };
+                } else if (isDeepSeekModel) {
+                    // DeepSeek R1 uses effort
+                    requestBody.reasoning = {
+                        effort: 'medium',
+                    };
+                } else if (isAnthropicModel) {
+                    // Anthropic models use max_tokens
+                    requestBody.reasoning = {
+                        max_tokens: Math.min(maxTokens ? Math.floor(maxTokens * 0.5) : 4096, 8000),
+                    };
+                } else if (isOpenAIReasoning) {
+                    // OpenAI o-series uses effort
+                    requestBody.reasoning = {
+                        effort: 'high',
+                    };
+                } else {
+                    // Default: enable with medium effort
+                    requestBody.reasoning = {
+                        effort: 'medium',
+                    };
+                }
+                console.log(`[API] Reasoning config for ${model}:`, requestBody.reasoning);
+            }
+
         } else if (provider === 'openai') {
-            modelInstance = createOpenAI({ apiKey })(effectiveModelId);
+            client = new OpenAI({ apiKey });
+            requestBody = {
+                model: effectiveModelId,
+                messages: fullMessages,
+                temperature: temperature ?? 0.8,
+                max_tokens: maxTokens ?? 4096,
+                top_p: topP,
+                frequency_penalty: frequencyPenalty,
+                presence_penalty: presencePenalty,
+                stop: stoppingStrings,
+            };
+
         } else if (provider === 'anthropic') {
-            modelInstance = createAnthropic({ apiKey })(effectiveModelId);
+            // Use OpenRouter for Anthropic to maintain consistency
+            client = new OpenAI({
+                baseURL: 'https://openrouter.ai/api/v1',
+                apiKey,
+                defaultHeaders: {
+                    'HTTP-Referer': origin,
+                    'X-Title': 'NexusAI',
+                },
+            });
+            requestBody = {
+                model: effectiveModelId.startsWith('anthropic/') ? effectiveModelId : `anthropic/${effectiveModelId}`,
+                messages: fullMessages,
+                temperature: temperature ?? 0.8,
+                max_tokens: maxTokens ?? 4096,
+                top_p: topP,
+                stop: stoppingStrings,
+            };
         } else {
             throw new Error('Invalid provider');
         }
 
-        // Inject Persona into System Prompt
-        let effectiveSystem = systemPrompt || 'You are a helpful AI assistant.';
-        if (userPersona) {
-            effectiveSystem += `\n\n[USER INFO]\nName: ${userPersona.name}\nBio: ${userPersona.bio}\n\n[INSTRUCTION]\nAdapt your responses to address the user as "${userPersona.name}" and take into account their bio.`;
-        }
+        // Create streaming response using OpenAI SDK
+        // The stream: true option returns an AsyncIterable
+        const stream = await client.chat.completions.create({
+            ...requestBody,
+            stream: true,
+        } as OpenAI.Chat.Completions.ChatCompletionCreateParamsStreaming);
 
-        // Prepare provider metadata for reasoning / specialized params
-        const providerMetadata = {
-            openrouter: {
-                ...(enableReasoning ? { include_reasoning: true } : {}),
-                ...extraBody, // Pass extra params like repetition_penalty here for OpenRouter
+        // Create a ReadableStream for SSE
+        const encoder = new TextEncoder();
+        const readableStream = new ReadableStream({
+            async start(controller) {
+                try {
+                    for await (const chunk of stream) {
+                        const delta = chunk.choices[0]?.delta;
+                        
+                        if (delta?.content) {
+                            controller.enqueue(encoder.encode(delta.content));
+                        }
+
+                        // Handle reasoning tokens from OpenRouter
+                        const extendedDelta = delta as any;
+                        if (extendedDelta?.reasoning) {
+                            // Wrap reasoning in special tags for client-side parsing
+                            controller.enqueue(encoder.encode(`<think>${extendedDelta.reasoning}</think>`));
+                        }
+                        if (extendedDelta?.reasoning_details) {
+                            // Handle reasoning_details array format
+                            const details = extendedDelta.reasoning_details;
+                            if (Array.isArray(details)) {
+                                for (const detail of details) {
+                                    if (detail.type === 'reasoning.text' && detail.text) {
+                                        controller.enqueue(encoder.encode(`<think>${detail.text}</think>`));
+                                    }
+                                }
+                            }
+                        }
+
+                        if (chunk.choices[0]?.finish_reason) {
+                            break;
+                        }
+                    }
+                    controller.close();
+                } catch (error) {
+                    console.error('Stream error:', error);
+                    controller.error(error);
+                }
             },
-            openai: {
-                ...(enableReasoning ? { include_reasoning: true } : {}),
+        });
+
+        return new Response(readableStream, {
+            headers: {
+                'Content-Type': 'text/plain; charset=utf-8',
+                'Cache-Control': 'no-cache',
+                'Connection': 'keep-alive',
             },
-        };
+        });
 
-        const result = streamText({
-            model: modelInstance,
-            messages,
-            system: effectiveSystem,
-            temperature: temperature ?? 0.8,
-            maxTokens: maxTokens ?? 4096,
-            topP: topP,
-            // Standard AI SDK params
-            frequencyPenalty,
-            presencePenalty,
-            stopSequences: stoppingStrings,
-            // Provider specific via metadata or internal casting (since streamText types are strict)
-            experimental_providerMetadata: providerMetadata,
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        } as any);
-
-        return result.toTextStreamResponse();
     } catch (error) {
         console.error('Chat API error:', error);
         return new Response(

@@ -119,6 +119,20 @@ export const DEFAULT_MODELS: CustomModel[] = [
         isFree: false,
     },
     {
+        id: 'gemini-3-flash-preview',
+        name: 'Gemini 3.0 Flash (Preview)',
+        modelId: 'google/gemini-3-flash-preview',
+        provider: 'openrouter',
+        isFree: false,
+    },
+    {
+        id: 'deepseek-v3.2',
+        name: 'DeepSeek v3.2',
+        modelId: 'deepseek/deepseek-v3.2',
+        provider: 'openrouter',
+        isFree: false,
+    },
+    {
         id: 'gemini-3-pro',
         name: 'Gemini 3 Pro',
         modelId: 'google/gemini-3-pro-preview',

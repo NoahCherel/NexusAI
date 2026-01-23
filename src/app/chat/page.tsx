@@ -28,15 +28,7 @@ import {
     SheetTitle,
     SheetDescription,
 } from '@/components/ui/sheet';
-import { Book, Globe2Icon, MoreVertical, Edit, Trash2, Download } from 'lucide-react';
-import {
-    DropdownMenu,
-    DropdownMenuContent,
-    DropdownMenuItem,
-    DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
-import { CharacterEditor } from '@/components/character/CharacterEditor';
-import { exportToJson } from '@/lib/export-utils';
+import { Book, Globe2Icon } from 'lucide-react';
 import { TreeVisualization } from '@/components/chat/TreeVisualization';
 import { MemoryPanel } from '@/components/chat/MemoryPanel';
 import { LandingPage } from '@/components/chat/LandingPage';
@@ -127,17 +119,15 @@ export default function ChatPage() {
         loadApiKey();
     }, [apiKeys, activeProvider]);
 
-    // Auto-scroll to bottom when messages change (streaming) or conversation changes
+    // Auto-scroll to bottom when switching conversations or loading
     useEffect(() => {
         if (activeConversationId) {
-            // Instant scroll for initial load, smooth for streaming
-            const behavior = messages.length > 0 ? 'smooth' : 'instant';
-            const timer = setTimeout(() => {
-                scrollRef.current?.scrollIntoView({ behavior, block: 'end' });
-            }, 50);
-            return () => clearTimeout(timer);
+            // Small delay to ensure content is rendered
+            setTimeout(() => {
+                scrollRef.current?.scrollIntoView({ behavior: 'instant' });
+            }, 100);
         }
-    }, [activeConversationId, messages.length, messages[messages.length - 1]?.content]);
+    }, [activeConversationId]);
 
     // Sync lorebook when character changes
     useEffect(() => {
@@ -471,13 +461,11 @@ export default function ChatPage() {
             );
 
             if (activeConversationId) {
-                if (!fullContent) {
-                    deleteMessage(targetId);
-                } else {
-                    updateMessage(targetId, {
-                        content: fullContent, // Keep partial content, don't append error text
-                    });
-                }
+                updateMessage(targetId, {
+                    content:
+                        fullContent +
+                        `\n[Error: ${error instanceof Error ? error.message : 'Failed to get response. Check API Key or Network.'}]`,
+                });
             }
         } finally {
             setIsLoading(false);
@@ -646,67 +634,6 @@ export default function ChatPage() {
         deleteMessage(id);
     };
 
-    // Character Actions Handlers
-    const [isCharacterEditorOpen, setIsCharacterEditorOpen] = useState(false);
-    const { removeCharacter } = useCharacterStore();
-
-    const handleExportCharacter = async () => {
-        if (!character) return;
-
-        // Find most recent conversation
-        const charConvs = conversations
-            .filter((c) => c.characterId === character.id)
-            .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime());
-
-        if (charConvs.length === 0) {
-            alert('No conversation found to export.');
-            return;
-        }
-
-        const latestConv = charConvs[0];
-        let exportMessages: CAMessage[] = [];
-        if (activeConversationId === latestConv.id) {
-            exportMessages = messages;
-        } else {
-            exportMessages = messages; // Fallback to current loaded messages for now
-        }
-
-        const exportData = {
-            character: {
-                name: character.name,
-                description: character.description,
-                personality: character.personality,
-                scenario: character.scenario,
-                first_mes: character.first_mes,
-                mes_example: character.mes_example,
-            },
-            conversation: {
-                title: latestConv.title,
-                createdAt: latestConv.createdAt,
-                updatedAt: latestConv.updatedAt,
-                worldState: latestConv.worldState,
-            },
-            messages: exportMessages.map(m => ({
-                role: m.role,
-                content: m.content,
-                thought: m.thought,
-                createdAt: m.createdAt,
-                isActiveBranch: m.isActiveBranch,
-            })),
-            exportedAt: new Date().toISOString(),
-        };
-
-        exportToJson(exportData, `Conversation_${character.name}_${new Date().toISOString().split('T')[0]}`);
-    };
-
-    const handleDeleteCharacter = () => {
-        if (!character) return;
-        if (confirm(`Delete ${character.name}? This cannot be undone.`)) {
-            removeCharacter(character.id);
-            window.location.reload();
-        }
-    };
-
     const handleBranch = (id: string) => {
         // Logic for branching (for now, simply regenerate from this point)
         handleRegenerate(id);
@@ -723,102 +650,71 @@ export default function ChatPage() {
     }
 
     return (
-        <div className="flex h-screen bg-[#242525] overflow-hidden">
+        <div className="flex h-screen bg-background overflow-hidden">
 
             <main className="flex-1 flex flex-col min-w-0">
-                {/* Header - Hidden in immersive mode */}
-                <AnimatePresence>
-                    {!immersiveMode && (
-                        <motion.header
-                            initial={{ y: -60, opacity: 0 }}
-                            animate={{ y: 0, opacity: 1 }}
-                            exit={{ y: -60, opacity: 0 }}
-                            transition={{
-                                type: 'spring' as const,
-                                stiffness: 300,
-                                damping: 30,
-                            }}
-                            className="h-14 border-b border-white/5 flex items-center px-4 justify-between bg-[#242525] sticky top-0 z-30 shrink-0"
-                        >
-                            <div className="flex items-center gap-2 sm:gap-3 min-w-0">
-                                {/* Mobile Menu Button */}
-                                <MobileSidebar
-                                    onCharacterSelect={() => { }}
-                                    onSettingsClick={() => setIsSettingsOpen(true)}
-                                />
-                                <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center overflow-hidden shrink-0">
-                                    {character?.avatar ? (
-                                        <div className="w-8 h-8 rounded-full overflow-hidden border border-border/50 shrink-0">
-                                            {/* eslint-disable-next-line @next/next/no-img-element */}
-                                            <img
-                                                src={character.avatar}
-                                                alt={character.name}
-                                                className="w-full h-full object-cover"
-                                            />
+                {character ? (
+                    <>
+                        {/* Header - Hidden in immersive mode */}
+                        <AnimatePresence>
+                            {!immersiveMode && (
+                                <motion.header
+                                    initial={{ y: -60, opacity: 0 }}
+                                    animate={{ y: 0, opacity: 1 }}
+                                    exit={{ y: -60, opacity: 0 }}
+                                    transition={{
+                                        type: 'spring' as const,
+                                        stiffness: 300,
+                                        damping: 30,
+                                    }}
+                                    className="h-14 border-b border-white/5 flex items-center px-4 justify-between glass-heavy sticky top-0 z-30 shrink-0"
+                                >
+                                    <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+                                        {/* Mobile Menu Button */}
+                                        <MobileSidebar
+                                            onCharacterSelect={() => { }}
+                                            onSettingsClick={() => setIsSettingsOpen(true)}
+                                        />
+                                        <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center overflow-hidden shrink-0">
+                                            {character.avatar ? (
+                                                <div className="w-8 h-8 rounded-full overflow-hidden border border-border/50 shrink-0">
+                                                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                                                    <img
+                                                        src={character.avatar}
+                                                        alt={character.name}
+                                                        className="w-full h-full object-cover"
+                                                    />
+                                                </div>
+                                            ) : (
+                                                <span className="font-semibold text-xs text-primary">
+                                                    {character.name.slice(0, 2).toUpperCase()}
+                                                </span>
+                                            )}
                                         </div>
-                                    ) : (
-                                        <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center">
-                                            <Sparkles className="h-4 w-4 text-primary" />
+                                        <div className="flex flex-col min-w-0">
+                                            <h2 className="font-semibold text-xs sm:text-sm truncate">
+                                                {character.name}
+                                            </h2>
+                                            <p className="text-[10px] text-muted-foreground truncate opacity-80">
+                                                {activeModel}
+                                            </p>
                                         </div>
-                                    )}
-                                </div>
-                                <div className="flex flex-col min-w-0">
-                                    <h2 className="font-semibold text-xs sm:text-sm truncate">
-                                        {character?.name || 'NexusAI'}
-                                    </h2>
-                                    <p className="text-[10px] text-muted-foreground truncate opacity-80">
-                                        {character ? activeModel : 'Roleplay Platform'}
-                                    </p>
-                                </div>
-                            </div>
+                                    </div>
 
-                            <div className="flex items-center gap-1 sm:gap-2">
-                                {/* Character Actions Menu */}
-                                <DropdownMenu>
-                                    <DropdownMenuTrigger asChild>
+                                    <div className="flex items-center gap-1 sm:gap-2">
                                         <Button
                                             variant="ghost"
                                             size="icon"
-                                            className="shrink-0 h-8 w-8 text-muted-foreground hover:text-foreground"
-                                            title="Character Actions"
+                                            onClick={() => setIsSettingsOpen(true)}
+                                            className="shrink-0 h-8 w-8"
                                         >
-                                            <MoreVertical className="h-4 w-4" />
+                                            <Settings2 className="h-4 w-4" />
                                         </Button>
-                                    </DropdownMenuTrigger>
-                                    <DropdownMenuContent align="end">
-                                        <DropdownMenuItem onClick={() => setIsCharacterEditorOpen(true)}>
-                                            <Edit className="h-3.5 w-3.5 mr-2" />
-                                            Edit Character
-                                        </DropdownMenuItem>
-                                        <DropdownMenuItem onClick={handleExportCharacter}>
-                                            <Download className="h-3.5 w-3.5 mr-2" />
-                                            Export Chat
-                                        </DropdownMenuItem>
-                                        <DropdownMenuItem
-                                            onClick={handleDeleteCharacter}
-                                            className="text-destructive focus:text-destructive"
-                                        >
-                                            <Trash2 className="h-3.5 w-3.5 mr-2" />
-                                            Delete
-                                        </DropdownMenuItem>
-                                    </DropdownMenuContent>
-                                </DropdownMenu>
+                                    </div>
+                                </motion.header>
+                            )}
+                        </AnimatePresence>
 
-                                <Button
-                                    variant="ghost"
-                                    size="icon"
-                                    onClick={() => setIsSettingsOpen(true)}
-                                    className="shrink-0 h-8 w-8"
-                                >
-                                    <Settings2 className="h-4 w-4" />
-                                </Button>
-                            </div>
-                        </motion.header>
-                    )}
-                </AnimatePresence>
-
-                {character ? (
-                    <>
                         <div className="flex-1 flex flex-col min-h-0 relative">
                             {/* Messages Area */}
                             <div className="flex-1 overflow-y-auto w-full scroll-smooth">
@@ -884,7 +780,7 @@ export default function ChatPage() {
                             layout
                             className={`z-20 ${immersiveMode
                                 ? 'absolute bottom-4 left-4 right-4 rounded-2xl glass-heavy shadow-2xl'
-                                : 'p-4 border-t border-white/5 bg-[#242525]'
+                                : 'p-4 border-t border-white/5 glass-heavy'
                                 }`}
                         >
                             <div
@@ -955,39 +851,8 @@ export default function ChatPage() {
                                             : `Message for ${character.name}...`
                                     }
                                 />
-                                <div className="absolute top-2 right-2 flex items-center gap-1">
-                                    {/* Character Actions Menu */}
-                                    <DropdownMenu>
-                                        <DropdownMenuTrigger asChild>
-                                            <Button
-                                                variant="ghost"
-                                                size="icon"
-                                                className="h-6 w-6 opacity-30 hover:opacity-100 transition-opacity"
-                                                title="Character Actions"
-                                            >
-                                                <MoreVertical className="h-3 w-3" />
-                                            </Button>
-                                        </DropdownMenuTrigger>
-                                        <DropdownMenuContent align="end">
-                                            <DropdownMenuItem onClick={() => setIsCharacterEditorOpen(true)}>
-                                                <Edit className="h-3.5 w-3.5 mr-2" />
-                                                Edit Character
-                                            </DropdownMenuItem>
-                                            <DropdownMenuItem onClick={handleExportCharacter}>
-                                                <Download className="h-3.5 w-3.5 mr-2" />
-                                                Export Chat
-                                            </DropdownMenuItem>
-                                            <DropdownMenuItem
-                                                onClick={handleDeleteCharacter}
-                                                className="text-destructive focus:text-destructive"
-                                            >
-                                                <Trash2 className="h-3.5 w-3.5 mr-2" />
-                                                Delete
-                                            </DropdownMenuItem>
-                                        </DropdownMenuContent>
-                                    </DropdownMenu>
-
-                                    {immersiveMode && (
+                                {immersiveMode && (
+                                    <div className="absolute top-2 right-2">
                                         <Button
                                             variant="ghost"
                                             size="icon"
@@ -997,8 +862,8 @@ export default function ChatPage() {
                                         >
                                             <Settings2 className="h-3 w-3" />
                                         </Button>
-                                    )}
-                                </div>
+                                    </div>
+                                )}
                             </div>
                         </motion.div>
                     </>
@@ -1087,12 +952,6 @@ export default function ChatPage() {
             </Sheet>
 
             <APINotificationToast />
-
-            <CharacterEditor
-                isOpen={isCharacterEditorOpen}
-                onClose={() => setIsCharacterEditorOpen(false)}
-                character={character}
-            />
-        </div >
+        </div>
     );
 }

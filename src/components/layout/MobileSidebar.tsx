@@ -172,41 +172,42 @@ export function MobileSidebar({ onCharacterSelect, onSettingsClick }: MobileSide
 
                     <Separator className="bg-white/5" />
 
-                    {/* Character List */}
-                    <ScrollArea className="flex-1 px-3">
-                        <div className="space-y-2 py-3 pr-2">
-                            {characters.length === 0 ? (
-                                <motion.div
-                                    className="text-center py-8 text-muted-foreground text-sm"
-                                    variants={itemVariants}
-                                    custom={1}
-                                >
-                                    <MessageCircle className="w-12 h-12 mx-auto mb-3 opacity-50" />
-                                    <p>Aucun personnage</p>
-                                    <p className="text-xs mt-1">
-                                        Importez un Character Card pour commencer
-                                    </p>
-                                </motion.div>
-                            ) : (
-                                characters.map((character, index) => (
+                    <div className="flex-1 min-h-0 px-3 overflow-hidden">
+                        <ScrollArea className="h-full">
+                            <div className="space-y-2 py-3 pr-2">
+                                {characters.length === 0 ? (
                                     <motion.div
-                                        key={character.id}
+                                        className="text-center py-8 text-muted-foreground text-sm"
                                         variants={itemVariants}
-                                        custom={index + 1}
+                                        custom={1}
                                     >
-                                        <CharacterCard
-                                            character={character}
-                                            isActive={activeCharacterId === character.id}
-                                            onClick={() => handleCharacterClick(character.id)}
-                                            onEdit={() => handleEdit(character)}
-                                            onDelete={() => removeCharacter(character.id)}
-                                            onExport={() => handleExport(character)}
-                                        />
+                                        <MessageCircle className="w-12 h-12 mx-auto mb-3 opacity-50" />
+                                        <p>Aucun personnage</p>
+                                        <p className="text-xs mt-1">
+                                            Importez un Character Card pour commencer
+                                        </p>
                                     </motion.div>
-                                ))
-                            )}
-                        </div>
-                    </ScrollArea>
+                                ) : (
+                                    characters.map((character, index) => (
+                                        <motion.div
+                                            key={character.id}
+                                            variants={itemVariants}
+                                            custom={index + 1}
+                                        >
+                                            <CharacterCard
+                                                character={character}
+                                                isActive={activeCharacterId === character.id}
+                                                onClick={() => handleCharacterClick(character.id)}
+                                                onEdit={() => handleEdit(character)}
+                                                onDelete={() => removeCharacter(character.id)}
+                                                onExport={() => handleExport(character)}
+                                            />
+                                        </motion.div>
+                                    ))
+                                )}
+                            </div>
+                        </ScrollArea>
+                    </div>
 
                     {/* Footer - Settings */}
                     <Separator className="bg-white/5" />

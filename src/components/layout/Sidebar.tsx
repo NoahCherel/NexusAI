@@ -190,35 +190,37 @@ export function Sidebar({ isCollapsed, onToggle }: SidebarProps) {
                 <Separator className="bg-border/40" />
 
                 {/* List */}
-                <ScrollArea className="flex-1">
-                    <div
-                        className={cn(
-                            'space-y-3 pb-10 transition-all duration-300',
-                            isCollapsed ? 'px-2 pt-4' : 'px-4 pt-4'
-                        )}
-                    >
-                        {filteredCharacters.length === 0
-                            ? !isCollapsed && (
-                                <div className="text-center py-12 px-4">
-                                    <p className="text-muted-foreground text-sm">
-                                        No characters found
-                                    </p>
-                                </div>
-                            )
-                            : filteredCharacters.map((char) => (
-                                <CharacterCard
-                                    key={char.id}
-                                    character={char}
-                                    isActive={char.id === activeCharacterId}
-                                    onClick={() => setActiveCharacterId(char.id)}
-                                    onEdit={() => handleEdit(char)}
-                                    onDelete={() => removeCharacter(char.id)}
-                                    onExport={() => handleExport(char)}
-                                    isCollapsed={isCollapsed}
-                                />
-                            ))}
-                    </div>
-                </ScrollArea>
+                <div className="flex-1 min-h-0 overflow-hidden">
+                    <ScrollArea className="h-full w-full">
+                        <div
+                            className={cn(
+                                'space-y-3 pb-10 transition-all duration-300 w-full overflow-hidden',
+                                isCollapsed ? 'px-2 pt-4' : 'px-4 pt-4'
+                            )}
+                        >
+                            {filteredCharacters.length === 0
+                                ? !isCollapsed && (
+                                    <div className="text-center py-12 px-4">
+                                        <p className="text-muted-foreground text-sm">
+                                            No characters found
+                                        </p>
+                                    </div>
+                                )
+                                : filteredCharacters.map((char) => (
+                                    <CharacterCard
+                                        key={char.id}
+                                        character={char}
+                                        isActive={char.id === activeCharacterId}
+                                        onClick={() => setActiveCharacterId(char.id)}
+                                        onEdit={() => handleEdit(char)}
+                                        onDelete={() => removeCharacter(char.id)}
+                                        onExport={() => handleExport(char)}
+                                        isCollapsed={isCollapsed}
+                                    />
+                                ))}
+                        </div>
+                    </ScrollArea>
+                </div>
             </div>
 
             {/* Character Editor Dialog */}

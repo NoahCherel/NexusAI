@@ -27,6 +27,8 @@ export function getProvider(providerName: Provider, apiKey: string) {
 export const MODELS = {
     openrouter: [
         { id: 'google/gemini-2.0-flash-exp:free', name: 'Gemini 2.0 Flash (Free)', free: true },
+        { id: 'google/gemini-3-flash-preview', name: 'Gemini 3.0 Flash (Preview)', free: false },
+        { id: 'deepseek/deepseek-v3.2', name: 'DeepSeek v3.2', free: false },
         { id: 'meta-llama/llama-3.1-8b-instruct:free', name: 'Llama 3.1 8B (Free)', free: true },
         { id: 'deepseek/deepseek-r1:free', name: 'DeepSeek R1 (Free)', free: true },
         {

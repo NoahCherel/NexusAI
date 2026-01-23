@@ -11,7 +11,7 @@ export interface LorebookHistoryEntry {
     id: string;
     characterId: string;
     timestamp: number;
-    type: 'ai_add' | 'user_edit' | 'user_delete' | 'initial';
+    type: 'ai_add' | 'ai_merge' | 'user_edit' | 'user_delete' | 'initial';
     entryData: LorebookEntry;
     previousEntryId?: string;
 }

@@ -147,9 +147,67 @@ export const useLorebookStore = create<LorebookState>()((set, get) => ({
     },
 
     // AI-generated entry (append-only, blockchain-style)
+    // Now with consolidation: merges with existing entries that share keywords
     addAIEntry: async (entry) => {
         const state = get();
         if (!state.activeLorebook || !state.activeCharacterId) return;
+
+        // Check if any existing entry shares a keyword with the new entry
+        const existingEntryIndex = state.activeLorebook.entries.findIndex((existing) =>
+            existing.keys.some((existingKey) =>
+                entry.keys.some(
+                    (newKey) => newKey.toLowerCase() === existingKey.toLowerCase()
+                )
+            )
+        );
+
+        let updatedLorebook: Lorebook;
+        let historyType: 'ai_add' | 'ai_merge' = 'ai_add';
+        let finalEntry: LorebookEntry;
+
+        if (existingEntryIndex !== -1) {
+            // Merge with existing entry
+            const existingEntry = state.activeLorebook.entries[existingEntryIndex];
+            
+            // Combine keys (deduplicated, case-insensitive)
+            const combinedKeys = [...existingEntry.keys];
+            for (const newKey of entry.keys) {
+                if (!combinedKeys.some((k) => k.toLowerCase() === newKey.toLowerCase())) {
+                    combinedKeys.push(newKey);
+                }
+            }
+
+            // Append new content to existing content
+            const mergedContent = existingEntry.content.trim() + '\n' + entry.content.trim();
+
+            finalEntry = {
+                ...existingEntry,
+                keys: combinedKeys,
+                content: mergedContent,
+                priority: Math.max(existingEntry.priority || 10, entry.priority || 10),
+                category: entry.category || existingEntry.category,
+            };
+
+            // Update the entry in place
+            const newEntries = [...state.activeLorebook.entries];
+            newEntries[existingEntryIndex] = finalEntry;
+
+            updatedLorebook = {
+                ...state.activeLorebook,
+                entries: newEntries,
+            };
+            historyType = 'ai_merge';
+
+            console.log(`[Lorebook] Merged entry for keys: ${combinedKeys.join(', ')}`);
+        } else {
+            // No existing entry found, create new one
+            finalEntry = entry;
+            updatedLorebook = {
+                ...state.activeLorebook,
+                entries: [...state.activeLorebook.entries, entry],
+            };
+            console.log(`[Lorebook] Added new entry for keys: ${entry.keys.join(', ')}`);
+        }
 
         // Get the last history entry for chain linking
         const lastHistoryEntry = state.history[state.history.length - 1];
@@ -159,19 +217,13 @@ export const useLorebookStore = create<LorebookState>()((set, get) => ({
             id: generateId(),
             characterId: state.activeCharacterId,
             timestamp: Date.now(),
-            type: 'ai_add',
-            entryData: entry,
+            type: historyType,
+            entryData: finalEntry,
             previousEntryId: lastHistoryEntry?.id,
         };
 
         // Persist to IndexedDB first (immutable append)
         await addLorebookHistoryEntry(historyEntry);
-
-        // Create updated lorebook
-        const updatedLorebook = {
-            ...state.activeLorebook,
-            entries: [...state.activeLorebook.entries, entry],
-        };
 
         // Update local state
         set((s) => ({
