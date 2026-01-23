@@ -170,7 +170,7 @@ export function parseConsolidationResponse(text: string): LorebookConsolidationR
     try {
         const jsonMatch = text.match(/\{[\s\S]*\}/);
         if (!jsonMatch) return null;
-        const parsed = JSON.parse(jsonMatch[0]); // TODO: Sanitize if needed
+        const parsed = JSON.parse(jsonMatch[0]);
         return {
             consolidated: Array.isArray(parsed.consolidated)
                 ? parsed.consolidated.map((c: any) => ({

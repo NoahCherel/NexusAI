@@ -31,27 +31,14 @@ export const useCharacterStore = create<CharacterState>()((set, get) => ({
     // Load all characters from IndexedDB on init
     loadCharacters: async () => {
         try {
-            console.log('[CharacterStore] Loading characters from IndexedDB...');
             const characters = await getAllCharacters();
-            console.log(
-                '[CharacterStore] Loaded characters:',
-                characters.length,
-                characters.map((c) => c.name)
-            );
 
             // Restore active character from localStorage
             let activeId = get().activeCharacterId;
             if (typeof window !== 'undefined') {
                 const persistedId = localStorage.getItem('nexusai_active_char');
-                console.log(
-                    '[CharacterStore] Checking localStorage for nexusai_active_char:',
-                    persistedId
-                );
                 if (persistedId && characters.some((c) => c.id === persistedId)) {
                     activeId = persistedId;
-                    console.log('[CharacterStore] Restoring activeCharacterId:', activeId);
-                } else {
-                    console.log('[CharacterStore] No valid active character found in localStorage');
                 }
             }
 

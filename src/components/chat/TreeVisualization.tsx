@@ -53,10 +53,7 @@ export function TreeVisualization({ isOpen, onClose }: TreeVisualizationProps) {
 
     // Build and Layout Tree
     const treeData = useMemo(() => {
-        // Correctly filter messages from the flat store array
         const messages = allMessages.filter((m) => m.conversationId === activeConversationId);
-
-        console.log('[TreeVis] Recalculating. Open:', isOpen, 'Messages:', messages.length);
 
         if (!isOpen || messages.length === 0) return null;
 

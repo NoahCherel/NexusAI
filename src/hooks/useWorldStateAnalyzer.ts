@@ -67,7 +67,6 @@ export function useWorldStateAnalyzer(): UseWorldStateAnalyzerReturn {
             }
 
             if (response.status === 429) {
-                console.log(`[AI] ${model} rate limited, trying fallback...`);
                 continue;
             }
         }
@@ -80,7 +79,6 @@ export function useWorldStateAnalyzer(): UseWorldStateAnalyzerReturn {
         const { activeLorebook, updateLorebook } = useLorebookStore.getState();
         if (!activeLorebook || activeLorebook.entries.length < 2) return;
 
-        console.log('[LorebookManager] Starting consolidation check...');
         isConsolidatingRef.current = true;
 
         try {
@@ -89,13 +87,13 @@ export function useWorldStateAnalyzer(): UseWorldStateAnalyzerReturn {
                 .join('\n\n');
 
             const models = [
-                'deepseek/deepseek-r1-0528:free', // Primary for reasoning
+                'deepseek/deepseek-r1-0528:free',
                 'deepseek/deepseek-r1:free',
                 'meta-llama/llama-3.3-70b-instruct:free',
                 'google/gemini-2.0-flash-exp:free',
             ];
 
-            const { response, usedModel } = await performAIRequest(
+            const { response } = await performAIRequest(
                 models,
                 [
                     { role: 'system', content: LOREBOOK_CONSOLIDATION_PROMPT },
@@ -105,7 +103,6 @@ export function useWorldStateAnalyzer(): UseWorldStateAnalyzerReturn {
             );
 
             if (!response || !response.ok) return;
-            console.log(`[LorebookManager] Consolidating using ${usedModel}`);
 
             const data = await response.json();
             const content =
@@ -115,14 +112,6 @@ export function useWorldStateAnalyzer(): UseWorldStateAnalyzerReturn {
             const result = parseConsolidationResponse(content);
 
             if (result && result.consolidated.length > 0) {
-                // Apply merges
-                // We specifically keep 'unchanged' entries and add 'consolidated' ones
-                // But wait, if we remove original indices, we must be careful not to shift indices during processing if not careful.
-                // Safest way:
-                // 1. Identify all indices that are part of a merge.
-                // 2. Keep entries NOT in that set.
-                // 3. Add new merged entries.
-
                 const mergedIndices = new Set<number>();
                 result.consolidated.forEach((c) =>
                     c.originalIndices.forEach((idx) => mergedIndices.add(idx))
@@ -139,9 +128,6 @@ export function useWorldStateAnalyzer(): UseWorldStateAnalyzerReturn {
                 });
 
                 updateLorebook({ ...activeLorebook, entries: newEntries });
-                console.log(
-                    `[LorebookManager] Merged ${mergedIndices.size} entries into ${result.consolidated.length}.`
-                );
             }
         } catch (error) {
             console.error('[LorebookManager] Error:', error);
@@ -213,7 +199,6 @@ export function useWorldStateAnalyzer(): UseWorldStateAnalyzerReturn {
                 );
 
                 if (response && response.ok) {
-                    console.log(`[WorldStateAnalyzer] Using ${usedModel}`);
                     const data = await response.json();
                     const content =
                         data.choices?.[0]?.message?.content ||
@@ -231,7 +216,6 @@ export function useWorldStateAnalyzer(): UseWorldStateAnalyzerReturn {
                         if (hasChanges) {
                             const newWorldState = mergeWorldState(currentWorldState, changes);
                             chatStore.updateWorldState(targetConversationId, newWorldState);
-                            console.log('[WorldStateAnalyzer] Updated state.');
                         }
                     }
                 }

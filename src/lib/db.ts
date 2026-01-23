@@ -57,8 +57,6 @@ export async function initDB(): Promise<IDBPDatabase<NexusAIDB>> {
 
     dbInstance = await openDB<NexusAIDB>(DB_NAME, DB_VERSION, {
         async upgrade(db, oldVersion, newVersion, transaction) {
-            console.log(`[DB] Upgrading from ${oldVersion} to ${newVersion}`);
-
             // Characters store
             if (!db.objectStoreNames.contains('characters')) {
                 const charStore = db.createObjectStore('characters', { keyPath: 'id' });
@@ -79,19 +77,10 @@ export async function initDB(): Promise<IDBPDatabase<NexusAIDB>> {
 
             // Migration from v2 (embedded messages) to v3 (separate messages)
             if (oldVersion >= 1 && oldVersion < 3) {
-                // We need to migrate messages from conversations to messages store
-                // Note: 'conversations' store might contain objects with 'messages' property
-                // We can't easily iterate and modify in 'upgrade' without transaction issues potentially,
-                // but IDB 'upgrade' transaction covers all stores.
-
-                // However, we can't use getAll on the *transaction* for the store being upgraded efficiently if we change schema
-                // Actually, we can just iterate the existing conversations store.
-
                 try {
                     const convStore = transaction.objectStore('conversations');
                     const msgStore = transaction.objectStore('messages');
 
-                    // We need to type cast because the old type had messages
                     const curs = await convStore.openCursor();
                     let cursor = curs;
 
@@ -99,22 +88,13 @@ export async function initDB(): Promise<IDBPDatabase<NexusAIDB>> {
                         const conv = cursor.value as unknown as {
                             messages?: Message[];
                             id: string;
-                        } & Record<string, unknown>; // Old conversation type
+                        } & Record<string, unknown>;
                         if (conv.messages && Array.isArray(conv.messages)) {
-                            console.log(
-                                `[DB Migration] Migrating ${conv.messages.length} messages for conversation ${conv.id}`
-                            );
                             for (const msg of conv.messages) {
                                 await msgStore.put(msg);
                             }
-                            // Update conversation to remove messages property
                             // eslint-disable-next-line @typescript-eslint/no-unused-vars
                             const { messages, ...convData } = conv;
-                            // We need to cast convData to ANY because cursor.update expects a Conversation object,
-                            // but during migration we might have a slightly different shape or we are modifying it.
-                            // In IDB update follows the store structure.
-                            // However, typescript thinks cursor.update demands a full Conversation.
-                            // Since we are just removing a property from an existing valid object, it is safe to cast.
                             await cursor.update(convData as unknown as Conversation);
                         }
                         cursor = await cursor.continue();
@@ -127,13 +107,9 @@ export async function initDB(): Promise<IDBPDatabase<NexusAIDB>> {
             // Migration from v3 to v4: Add messageOrder and regenerationIndex
             if (oldVersion >= 1 && oldVersion < 4) {
                 try {
-                    console.log(
-                        '[DB Migration v3→v4] Assigning messageOrder and regenerationIndex...'
-                    );
                     const msgStore = transaction.objectStore('messages');
                     const conversationStore = transaction.objectStore('conversations');
 
-                    // Get all conversations
                     const conversations = await conversationStore.getAll();
 
                     for (const conversation of conversations) {
@@ -192,8 +168,6 @@ export async function initDB(): Promise<IDBPDatabase<NexusAIDB>> {
                             await walkTree(root, 0, rootSiblings);
                         }
                     }
-
-                    console.log('[DB Migration v3→v4] Migration complete');
                 } catch (e) {
                     console.error('[DB Migration] Error migrating to v4:', e);
                 }
@@ -218,15 +192,8 @@ export async function initDB(): Promise<IDBPDatabase<NexusAIDB>> {
 
 // Character operations
 export async function saveCharacter(character: CharacterWithMemory): Promise<void> {
-    console.log(`[DB] Saving character: ${character.name} (${character.id})`);
-    if (character.character_book) {
-        console.log(
-            `[DB] Character has lorebook with ${character.character_book.entries.length} entries`
-        );
-    }
     const db = await initDB();
     await db.put('characters', character);
-    console.log(`[DB] Character saved successfully`);
 }
 
 export async function getCharacter(id: string): Promise<CharacterWithMemory | undefined> {

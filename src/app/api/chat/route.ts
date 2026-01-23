@@ -30,10 +30,6 @@ export async function POST(req: NextRequest) {
             enableReasoning,
         } = await req.json();
 
-        console.log(
-            `[API] Request: provider=${provider}, model=${model}, temp=${temperature}, maxTokens=${maxTokens}, reasoning=${enableReasoning}`
-        );
-
         if (!apiKey) {
             return new Response(JSON.stringify({ error: 'API key is required' }), {
                 status: 401,
@@ -128,7 +124,6 @@ export async function POST(req: NextRequest) {
                         effort: 'medium',
                     };
                 }
-                console.log(`[API] Reasoning config for ${model}:`, requestBody.reasoning);
             }
 
         } else if (provider === 'openai') {

@@ -21,13 +21,8 @@ export function useAppInitialization() {
 
         const init = async () => {
             try {
-                // Initialize database
                 await initDB();
-                console.log('IndexedDB initialized');
-
-                // Load characters
                 await loadCharacters();
-                console.log('Characters loaded from IndexedDB');
             } catch (error) {
                 console.error('App initialization failed:', error);
             }

@@ -197,8 +197,6 @@ export const useLorebookStore = create<LorebookState>()((set, get) => ({
                 entries: newEntries,
             };
             historyType = 'ai_merge';
-
-            console.log(`[Lorebook] Merged entry for keys: ${combinedKeys.join(', ')}`);
         } else {
             // No existing entry found, create new one
             finalEntry = entry;
@@ -206,7 +204,6 @@ export const useLorebookStore = create<LorebookState>()((set, get) => ({
                 ...state.activeLorebook,
                 entries: [...state.activeLorebook.entries, entry],
             };
-            console.log(`[Lorebook] Added new entry for keys: ${entry.keys.join(', ')}`);
         }
 
         // Get the last history entry for chain linking

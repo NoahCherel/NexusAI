@@ -91,7 +91,6 @@ Output format (JSON array only):
         // Try to find JSON array in the response
         const jsonMatch = cleanContent.match(/\[[\s\S]*\]/);
         if (!jsonMatch) {
-            console.log('No JSON array found in lorebook extraction response');
             return [];
         }
 

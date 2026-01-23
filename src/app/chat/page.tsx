@@ -2,7 +2,7 @@
 
 import { useRef, useEffect, useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Settings2, Sparkles, GitBranch, Brain, MoreVertical, Edit, Trash2, Download, Upload } from 'lucide-react';
+import { Settings2, Sparkles, GitBranch, Brain, MoreVertical, Edit, Trash2, Download, Upload, Users } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
     DropdownMenu,
@@ -18,7 +18,7 @@ import {
     PersonaSelector,
     ModelSelector,
 } from '@/components/chat';
-import { SettingsPanel, Sidebar, MobileSidebar } from '@/components/layout';
+import { SettingsPanel, CharacterPanel } from '@/components/layout';
 import { CharacterEditor } from '@/components/character';
 import { useCharacterStore, useSettingsStore, useChatStore, useLorebookStore } from '@/stores';
 import { useNotificationStore } from '@/components/ui/api-notification';
@@ -50,10 +50,9 @@ export default function ChatPage() {
     const [isLorebookOpen, setIsLorebookOpen] = useState(false);
     const [isTreeOpen, setIsTreeOpen] = useState(false);
     const [isMemoryOpen, setIsMemoryOpen] = useState(false);
-    const [isWorldStateSheetOpen, setIsWorldStateSheetOpen] = useState(false); // Mobile bottom sheet
-    const [isWorldStateDialogOpen, setIsWorldStateDialogOpen] = useState(false); // Desktop dialog
+    const [isWorldStateSheetOpen, setIsWorldStateSheetOpen] = useState(false);
+    const [isWorldStateDialogOpen, setIsWorldStateDialogOpen] = useState(false);
     const [currentApiKey, setCurrentApiKey] = useState<string | null>(null);
-    const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
     const [isCharacterEditorOpen, setIsCharacterEditorOpen] = useState(false);
 
     // Initialize IndexedDB and load data
@@ -154,25 +153,12 @@ export default function ChatPage() {
         const initConversation = async () => {
             // Wait for store to be synced with current character
             if (!character || isLoadingConversations || loadedCharacterId !== character.id) {
-                console.log('[ChatPage] Waiting for sync...', {
-                    char: character?.id,
-                    loaded: loadedCharacterId,
-                    loading: isLoadingConversations,
-                });
                 return;
             }
-
-            console.log('[ChatPage] initConversation checking...', {
-                hasCharacter: !!character,
-                isLoadingConversations: isLoadingConversations,
-                activeConversationId,
-                loadedConversationsCount: conversations.length,
-            });
 
             // Check if we already have a valid active conversation for this character
             const currentConv = conversations.find((c) => c.id === activeConversationId);
             if (currentConv && currentConv.characterId === character.id) {
-                console.log('[ChatPage] Valid conversation already active:', activeConversationId);
                 return;
             }
 
@@ -184,10 +170,8 @@ export default function ChatPage() {
                 .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime());
 
             if (characterConvs.length > 0) {
-                console.log('[ChatPage] Resuming existing conversation:', characterConvs[0].id);
                 setActiveConversation(characterConvs[0].id);
             } else {
-                console.log('[ChatPage] Creating NEW conversation for', character.name);
                 const newId = await createConversation(character.id, `Chat with ${character.name}`);
 
                 if (character.first_mes) {
@@ -255,8 +239,12 @@ export default function ChatPage() {
         const activePreset = getActivePreset();
         const activePersona = personas.find((p) => p.id === activePersonaId);
 
+        // Helper to estimate tokens (approx 4 chars per token)
+        const estimateTokens = (text: string) => Math.ceil(text.length / 4);
+
         // 1. Calculate Active Lorebook Entries (World Info) using STORE data
         const useLorebooks = activePreset?.useLorebooks ?? true;
+        const lorebookTokenBudget = activePreset?.lorebookTokenBudget ?? 2000;
         const activeEntries = useLorebooks
             ? getActiveLorebookEntries(
                 history.map((m) => ({
@@ -269,7 +257,7 @@ export default function ChatPage() {
                 activeLorebook || undefined,
                 {
                     scanDepth: activePreset?.lorebookScanDepth,
-                    tokenBudget: activePreset?.lorebookTokenBudget,
+                    tokenBudget: lorebookTokenBudget,
                     recursive: activePreset?.lorebookRecursiveScanning,
                     matchWholeWords: activePreset?.matchWholeWords,
                 }
@@ -323,23 +311,35 @@ export default function ChatPage() {
             });
         }
 
-        // 4. API Request Construction
-        const messagesPayload = history.map(({ role, content }) => ({ role, content }));
-
-        // Handle Prefill for API (Add active message to history if supported/needed)
-        // For simple usage, if we have prefill, we might NOT send it to API if we want API to complete it,
-        // OR we send it as the *last* message if the provider supports prefill (Anthropic).
-        // Since we are using standard streamText, standard behavior is:
-        // If last message is assistant, it continues.
+        // 4. API Request Construction with Context Truncation
+        const maxContextTokens = activePreset?.maxContextTokens ?? 16384;
+        const maxOutputTokens = activePreset?.maxOutputTokens ?? 2048;
+        
+        // Reserve tokens for system prompt and output
+        const systemPromptTokens = estimateTokens(systemPrompt);
+        const availableForHistory = maxContextTokens - systemPromptTokens - maxOutputTokens;
+        
+        // Build messages payload with truncation (keep recent messages)
+        let messagesPayload: { role: string; content: string }[] = [];
+        let currentTokenCount = 0;
+        
+        // Process messages from newest to oldest, then reverse
+        const reversedHistory = [...history].reverse();
+        for (const msg of reversedHistory) {
+            const msgTokens = estimateTokens(msg.content);
+            if (currentTokenCount + msgTokens > availableForHistory) {
+                break;
+            }
+            messagesPayload.unshift({ role: msg.role, content: msg.content });
+            currentTokenCount += msgTokens;
+        }
+        
+        // Handle Prefill for API
         if (options.prefill && targetRole === 'assistant') {
             const supportsPrefill =
                 activeProvider === 'anthropic' || activeProvider === 'openrouter';
             if (supportsPrefill) {
                 messagesPayload.push({ role: 'assistant', content: options.prefill });
-            } else {
-                // Determine workaround for providers that don't support prefill?
-                // For now, we just rely on client-side appending and don't send it to API.
-                // The AI will generate from scratch (hopefully compatible), and we prepend the prefill.
             }
         }
 
@@ -456,10 +456,8 @@ export default function ChatPage() {
             }
         } catch (error) {
             if (error instanceof Error && error.name === 'AbortError') {
-                console.log('Request aborted');
                 return;
             }
-            console.error('Chat error:', error);
 
             const { addNotification, updateNotification } = useNotificationStore.getState();
             const notifId = addNotification('Failed to generate response', 'world');
@@ -833,15 +831,6 @@ export default function ChatPage() {
 
     return (
         <div className="flex h-screen bg-background overflow-hidden">
-            {/* Desktop Sidebar - Hidden on mobile */}
-            <div className="hidden md:flex h-full shrink-0 z-40">
-                <Sidebar
-                    isCollapsed={isSidebarCollapsed}
-                    onToggle={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
-                    onSettingsClick={() => setIsSettingsOpen(true)}
-                />
-            </div>
-
             <main className="flex-1 flex flex-col min-w-0">
                 {character ? (
                     <>
@@ -860,10 +849,13 @@ export default function ChatPage() {
                                     className="h-14 border-b border-white/5 flex items-center px-4 justify-between glass-heavy sticky top-0 z-30 shrink-0"
                                 >
                                     <div className="flex items-center gap-2 sm:gap-3 min-w-0">
-                                        {/* Mobile Menu Button */}
-                                        <MobileSidebar
-                                            onCharacterSelect={() => { }}
-                                            onSettingsClick={() => setIsSettingsOpen(true)}
+                                        {/* Character Panel Button */}
+                                        <CharacterPanel
+                                            trigger={
+                                                <Button variant="ghost" size="icon" className="shrink-0 h-8 w-8">
+                                                    <Users className="h-4 w-4" />
+                                                </Button>
+                                            }
                                         />
                                         <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center overflow-hidden shrink-0">
                                             {character.avatar ? (
@@ -1091,12 +1083,15 @@ export default function ChatPage() {
                     </>
                 ) : (
                     <>
-                        {/* Mobile Header for Landing Page */}
-                        <header className="md:hidden h-14 border-b border-white/5 flex items-center px-4 justify-between glass-heavy sticky top-0 z-30 shrink-0">
+                        {/* Header for Landing Page */}
+                        <header className="h-14 border-b border-white/5 flex items-center px-4 justify-between glass-heavy sticky top-0 z-30 shrink-0">
                             <div className="flex items-center gap-2">
-                                <MobileSidebar
-                                    onCharacterSelect={() => { }}
-                                    onSettingsClick={() => setIsSettingsOpen(true)}
+                                <CharacterPanel
+                                    trigger={
+                                        <Button variant="ghost" size="icon" className="h-8 w-8">
+                                            <Users className="h-4 w-4" />
+                                        </Button>
+                                    }
                                 />
                                 <span className="font-bold text-lg">NexusAI</span>
                             </div>
