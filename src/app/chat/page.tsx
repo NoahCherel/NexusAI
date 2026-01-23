@@ -12,7 +12,7 @@ import {
     PersonaSelector,
     ModelSelector,
 } from '@/components/chat';
-import { SettingsPanel, MobileSidebar } from '@/components/layout';
+import { SettingsPanel, Sidebar, MobileSidebar } from '@/components/layout';
 import { useCharacterStore, useSettingsStore, useChatStore, useLorebookStore } from '@/stores';
 import { useNotificationStore } from '@/components/ui/api-notification';
 import { useWorldStateAnalyzer } from '@/hooks';
@@ -46,6 +46,7 @@ export default function ChatPage() {
     const [isWorldStateSheetOpen, setIsWorldStateSheetOpen] = useState(false); // Mobile bottom sheet
     const [isWorldStateDialogOpen, setIsWorldStateDialogOpen] = useState(false); // Desktop dialog
     const [currentApiKey, setCurrentApiKey] = useState<string | null>(null);
+    const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
 
     // Initialize IndexedDB and load data
     useAppInitialization();
@@ -651,6 +652,14 @@ export default function ChatPage() {
 
     return (
         <div className="flex h-screen bg-background overflow-hidden">
+            {/* Desktop Sidebar - Hidden on mobile */}
+            <div className="hidden md:flex h-full shrink-0 z-40">
+                <Sidebar
+                    isCollapsed={isSidebarCollapsed}
+                    onToggle={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
+                    onSettingsClick={() => setIsSettingsOpen(true)}
+                />
+            </div>
 
             <main className="flex-1 flex flex-col min-w-0">
                 {character ? (
