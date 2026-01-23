@@ -94,11 +94,11 @@ export function CharacterCard({
                     </AvatarFallback>
                 </Avatar>
 
-                <div className="flex-1 min-w-0 flex flex-col gap-1">
-                    <div className="flex items-center justify-between gap-2 min-w-0">
+                <div className="flex-1 min-w-0 flex flex-col gap-1 overflow-hidden">
+                    <div className="flex items-center justify-between gap-2 min-w-0 overflow-hidden">
                         <h3
                             className={cn(
-                                'font-bold text-sm truncate leading-none pt-0.5',
+                                'font-bold text-sm truncate leading-none pt-0.5 flex-1 min-w-0',
                                 isActive ? 'text-primary' : 'text-foreground'
                             )}
                         >
@@ -106,11 +106,11 @@ export function CharacterCard({
                         </h3>
                     </div>
 
-                    {/* <p className="text-[11px] text-muted-foreground line-clamp-2 leading-relaxed opacity-80 break-words overflow-hidden">
+                    <p className="text-[11px] text-muted-foreground line-clamp-2 leading-relaxed opacity-80 break-words overflow-hidden min-w-0">
                         {character.description ||
                             character.personality ||
                             'No description available'}
-                    </p> */}
+                    </p>
 
                     {/* Tags */}
                     {character.tags && character.tags.length > 0 && (
