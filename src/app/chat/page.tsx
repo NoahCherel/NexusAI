@@ -2,8 +2,14 @@
 
 import { useRef, useEffect, useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Settings2, Sparkles, GitBranch, Brain } from 'lucide-react';
+import { Settings2, Sparkles, GitBranch, Brain, MoreVertical, Edit, Trash2, Download } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import type { Message as CAMessage } from '@/types';
 import {
     ChatBubble,
@@ -13,6 +19,7 @@ import {
     ModelSelector,
 } from '@/components/chat';
 import { SettingsPanel, Sidebar, MobileSidebar } from '@/components/layout';
+import { CharacterEditor } from '@/components/character';
 import { useCharacterStore, useSettingsStore, useChatStore, useLorebookStore } from '@/stores';
 import { useNotificationStore } from '@/components/ui/api-notification';
 import { useWorldStateAnalyzer } from '@/hooks';
@@ -47,6 +54,7 @@ export default function ChatPage() {
     const [isWorldStateDialogOpen, setIsWorldStateDialogOpen] = useState(false); // Desktop dialog
     const [currentApiKey, setCurrentApiKey] = useState<string | null>(null);
     const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+    const [isCharacterEditorOpen, setIsCharacterEditorOpen] = useState(false);
 
     // Initialize IndexedDB and load data
     useAppInitialization();
@@ -54,7 +62,7 @@ export default function ChatPage() {
     const [isLoading, setIsLoading] = useState(false);
     const scrollRef = useRef<HTMLDivElement>(null);
     const abortControllerRef = useRef<AbortController | null>(null);
-    const { getActiveCharacter } = useCharacterStore();
+    const { getActiveCharacter, removeCharacter, updateCharacter } = useCharacterStore();
     const {
         conversations,
         activeConversationId,
@@ -640,6 +648,64 @@ export default function ChatPage() {
         handleRegenerate(id);
     };
 
+    // Character actions
+    const handleEditCharacter = () => {
+        setIsCharacterEditorOpen(true);
+    };
+
+    const handleDeleteCharacter = async () => {
+        if (!character) return;
+        if (confirm(`Are you sure you want to delete ${character.name}?`)) {
+            removeCharacter(character.id);
+            // Redirect will happen automatically when character becomes null
+        }
+    };
+
+    const handleExportCharacter = async () => {
+        if (!character) return;
+        
+        // Find most recent conversation for this character
+        const charConvs = conversations
+            .filter((c) => c.characterId === character.id)
+            .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime());
+
+        if (charConvs.length === 0) {
+            alert('No conversation found for this character.');
+            return;
+        }
+
+        const latestConv = charConvs[0];
+        const messages = await useChatStore.getState().getConversationMessages(latestConv.id);
+
+        const exportData = {
+            character: {
+                name: character.name,
+                description: character.description,
+                personality: character.personality,
+                scenario: character.scenario,
+                first_mes: character.first_mes,
+                mes_example: character.mes_example,
+            },
+            conversation: {
+                title: latestConv.title,
+                createdAt: latestConv.createdAt,
+                updatedAt: latestConv.updatedAt,
+                worldState: latestConv.worldState,
+            },
+            messages: messages.map(m => ({
+                role: m.role,
+                content: m.content,
+                thought: m.thought,
+                createdAt: m.createdAt,
+                isActiveBranch: m.isActiveBranch,
+            })),
+            exportedAt: new Date().toISOString(),
+        };
+
+        const { exportToJson } = await import('@/lib/export-utils');
+        exportToJson(exportData, `Conversation_${character.name}_${new Date().toISOString().split('T')[0]}`);
+    };
+
     // Hydration check
     const [isMounted, setIsMounted] = useState(false);
     useEffect(() => {
@@ -711,6 +777,34 @@ export default function ChatPage() {
                                     </div>
 
                                     <div className="flex items-center gap-1 sm:gap-2">
+                                        <DropdownMenu>
+                                            <DropdownMenuTrigger asChild>
+                                                <Button
+                                                    variant="ghost"
+                                                    size="icon"
+                                                    className="shrink-0 h-8 w-8"
+                                                >
+                                                    <MoreVertical className="h-4 w-4" />
+                                                </Button>
+                                            </DropdownMenuTrigger>
+                                            <DropdownMenuContent align="end" className="w-48">
+                                                <DropdownMenuItem onClick={handleEditCharacter}>
+                                                    <Edit className="h-4 w-4 mr-2" />
+                                                    Edit Character
+                                                </DropdownMenuItem>
+                                                <DropdownMenuItem onClick={handleExportCharacter}>
+                                                    <Download className="h-4 w-4 mr-2" />
+                                                    Export Conversation
+                                                </DropdownMenuItem>
+                                                <DropdownMenuItem
+                                                    onClick={handleDeleteCharacter}
+                                                    className="text-destructive focus:text-destructive"
+                                                >
+                                                    <Trash2 className="h-4 w-4 mr-2" />
+                                                    Delete Character
+                                                </DropdownMenuItem>
+                                            </DropdownMenuContent>
+                                        </DropdownMenu>
                                         <Button
                                             variant="ghost"
                                             size="icon"
@@ -959,6 +1053,15 @@ export default function ChatPage() {
                     </div>
                 </SheetContent>
             </Sheet>
+
+            {/* Character Editor Dialog */}
+            {character && (
+                <CharacterEditor
+                    isOpen={isCharacterEditorOpen}
+                    onClose={() => setIsCharacterEditorOpen(false)}
+                    character={character}
+                />
+            )}
 
             <APINotificationToast />
         </div>
