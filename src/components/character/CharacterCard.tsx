@@ -106,11 +106,11 @@ export function CharacterCard({
                         </h3>
                     </div>
 
-                    <p className="text-[11px] text-muted-foreground line-clamp-2 leading-relaxed opacity-80 break-words overflow-hidden">
+                    {/* <p className="text-[11px] text-muted-foreground line-clamp-2 leading-relaxed opacity-80 break-words overflow-hidden">
                         {character.description ||
                             character.personality ||
                             'No description available'}
-                    </p>
+                    </p> */}
 
                     {/* Tags */}
                     {character.tags && character.tags.length > 0 && (

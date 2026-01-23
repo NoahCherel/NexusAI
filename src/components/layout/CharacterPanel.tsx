@@ -106,7 +106,7 @@ export function CharacterPanel({ trigger }: CharacterPanelProps) {
                 <SheetTrigger asChild>
                     {trigger || defaultTrigger}
                 </SheetTrigger>
-                <SheetContent side="left" className="w-[320px] sm:w-[380px] max-w-[90vw] p-0 flex flex-col overflow-hidden">
+                <SheetContent side="left" className="w-[320px] sm:w-[380px] max-w-[90vw] p-0 flex flex-col overflow-x-hidden">
                     <SheetHeader className="p-4 pb-2 border-b border-border/40">
                         <SheetTitle className="flex items-center gap-2">
                             <div className="p-1.5 bg-primary/10 rounded-md">
