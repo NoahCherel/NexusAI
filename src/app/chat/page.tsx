@@ -655,9 +655,28 @@ export default function ChatPage() {
 
     const handleDeleteCharacter = async () => {
         if (!character) return;
-        if (confirm(`Are you sure you want to delete ${character.name}?`)) {
-            removeCharacter(character.id);
-            // Redirect will happen automatically when character becomes null
+        
+        // Count conversations for this character
+        const charConvs = conversations.filter((c) => c.characterId === character.id);
+        const convCount = charConvs.length;
+        
+        const message = convCount > 0
+            ? `Are you sure you want to delete ${character.name}?\n\nThis will also delete ${convCount} conversation${convCount > 1 ? 's' : ''} associated with this character.`
+            : `Are you sure you want to delete ${character.name}?`;
+        
+        if (confirm(message)) {
+            // Delete all conversations for this character first
+            for (const conv of charConvs) {
+                try {
+                    const { deleteConversation } = await import('@/lib/db');
+                    await deleteConversation(conv.id);
+                } catch (err) {
+                    console.error('Failed to delete conversation:', err);
+                }
+            }
+            
+            // Then delete the character
+            await removeCharacter(character.id);
         }
     };
 
@@ -971,7 +990,27 @@ export default function ChatPage() {
                         </motion.div>
                     </>
                 ) : (
-                    <LandingPage />
+                    <>
+                        {/* Mobile Header for Landing Page */}
+                        <header className="md:hidden h-14 border-b border-white/5 flex items-center px-4 justify-between glass-heavy sticky top-0 z-30 shrink-0">
+                            <div className="flex items-center gap-2">
+                                <MobileSidebar
+                                    onCharacterSelect={() => { }}
+                                    onSettingsClick={() => setIsSettingsOpen(true)}
+                                />
+                                <span className="font-bold text-lg">NexusAI</span>
+                            </div>
+                            <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => setIsSettingsOpen(true)}
+                                className="h-8 w-8"
+                            >
+                                <Settings2 className="h-4 w-4" />
+                            </Button>
+                        </header>
+                        <LandingPage />
+                    </>
                 )}
             </main>
 
