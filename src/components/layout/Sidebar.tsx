@@ -194,7 +194,7 @@ export function Sidebar({ isCollapsed, onToggle }: SidebarProps) {
                     <ScrollArea className="h-full w-full">
                         <div
                             className={cn(
-                                'space-y-3 pb-10 transition-all duration-300 w-full overflow-hidden',
+                                'space-y-3 pb-10 transition-all duration-300 w-full',
                                 isCollapsed ? 'px-2 pt-4' : 'px-4 pt-4'
                             )}
                         >
@@ -207,16 +207,17 @@ export function Sidebar({ isCollapsed, onToggle }: SidebarProps) {
                                     </div>
                                 )
                                 : filteredCharacters.map((char) => (
-                                    <CharacterCard
-                                        key={char.id}
-                                        character={char}
-                                        isActive={char.id === activeCharacterId}
-                                        onClick={() => setActiveCharacterId(char.id)}
-                                        onEdit={() => handleEdit(char)}
-                                        onDelete={() => removeCharacter(char.id)}
-                                        onExport={() => handleExport(char)}
-                                        isCollapsed={isCollapsed}
-                                    />
+                                    <div key={char.id} className="w-full max-w-full overflow-hidden">
+                                        <CharacterCard
+                                            character={char}
+                                            isActive={char.id === activeCharacterId}
+                                            onClick={() => setActiveCharacterId(char.id)}
+                                            onEdit={() => handleEdit(char)}
+                                            onDelete={() => removeCharacter(char.id)}
+                                            onExport={() => handleExport(char)}
+                                            isCollapsed={isCollapsed}
+                                        />
+                                    </div>
                                 ))}
                         </div>
                     </ScrollArea>

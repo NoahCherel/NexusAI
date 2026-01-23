@@ -106,7 +106,7 @@ export function CharacterPanel({ trigger }: CharacterPanelProps) {
                 <SheetTrigger asChild>
                     {trigger || defaultTrigger}
                 </SheetTrigger>
-                <SheetContent side="left" className="w-[320px] sm:w-[380px] p-0 flex flex-col">
+                <SheetContent side="left" className="w-[320px] sm:w-[380px] max-w-[90vw] p-0 flex flex-col overflow-hidden">
                     <SheetHeader className="p-4 pb-2 border-b border-border/40">
                         <SheetTitle className="flex items-center gap-2">
                             <div className="p-1.5 bg-primary/10 rounded-md">
@@ -149,8 +149,8 @@ export function CharacterPanel({ trigger }: CharacterPanelProps) {
                         </div>
                     </div>
 
-                    <ScrollArea className="flex-1">
-                        <div className="px-4 pb-6 space-y-2">
+                    <ScrollArea className="flex-1 w-full">
+                        <div className="px-4 pb-6 space-y-2 w-full max-w-full">
                             {filteredCharacters.length === 0 ? (
                                 <div className="text-center py-12 px-4">
                                     <p className="text-muted-foreground text-sm">
@@ -159,16 +159,17 @@ export function CharacterPanel({ trigger }: CharacterPanelProps) {
                                 </div>
                             ) : (
                                 filteredCharacters.map((char) => (
-                                    <CharacterCard
-                                        key={char.id}
-                                        character={char}
-                                        isActive={char.id === activeCharacterId}
-                                        onClick={() => handleSelectCharacter(char.id)}
-                                        onEdit={() => handleEdit(char)}
-                                        onDelete={() => removeCharacter(char.id)}
-                                        onExport={() => handleExport(char)}
-                                        isCollapsed={false}
-                                    />
+                                    <div key={char.id} className="w-full max-w-full overflow-hidden">
+                                        <CharacterCard
+                                            character={char}
+                                            isActive={char.id === activeCharacterId}
+                                            onClick={() => handleSelectCharacter(char.id)}
+                                            onEdit={() => handleEdit(char)}
+                                            onDelete={() => removeCharacter(char.id)}
+                                            onExport={() => handleExport(char)}
+                                            isCollapsed={false}
+                                        />
+                                    </div>
                                 ))
                             )}
                         </div>

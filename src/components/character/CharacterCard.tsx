@@ -73,15 +73,16 @@ export function CharacterCard({
             whileHover={{ scale: 1.01 }}
             whileTap={{ scale: 0.98 }}
             className={cn(
-                'relative group cursor-pointer rounded-xl border-2 transition-all duration-200 w-full max-w-full',
+                'relative group cursor-pointer rounded-xl border-2 transition-all duration-200 box-border',
                 isActive
                     ? 'border-primary/60 bg-primary/10 shadow-sm'
                     : 'border-border/30 hover:border-border/60 bg-card/40 hover:bg-card/60 backdrop-blur-sm'
             )}
             onClick={onClick}
+            style={{ width: '100%', maxWidth: '100%' }}
         >
             {/* Card contents */}
-            <div className="p-3 flex gap-3 items-start overflow-hidden w-full">
+            <div className="p-3 flex gap-3 items-start w-full overflow-hidden">
                 <Avatar className="w-12 h-12 rounded-lg shrink-0 border border-border/50 shadow-sm text-xs">
                     <AvatarImage
                         src={character.avatar}
@@ -93,11 +94,11 @@ export function CharacterCard({
                     </AvatarFallback>
                 </Avatar>
 
-                <div className="flex-1 min-w-0 overflow-hidden flex flex-col gap-1">
+                <div className="flex-1 min-w-0 flex flex-col gap-1">
                     <div className="flex items-center justify-between gap-2 min-w-0">
                         <h3
                             className={cn(
-                                'font-bold text-sm truncate leading-none pt-0.5 min-w-0 max-w-full',
+                                'font-bold text-sm truncate leading-none pt-0.5',
                                 isActive ? 'text-primary' : 'text-foreground'
                             )}
                         >
