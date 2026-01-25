@@ -106,7 +106,7 @@ export async function POST(req: NextRequest) {
                 } else if (isDeepSeekModel) {
                     // DeepSeek R1 uses effort
                     requestBody.reasoning = {
-                        effort: 'medium',
+                        effort: 'high',
                     };
                 } else if (isAnthropicModel) {
                     // Anthropic models use max_tokens
@@ -175,7 +175,7 @@ export async function POST(req: NextRequest) {
                 try {
                     for await (const chunk of stream) {
                         const delta = chunk.choices[0]?.delta;
-                        
+
                         if (delta?.content) {
                             controller.enqueue(encoder.encode(delta.content));
                         }

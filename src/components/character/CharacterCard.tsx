@@ -98,19 +98,19 @@ export function CharacterCard({
                     <div className="flex items-center justify-between gap-2 min-w-0 overflow-hidden">
                         <h3
                             className={cn(
-                                'font-bold text-sm truncate leading-none pt-0.5 flex-1 min-w-0',
+                                'font-bold text-sm leading-none pt-0.5 flex-1 min-w-0',
                                 isActive ? 'text-primary' : 'text-foreground'
                             )}
                         >
-                            {character.name}
+                            {character.name.length > 16 ? character.name.slice(0, 16) + '...' : character.name}
                         </h3>
                     </div>
 
-                    {/* <p className="text-[11px] text-muted-foreground line-clamp-2 leading-relaxed opacity-80 break-words overflow-hidden min-w-0">
-                        {character.description ||
-                            character.personality ||
-                            'No description available'}
-                    </p> */}
+                    <p className="text-[11px] text-muted-foreground line-clamp-2 leading-relaxed opacity-80 break-words overflow-hidden min-w-0">
+                        {(character.description || character.personality || 'No description').length > 16
+                            ? (character.description || character.personality || 'No description').slice(0, 16) + '...'
+                            : (character.description || character.personality || 'No description')}
+                    </p>
 
                     {/* Tags */}
                     {character.tags && character.tags.length > 0 && (

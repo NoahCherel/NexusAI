@@ -61,6 +61,7 @@ export default function ChatPage() {
     const [isLoading, setIsLoading] = useState(false);
     const scrollRef = useRef<HTMLDivElement>(null);
     const abortControllerRef = useRef<AbortController | null>(null);
+    const lastSummarizedCount = useRef(0); // Track last summarized message count
     const { getActiveCharacter, removeCharacter, updateCharacter, addCharacter } = useCharacterStore();
     const {
         conversations,
@@ -220,6 +221,86 @@ export default function ChatPage() {
         }
     }, [messages]);
 
+    // Auto-Summary Logic (Every 5 messages)
+    useEffect(() => {
+        const checkAndSummarize = async () => {
+            if (!character || !activeConversationId || messages.length === 0) return;
+
+            // Check if we hit a multiple of 5 and haven't summarized yet
+            // We only count messages in the active branch
+            const currentCount = messages.length;
+
+            if (currentCount > 0 && currentCount % 5 === 0 && currentCount > lastSummarizedCount.current) {
+                console.log('Triggering auto-summary for message count:', currentCount);
+                lastSummarizedCount.current = currentCount; // Mark as processed immediately to prevent double-fire
+
+                try {
+                    // Get the last 5 messages
+                    const recentMessages = messages.slice(-5);
+                    const recentContext = recentMessages.map(m => `${m.role}: ${m.content}`).join('\n\n');
+
+                    const systemPrompt = `You are a long-term memory assistant for a roleplay chat.
+Your task is to summarize the recent interaction to maintain a continuity of memory.
+Previous Memory:
+${character.longTermMemory?.join('\n') || 'None'}
+
+Recent Interaction (last 5 messages):
+${recentContext}
+
+Instructions:
+1. Create a concise summary of the recent interaction (approx 1-2 paragraphs).
+2. Ensure it connects logically to the previous memory.
+3. specific important details (names, locations, key decisions).
+4. Output ONLY the new summary text.`;
+
+                    // Call Deepseek R1 Free
+                    const response = await fetch('/api/chat', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            messages: [{ role: 'user', content: 'Update long-term memory.' }], // Dummy message, real work is in system prompt
+                            provider: 'openrouter', // Assuming OpenRouter is the provider for Deepseek R1 Free
+                            model: 'deepseek/deepseek-r1:free',
+                            apiKey: currentApiKey, // Use current key (hope it works for OpenRouter free models which might not need key or use generic one? If user has OpenRouter key it will work)
+                            systemPrompt: systemPrompt,
+                            temperature: 0.7,
+                            maxTokens: 1000,
+                        }),
+                    });
+
+                    if (!response.ok) throw new Error('Summary API failed');
+
+                    // Read response
+                    const reader = response.body?.getReader();
+                    const decoder = new TextDecoder();
+                    let summary = '';
+                    if (reader) {
+                        while (true) {
+                            const { done, value } = await reader.read();
+                            if (done) break;
+                            summary += decoder.decode(value, { stream: true });
+                        }
+                    }
+
+                    // Cleanup summary (remove thoughts if any)
+                    const cleanSummary = summary.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+
+                    if (cleanSummary) {
+                        // Update Character Memory
+                        const newMemory = [...(character.longTermMemory || []), cleanSummary];
+                        await updateCharacter(character.id, { longTermMemory: newMemory });
+                        console.log('Auto-summary updated.');
+                    }
+
+                } catch (error) {
+                    console.error('Auto-summary failed:', error);
+                }
+            }
+        };
+
+        checkAndSummarize();
+    }, [messages, character, activeConversationId, currentApiKey, updateCharacter]);
+
     const triggerAiReponse = async (
         history: CAMessage[],
         options: {
@@ -314,15 +395,15 @@ export default function ChatPage() {
         // 4. API Request Construction with Context Truncation
         const maxContextTokens = activePreset?.maxContextTokens ?? 16384;
         const maxOutputTokens = activePreset?.maxOutputTokens ?? 2048;
-        
+
         // Reserve tokens for system prompt and output
         const systemPromptTokens = estimateTokens(systemPrompt);
         const availableForHistory = maxContextTokens - systemPromptTokens - maxOutputTokens;
-        
+
         // Build messages payload with truncation (keep recent messages)
         let messagesPayload: { role: string; content: string }[] = [];
         let currentTokenCount = 0;
-        
+
         // Process messages from newest to oldest, then reverse
         const reversedHistory = [...history].reverse();
         for (const msg of reversedHistory) {
@@ -333,7 +414,7 @@ export default function ChatPage() {
             messagesPayload.unshift({ role: msg.role, content: msg.content });
             currentTokenCount += msgTokens;
         }
-        
+
         // Handle Prefill for API
         if (options.prefill && targetRole === 'assistant') {
             const supportsPrefill =
@@ -653,15 +734,15 @@ export default function ChatPage() {
 
     const handleDeleteCharacter = async () => {
         if (!character) return;
-        
+
         // Count conversations for this character
         const charConvs = conversations.filter((c) => c.characterId === character.id);
         const convCount = charConvs.length;
-        
+
         const message = convCount > 0
             ? `Are you sure you want to delete ${character.name}?\n\nThis will also delete ${convCount} conversation${convCount > 1 ? 's' : ''} associated with this character.`
             : `Are you sure you want to delete ${character.name}?`;
-        
+
         if (confirm(message)) {
             // Delete all conversations for this character first
             for (const conv of charConvs) {
@@ -672,7 +753,7 @@ export default function ChatPage() {
                     console.error('Failed to delete conversation:', err);
                 }
             }
-            
+
             // Then delete the character
             await removeCharacter(character.id);
         }
@@ -680,7 +761,7 @@ export default function ChatPage() {
 
     const handleExportCharacter = async () => {
         if (!character) return;
-        
+
         // Find most recent conversation for this character
         const charConvs = conversations
             .filter((c) => c.characterId === character.id)
@@ -727,29 +808,29 @@ export default function ChatPage() {
         const input = document.createElement('input');
         input.type = 'file';
         input.accept = 'application/json,.json';
-        
+
         input.onchange = async (e) => {
             const file = (e.target as HTMLInputElement).files?.[0];
             if (!file) return;
-            
+
             try {
                 const text = await file.text();
                 const data = JSON.parse(text);
-                
+
                 // Validate structure
                 if (!data.character || !data.conversation || !Array.isArray(data.messages)) {
                     alert('Invalid conversation export format');
                     return;
                 }
-                
+
                 // Check if character already exists by name
                 const { useCharacterStore } = await import('@/stores');
                 const existingChar = useCharacterStore.getState().characters.find(
                     (c) => c.name === data.character.name
                 );
-                
+
                 let characterId: string;
-                
+
                 if (existingChar) {
                     // Use existing character
                     characterId = existingChar.id;
@@ -773,17 +854,17 @@ export default function ChatPage() {
                     };
                     await addCharacter(newCharacter);
                 }
-                
+
                 // Create new conversation
                 const convId = await createConversation(
                     characterId,
                     data.conversation.title || `Imported Chat - ${new Date().toLocaleDateString()}`
                 );
-                
+
                 // Import messages
                 const { useChatStore } = await import('@/stores');
                 const chatStore = useChatStore.getState();
-                
+
                 for (let i = 0; i < data.messages.length; i++) {
                     const msg = data.messages[i];
                     chatStore.addMessage({
@@ -799,23 +880,23 @@ export default function ChatPage() {
                         regenerationIndex: 0,
                     });
                 }
-                
+
                 // Update world state if present
                 if (data.conversation.worldState) {
                     const { updateWorldState } = useChatStore.getState();
                     updateWorldState(convId, data.conversation.worldState);
                 }
-                
+
                 // Switch to the imported conversation
                 setActiveConversation(convId);
-                
+
                 alert(`Successfully imported conversation "${data.conversation.title}" with ${data.messages.length} messages!`);
             } catch (error) {
                 console.error('Import error:', error);
                 alert(`Failed to import conversation: ${error instanceof Error ? error.message : 'Unknown error'}`);
             }
         };
-        
+
         input.click();
     };
 

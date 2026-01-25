@@ -46,7 +46,7 @@ Rules:
 2. If info relates to an existing key (from the list below), USE THAT KEY to allow updates/merging.
 3. Be VERY concise - each entry max 2-3 sentences.
 4. Categorize each entry as: "character", "location", or "notion".
-5. IMPORTANT: For actions/events involving specific characters, ALWAYS include their names as keys.
+5. IMPORTANT: Create SEPARATE entries for each distinct character. Do NOT bundle multiple characters into a single entry.
 6. Return ONLY a valid JSON array, no markdown.
 
 ${existingKeysStr}

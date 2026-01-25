@@ -83,11 +83,11 @@
 }
 
 .dark {
-    --background: oklch(0 0 0);
+    --background: #242525;
     --foreground: oklch(0.985 0 0);
-    --card: oklch(0.1 0 0);
+    --card: #242525;
     --card-foreground: oklch(0.985 0 0);
-    --popover: oklch(0.1 0 0);
+    --popover: #242525;
     --popover-foreground: oklch(0.985 0 0);
     --primary: oklch(0.723 0.219 303.9);
     --primary-foreground: oklch(1 0 0);
@@ -106,7 +106,7 @@
     --chart-3: oklch(0.769 0.188 70.08);
     --chart-4: oklch(0.627 0.265 303.9);
     --chart-5: oklch(0.645 0.246 16.439);
-    --sidebar: oklch(0.05 0 0);
+    --sidebar: #242525;
     --sidebar-foreground: oklch(0.985 0 0);
     --sidebar-primary: oklch(0.723 0.219 303.9);
     --sidebar-primary-foreground: oklch(1 0 0);
@@ -123,6 +123,8 @@
 
     body {
         @apply bg-background text-foreground;
+        background-color: #242525;
+        /* Force override */
     }
 }
 
@@ -218,6 +220,7 @@
 
 /* Message Loading Animation */
 @keyframes pulse-soft {
+
     0%,
     100% {
         opacity: 0.4;
