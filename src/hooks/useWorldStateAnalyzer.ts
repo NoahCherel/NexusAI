@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useRef } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { useChatStore, useSettingsStore, useLorebookStore } from '@/stores';
 import {
     shouldAnalyzeMessage,
@@ -16,7 +16,8 @@ interface UseWorldStateAnalyzerReturn {
     analyzeMessage: (
         message: string,
         characterName: string,
-        conversationId?: string
+        conversationId?: string,
+        force?: boolean
     ) => Promise<void>;
     isAnalyzing: boolean;
 }
@@ -26,51 +27,61 @@ interface UseWorldStateAnalyzerReturn {
  * Now uses DeepSeek R1 0528 for enhanced reasoning.
  */
 export function useWorldStateAnalyzer(): UseWorldStateAnalyzerReturn {
-    const isAnalyzingRef = useRef(false);
+    const [isAnalyzing, setIsAnalyzing] = useState(false);
     const isConsolidatingRef = useRef(false);
 
-    // Helper to perform AI request
+    // Helper to perform AI request directly to OpenRouter
     const performAIRequest = async (
         modelList: string[],
         messages: { role: string; content: string }[],
         apiKey: string,
-        temperature = 0.1
-    ) => {
-        let response: Response | null = null;
+        temperature = 0.1,
+        maxTokens = 2000
+    ): Promise<{ content: string; usedModel: string } | null> => {
         let usedModel = '';
+        let fullContent = '';
 
         for (const model of modelList) {
             try {
-                response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+                const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
                     method: 'POST',
                     headers: {
-                        Authorization: `Bearer ${apiKey}`,
                         'Content-Type': 'application/json',
-                        'HTTP-Referer': window.location.origin,
-                        'X-Title': 'NexusAI Analyst',
+                        'Authorization': `Bearer ${apiKey}`,
+                        'HTTP-Referer': typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000',
+                        'X-Title': 'NexusAI',
                     },
                     body: JSON.stringify({
                         model,
                         messages,
-                        max_tokens: 2000,
                         temperature,
+                        max_tokens: maxTokens,
+                        stream: false, // Non-streaming for simpler parsing
                     }),
                 });
+
+                if (response.ok) {
+                    usedModel = model;
+                    const data = await response.json();
+                    fullContent = data.choices?.[0]?.message?.content || '';
+                    if (fullContent) break;
+                } else if (response.status === 429) {
+                    // Rate limited, try next model
+                    continue;
+                } else {
+                    const errorText = await response.text();
+                    console.error(`[AI] Error fetching ${model}:`, response.status, errorText);
+                }
             } catch (e) {
                 console.error(`[AI] Error fetching ${model}:`, e);
                 continue;
             }
-
-            if (response.ok) {
-                usedModel = model;
-                break;
-            }
-
-            if (response.status === 429) {
-                continue;
-            }
         }
-        return { response, usedModel };
+
+        if (usedModel && fullContent) {
+            return { content: fullContent, usedModel };
+        }
+        return null;
     };
 
     const consolidateLorebook = useCallback(async (conversationId: string, apiKey: string) => {
@@ -87,28 +98,25 @@ export function useWorldStateAnalyzer(): UseWorldStateAnalyzerReturn {
                 .join('\n\n');
 
             const models = [
-                'deepseek/deepseek-r1-0528:free',
+                'tngtech/deepseek-r1t2-chimera:free',
                 'meta-llama/llama-3.3-70b-instruct:free',
-                'google/gemini-2.0-flash-exp:free',
+                'mistralai/mistral-small-3.1-24b-instruct:free',
             ];
 
-            const { response } = await performAIRequest(
+            const resultData = await performAIRequest(
                 models,
                 [
                     { role: 'system', content: LOREBOOK_CONSOLIDATION_PROMPT },
                     { role: 'user', content: `Lorebook Entries:\n${entriesList}` },
                 ],
-                apiKey
+                apiKey,
+                0.1,
+                16000 // Increased limit for consolidation
             );
 
-            if (!response || !response.ok) return;
+            if (!resultData) return;
 
-            const data = await response.json();
-            const content =
-                data.choices?.[0]?.message?.content ||
-                data.choices?.[0]?.message?.reasoning_content ||
-                '';
-            const result = parseConsolidationResponse(content);
+            const result = parseConsolidationResponse(resultData.content);
 
             if (result && result.consolidated.length > 0) {
                 const mergedIndices = new Set<number>();
@@ -136,9 +144,9 @@ export function useWorldStateAnalyzer(): UseWorldStateAnalyzerReturn {
     }, []);
 
     const analyzeMessage = useCallback(
-        async (message: string, characterName: string, conversationId?: string) => {
+        async (message: string, characterName: string, conversationId?: string, force = false) => {
             // Check if analysis is needed
-            if (!shouldAnalyzeMessage(message)) {
+            if (!force && !shouldAnalyzeMessage(message)) {
                 return;
             }
 
@@ -165,7 +173,7 @@ export function useWorldStateAnalyzer(): UseWorldStateAnalyzerReturn {
 
             if (!openRouterKeyConfig) return;
 
-            isAnalyzingRef.current = true;
+            setIsAnalyzing(true);
 
             try {
                 const apiKey = await decryptApiKey(openRouterKeyConfig.encryptedKey);
@@ -178,13 +186,12 @@ export function useWorldStateAnalyzer(): UseWorldStateAnalyzerReturn {
                 );
 
                 const models = [
-                    'deepseek/deepseek-r1-0528:free', // Requested Primary
-                    'google/gemini-2.0-flash-exp:free',
+                    'tngtech/deepseek-r1t2-chimera:free', // Requested Primary
                     'meta-llama/llama-3.3-70b-instruct:free',
-                    'qwen/qwen-2.5-72b-instruct:free',
+                    'mistralai/mistral-small-3.1-24b-instruct:free',
                 ];
 
-                const { response, usedModel } = await performAIRequest(
+                const resultData = await performAIRequest(
                     models,
                     [
                         { role: 'system', content: ANALYST_PROMPT },
@@ -193,17 +200,13 @@ export function useWorldStateAnalyzer(): UseWorldStateAnalyzerReturn {
                             content: `Current state:\n- Inventory: ${JSON.stringify(currentWorldState.inventory).replace(/{{user}}/gi, userName)}\n- Location: "${processedLocation}"\n- Relationships: ${JSON.stringify(currentWorldState.relationships).replace(/{{user}}/gi, userName)}\n\nUser Reference:\n- Name: ${userName}\n- Bio: ${activePersona?.bio || 'Unknown'}\n\nNPC Character: ${characterName}\n\nMessage to analyze: "${processedMessage}"`,
                         },
                     ],
-                    apiKey
+                    apiKey,
+                    0.5, // Temperature
+                    8000 // Increased limit for world state analysis
                 );
 
-                if (response && response.ok) {
-                    const data = await response.json();
-                    const content =
-                        data.choices?.[0]?.message?.content ||
-                        data.choices?.[0]?.message?.reasoning_content ||
-                        '';
-
-                    const changes = parseAnalystResponse(content);
+                if (resultData) {
+                    const changes = parseAnalystResponse(resultData.content);
                     if (changes) {
                         const hasChanges =
                             changes.inventory_add.length > 0 ||
@@ -225,14 +228,14 @@ export function useWorldStateAnalyzer(): UseWorldStateAnalyzerReturn {
                 const newCount = currentCount + 1;
                 localStorage.setItem(MSG_COUNT_KEY, newCount.toString());
 
-                if (newCount % 1 === 0) {
+                if (newCount % 1 === 0) { // Debugging: Every message for now, normally 10
                     // Fire and forget consolidation
                     consolidateLorebook(targetConversationId, apiKey).catch(console.error);
                 }
             } catch (error) {
                 console.error('[WorldStateAnalyzer] Error:', error);
             } finally {
-                isAnalyzingRef.current = false;
+                setIsAnalyzing(false);
             }
         },
         [consolidateLorebook]
@@ -240,6 +243,6 @@ export function useWorldStateAnalyzer(): UseWorldStateAnalyzerReturn {
 
     return {
         analyzeMessage,
-        isAnalyzing: isAnalyzingRef.current,
+        isAnalyzing,
     };
 }

@@ -86,7 +86,7 @@ export default function ChatPage() {
         () => (activeConversationId ? getActiveBranchMessages(activeConversationId) : []),
         [activeConversationId, getActiveBranchMessages, storeMessages] // storeMessages triggers re-render
     );
-    const { analyzeMessage } = useWorldStateAnalyzer();
+    const { analyzeMessage, isAnalyzing } = useWorldStateAnalyzer();
     const {
         apiKeys,
         activeProvider,
@@ -230,13 +230,13 @@ export default function ChatPage() {
             // We only count messages in the active branch
             const currentCount = messages.length;
 
-            if (currentCount > 0 && currentCount % 5 === 0 && currentCount > lastSummarizedCount.current) {
+            if (currentCount > 0 && currentCount % 15 === 0 && currentCount > lastSummarizedCount.current) {
                 console.log('Triggering auto-summary for message count:', currentCount);
                 lastSummarizedCount.current = currentCount; // Mark as processed immediately to prevent double-fire
 
                 try {
-                    // Get the last 5 messages
-                    const recentMessages = messages.slice(-5);
+                    // Get the last 15 messages
+                    const recentMessages = messages.slice(-15);
                     const recentContext = recentMessages.map(m => `${m.role}: ${m.content}`).join('\n\n');
 
                     const systemPrompt = `You are a long-term memory assistant for a roleplay chat.
@@ -244,7 +244,7 @@ Your task is to summarize the recent interaction to maintain a continuity of mem
 Previous Memory:
 ${character.longTermMemory?.join('\n') || 'None'}
 
-Recent Interaction (last 5 messages):
+Recent Interaction (last 15 messages):
 ${recentContext}
 
 Instructions:
@@ -264,7 +264,7 @@ Instructions:
                             apiKey: currentApiKey, // Use current key (hope it works for OpenRouter free models which might not need key or use generic one? If user has OpenRouter key it will work)
                             systemPrompt: systemPrompt,
                             temperature: 0.7,
-                            maxTokens: 1000,
+                            maxTokens: 8000,
                         }),
                     });
 
@@ -534,8 +534,9 @@ Instructions:
                     extractLorebookEntries(fullContent, existingKeys)
                         .then((newEntries) => {
                             if (newEntries.length > 0) {
-                                const { addAIEntry } = useLorebookStore.getState();
-                                newEntries.forEach((entry) => addAIEntry(entry));
+                                const { addAIEntries } = useLorebookStore.getState();
+                                // Use batch add to prevent race conditions
+                                addAIEntries(newEntries);
                             }
                         })
                         .catch((err) => console.error('Lorebook extraction failed:', err));
@@ -572,6 +573,20 @@ Instructions:
             abortControllerRef.current.abort();
             setIsLoading(false);
         }
+    };
+
+    const handleShowSettings = () => {
+        setIsSettingsOpen(true);
+    };
+
+    const handleForceAnalysis = async () => {
+        if (!character || messages.length === 0 || !activeConversationId) return;
+
+        // Get the last message to analyze
+        const lastMessage = messages[messages.length - 1];
+        if (!lastMessage) return;
+
+        await analyzeMessage(lastMessage.content, character.name, activeConversationId, true);
     };
 
     const handleSend = async (userMessage: string) => {
@@ -1280,6 +1295,8 @@ Instructions:
                                 )}
                                 relationships={worldState.relationships}
                                 isCollapsed={false}
+                                onForceAnalyze={() => { handleForceAnalysis(); }}
+                                isAnalyzing={isAnalyzing}
                             />
                         </div>
                     </div>
@@ -1309,6 +1326,8 @@ Instructions:
                             )}
                             relationships={worldState.relationships}
                             isCollapsed={false}
+                            onForceAnalyze={() => { handleForceAnalysis(); }}
+                            isAnalyzing={isAnalyzing}
                         />
                     </div>
                 </SheetContent>

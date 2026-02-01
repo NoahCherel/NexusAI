@@ -1,7 +1,7 @@
 'use client';
 
 import { motion } from 'framer-motion';
-import { Package, MapPin, Heart, ChevronUp, Edit2, X, Check, Trash2, Plus } from 'lucide-react';
+import { Package, MapPin, Heart, ChevronUp, Edit2, X, Check, Trash2, Plus, RotateCw, Loader2 } from 'lucide-react';
 import { useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -14,6 +14,8 @@ interface WorldStatePanelProps {
     relationships: Record<string, number>;
     isCollapsed?: boolean;
     onToggle?: () => void;
+    onForceAnalyze?: () => void;
+    isAnalyzing?: boolean;
 }
 
 export function WorldStatePanel({
@@ -22,6 +24,8 @@ export function WorldStatePanel({
     relationships,
     isCollapsed = false,
     onToggle,
+    onForceAnalyze,
+    isAnalyzing = false,
 }: WorldStatePanelProps) {
     const { activeConversationId, updateWorldState } = useChatStore();
     const relationshipEntries = Object.entries(relationships);
@@ -94,18 +98,46 @@ export function WorldStatePanel({
             className="backdrop-blur-md bg-card/60 border border-border/50 rounded-xl overflow-hidden shadow-sm transition-all hover:shadow-md"
         >
             {/* Header */}
-            <button
+            <div
+                role="button"
+                tabIndex={0}
                 onClick={onToggle}
-                className="w-full flex items-center justify-between p-3.5 bg-muted/20 hover:bg-muted/40 transition-colors"
+                onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                        onToggle?.();
+                    }
+                }}
+                className="w-full flex items-center justify-between p-3.5 bg-muted/20 hover:bg-muted/40 transition-colors cursor-pointer outline-none focus:bg-muted/30"
             >
                 <span className="font-semibold text-sm tracking-tight flex items-center gap-2">
                     <span className="text-base">🌍</span> World Context
                 </span>
-                <ChevronUp
-                    className={`w-4 h-4 text-muted-foreground transition-transform duration-300 ${isCollapsed ? 'rotate-180' : ''
-                        }`}
-                />
-            </button>
+                <div className="flex items-center gap-1">
+                    {onForceAnalyze && (
+                        <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-6 w-6 mr-1"
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                onForceAnalyze();
+                            }}
+                            disabled={isAnalyzing}
+                            title="Force World Analysis"
+                        >
+                            {isAnalyzing ? (
+                                <Loader2 className="w-3.5 h-3.5 animate-spin text-primary" />
+                            ) : (
+                                <RotateCw className="w-3.5 h-3.5 text-muted-foreground hover:text-primary transition-colors" />
+                            )}
+                        </Button>
+                    )}
+                    <ChevronUp
+                        className={`w-4 h-4 text-muted-foreground transition-transform duration-300 ${isCollapsed ? 'rotate-180' : ''
+                            }`}
+                    />
+                </div>
+            </div>
 
             {!isCollapsed ? (
                 <div className="p-4 space-y-5">

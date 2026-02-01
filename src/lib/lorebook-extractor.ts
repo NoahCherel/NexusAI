@@ -42,12 +42,13 @@ export async function extractLorebookEntries(
     const systemPrompt = `You are a world-building assistant. Analyze the AI response and extract/update world facts.
 
 Rules:
-1. Extract NOVEL information.
-2. If info relates to an existing key (from the list below), USE THAT KEY to allow updates/merging.
-3. Be VERY concise - each entry max 2-3 sentences.
-4. Categorize each entry as: "character", "location", or "notion".
-5. IMPORTANT: Create SEPARATE entries for each distinct character. Do NOT bundle multiple characters into a single entry.
-6. Return ONLY a valid JSON array, no markdown.
+1. Extract ONLY Proper Nouns (Named Characters, Named Unique Locations, Named Unique Artifacts).
+2. Do NOT create entries for generic objects, traps, items, formations, or concepts (e.g., 'Spiked wall trap', 'Diamond formation', 'Iron Sword').
+3. If info relates to an existing key (from the list below), USE THAT KEY to allow updates/merging.
+4. Be VERY concise - each entry max 2-3 sentences.
+5. Categorize each entry as: "character" (for persons) or "location" (for named places). Only use "notion" for named unique concepts/groups (e.g. "The Jedi Order").
+6. IMPORTANT: Create SEPARATE entries for each distinct character. Do NOT bundle multiple characters into a single entry.
+7. Return ONLY a valid JSON array containing ALL extracted entries. Do NOT split into multiple arrays.
 
 ${existingKeysStr}
 
@@ -63,6 +64,7 @@ Output format (JSON array only):
                 apiKey,
                 model: activeModel,
                 systemPrompt,
+                maxTokens: 8000,
                 messages: [
                     {
                         role: 'user',
@@ -80,22 +82,27 @@ Output format (JSON array only):
         // The API returns a streaming text response, consume it as text
         const text = await response.text();
 
-        // Clean up the response
-        const cleanContent = text
+        // Clean up the response first
+        let cleanContent = text
             .replace(/<think>[\s\S]*?<\/think>/gi, '')
             .replace(/<reasoning>[\s\S]*?<\/reasoning>/gi, '')
             .replace(/```json\n?/g, '')
             .replace(/```\n?/g, '')
             .trim();
 
-        // Try to find JSON array in the response
-        const jsonMatch = cleanContent.match(/\[[\s\S]*\]/);
-        if (!jsonMatch) {
+        // Robust JSON Extraction: Find the first '[' and last ']'
+        const firstBracket = cleanContent.indexOf('[');
+        const lastBracket = cleanContent.lastIndexOf(']');
+
+        if (firstBracket === -1 || lastBracket === -1 || lastBracket < firstBracket) {
+            console.warn('Lorebook extraction: No JSON array found in response');
             return [];
         }
 
+        const jsonString = cleanContent.substring(firstBracket, lastBracket + 1);
+
         try {
-            const entries = JSON.parse(jsonMatch[0]);
+            const entries = JSON.parse(jsonString);
             if (!Array.isArray(entries)) return [];
 
             return entries

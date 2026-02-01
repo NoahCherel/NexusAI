@@ -27,13 +27,7 @@ export interface CustomModel {
 // Default models available out of the box
 // Default models available out of the box
 export const DEFAULT_MODELS: CustomModel[] = [
-    {
-        id: 'gemini-flash',
-        name: 'Gemini 2.0 Flash (Free)',
-        modelId: 'google/gemini-2.0-flash-exp:free',
-        provider: 'openrouter',
-        isFree: true,
-    },
+
     {
         id: 'llama-3.3-70b',
         name: 'Llama 3.3 70B (Free)',
@@ -49,16 +43,16 @@ export const DEFAULT_MODELS: CustomModel[] = [
         isFree: true,
     },
     {
-        id: 'deepseek-r1-distill',
-        name: 'DeepSeek R1 Distill 70B (Free)',
-        modelId: 'deepseek/deepseek-r1-distill-llama-70b:free',
+        id: 'deepseek-r1t2-chimera',
+        name: 'DeepSeek R1t2 Chimera (Free)',
+        modelId: 'tngtech/deepseek-r1t2-chimera:free',
         provider: 'openrouter',
         isFree: true,
     },
     {
-        id: 'qwen-2.5-72b',
-        name: 'Qwen 2.5 72B (Free)',
-        modelId: 'qwen/qwen-2.5-72b-instruct:free',
+        id: 'mistral-small-3.1',
+        name: 'Mistral Small 3.1 24B (Free)',
+        modelId: 'mistralai/mistral-small-3.1-24b-instruct:free',
         provider: 'openrouter',
         isFree: true,
     },
@@ -211,7 +205,7 @@ export const useSettingsStore = create<SettingsState>()(
             // Default state
             apiKeys: [],
             activeProvider: 'openrouter',
-            activeModel: 'google/gemini-2.0-flash-exp:free',
+            activeModel: 'tngtech/deepseek-r1t2-chimera:free',
             customModels: [],
             temperature: 0.8,
             maxTokens: 2048,
