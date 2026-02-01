@@ -128,7 +128,7 @@ export function PersonaSelector() {
                         <div className="px-2 py-1 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
                             Select Persona
                         </div>
-                        <ScrollArea className="max-h-[300px]">
+                        <ScrollArea className="max-h-[40vh] overflow-y-auto">
                             <div className="space-y-1">
                                 {personas.map((persona) => (
                                     <div
