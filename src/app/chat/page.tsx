@@ -260,7 +260,7 @@ Instructions:
                         body: JSON.stringify({
                             messages: [{ role: 'user', content: 'Update long-term memory.' }], // Dummy message, real work is in system prompt
                             provider: 'openrouter', // Assuming OpenRouter is the provider for Deepseek R1 Free
-                            model: 'deepseek/deepseek-r1:free',
+                            model: 'deepseek/deepseek-r1-0528:free',
                             apiKey: currentApiKey, // Use current key (hope it works for OpenRouter free models which might not need key or use generic one? If user has OpenRouter key it will work)
                             systemPrompt: systemPrompt,
                             temperature: 0.7,
@@ -352,6 +352,8 @@ Instructions:
             postHistory: activePreset?.postHistoryInstructions,
             userPersona: activePersona,
             longTermMemory: character.longTermMemory,
+            recentMessages: history, // Pass history for extracting mentioned characters
+            excludePostHistory: true, // we will append manually to last message
         });
 
         // Handle Impersonation System Prompt Override
@@ -415,6 +417,14 @@ Instructions:
             currentTokenCount += msgTokens;
         }
 
+        // Inject Post-History as a separate System Message
+        if (activePreset?.postHistoryInstructions) {
+            messagesPayload.push({ role: 'system', content: activePreset.postHistoryInstructions });
+        }
+
+        // Insert System Message at the beginning (Message 0)
+        messagesPayload.unshift({ role: 'system', content: systemPrompt });
+
         // Handle Prefill for API
         if (options.prefill && targetRole === 'assistant') {
             const supportsPrefill =
@@ -444,8 +454,8 @@ Instructions:
                     minP: activePreset?.minP,
                     stoppingStrings: activePreset?.stoppingStrings,
                     // Context
-                    systemPrompt,
-                    userPersona: activePersona,
+                    // System prompt is now in messages[0]
+                    systemInstruction: undefined, // Gemini fallback? No, we use messages.
                     enableReasoning: activePreset?.enableReasoning ?? enableReasoning,
                 }),
                 signal: abortControllerRef.current.signal,
@@ -477,10 +487,6 @@ Instructions:
                 // For providers where we DID sends prefill, the chunk acts as continuation.
                 // For providers where we DID NOT, the chunk is the whole start.
                 // We just append chunk to what we have?
-                // Wait, if we provided prefill to Anthropic, it returns ONLY the new text.
-                // If we didn't provide it (OpenAI), it returns the whole text (which shouldn't include prefill matching).
-
-                // So appending is always correct?
                 // Yes, unless OpenAI hallucinates the prefill at start.
 
                 // Special handling for thoughts:
@@ -633,6 +639,8 @@ Instructions:
                 postHistory: activePreset?.postHistoryInstructions,
                 userPersona: activePersona,
                 longTermMemory: character.longTermMemory,
+                recentMessages: messages, // Pass current messages for context
+                excludePostHistory: true,
             });
 
             // Impersonation Override
@@ -645,12 +653,23 @@ Instructions:
             );
             systemPrompt += `\n\n[SYSTEM: ${resolvedImpersonation}]`;
 
+            // Prepare messages
+            const messagesPayload = messages.map(({ role, content }) => ({ role, content }));
+
+            // Inject Post-History as a separate System Message
+            if (activePreset?.postHistoryInstructions) {
+                messagesPayload.push({ role: 'system', content: activePreset.postHistoryInstructions });
+            }
+
+            // Insert System Message at the beginning
+            messagesPayload.unshift({ role: 'system', content: systemPrompt });
+
             // 2. API Call
             const response = await fetch('/api/chat', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    messages: messages.map(({ role, content }) => ({ role, content })),
+                    messages: messagesPayload,
                     provider: activeProvider,
                     model: activeModel,
                     apiKey: currentApiKey,
@@ -712,6 +731,31 @@ Instructions:
             const history = messages.slice(0, msgIndex);
             await triggerAiReponse(history);
         }
+    };
+
+    const handleContinue = async (id: string) => {
+        if (!activeConversationId || !character) return;
+
+        // Find the message
+        const msgIndex = messages.findIndex((m) => m.id === id);
+        if (msgIndex === -1) return;
+
+        const msgToContinue = messages[msgIndex];
+
+        // Only continue assistant messages
+        if (msgToContinue.role !== 'assistant') return;
+
+        // Use the current content as prefill - AI will continue from where it left off
+        const prefill = msgToContinue.content + ' ';
+
+        // Get history up to and including this message's parent (the user message before it)
+        const history = messages.slice(0, msgIndex);
+
+        // Delete the current message so it can be replaced with the continued version
+        deleteMessage(id);
+
+        // Trigger AI with prefill
+        await triggerAiReponse(history, { prefill });
     };
 
     const handleEditMessage = (id: string, newContent: string) => {
@@ -1055,6 +1099,7 @@ Instructions:
                                                     showThoughts={showThoughts}
                                                     onEdit={handleEditMessage}
                                                     onRegenerate={handleRegenerate}
+                                                    onContinue={handleContinue}
                                                     onBranch={handleBranch}
                                                     onDelete={handleDeleteMessage}
                                                     currentBranchIndex={siblingsInfo.currentIndex}

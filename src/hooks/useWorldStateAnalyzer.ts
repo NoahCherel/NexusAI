@@ -88,7 +88,6 @@ export function useWorldStateAnalyzer(): UseWorldStateAnalyzerReturn {
 
             const models = [
                 'deepseek/deepseek-r1-0528:free',
-                'deepseek/deepseek-r1:free',
                 'meta-llama/llama-3.3-70b-instruct:free',
                 'google/gemini-2.0-flash-exp:free',
             ];
@@ -180,7 +179,6 @@ export function useWorldStateAnalyzer(): UseWorldStateAnalyzerReturn {
 
                 const models = [
                     'deepseek/deepseek-r1-0528:free', // Requested Primary
-                    'deepseek/deepseek-r1:free',
                     'google/gemini-2.0-flash-exp:free',
                     'meta-llama/llama-3.3-70b-instruct:free',
                     'qwen/qwen-2.5-72b-instruct:free',

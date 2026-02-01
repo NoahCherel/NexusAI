@@ -12,6 +12,7 @@ import {
     Eye,
     EyeOff,
     AlertTriangle,
+    ArrowRight,
 } from 'lucide-react';
 import { useState, useRef, useEffect } from 'react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -70,6 +71,7 @@ interface ChatBubbleProps {
     showThoughts?: boolean;
     onEdit?: (id: string, newContent: string) => void;
     onRegenerate?: (id: string) => void;
+    onContinue?: (id: string) => void;
     onBranch?: (id: string) => void;
     onDelete?: (id: string) => void;
 
@@ -89,6 +91,7 @@ export function ChatBubble({
     showThoughts = true,
     onEdit,
     onRegenerate,
+    onContinue,
     onBranch,
     onDelete,
     currentBranchIndex = 0,
@@ -290,6 +293,23 @@ export function ChatBubble({
                                         onClick={() => onRegenerate?.(id)}
                                     >
                                         <RefreshCw className="h-3.5 w-3.5" />
+                                    </Button>
+                                </motion.div>
+                            </ActionTooltip>
+                            <ActionTooltip label="Continue">
+                                <motion.div
+                                    variants={buttonVariants}
+                                    initial="rest"
+                                    whileHover="hover"
+                                    whileTap="tap"
+                                >
+                                    <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        className="h-7 w-7 text-muted-foreground hover:text-foreground"
+                                        onClick={() => onContinue?.(id)}
+                                    >
+                                        <ArrowRight className="h-3.5 w-3.5" />
                                     </Button>
                                 </motion.div>
                             </ActionTooltip>

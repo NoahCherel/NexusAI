@@ -46,8 +46,7 @@ export interface APIPreset {
 }
 
 // Default system prompt template with all placeholders
-export const DEFAULT_SYSTEM_PROMPT_TEMPLATE = `You are {{character_name}}.
-
+export const DEFAULT_SYSTEM_PROMPT_TEMPLATE = `About {{character_name}}:
 {{character_description}}
 
 {{character_personality}}
@@ -60,9 +59,10 @@ export const DEFAULT_SYSTEM_PROMPT_TEMPLATE = `You are {{character_name}}.
 
 {{lorebook}}
 
-{{user_bio}}
+About {{user}}: {{user_bio}}
 
-Stay in character at all times. Respond naturally and engagingly.`;
+[System note: Stay in character at all times. Write naturally and engagingly. Do not speak for {{user}}.]`;
+
 
 // Built-in presets
 export const DEFAULT_PRESETS: Omit<APIPreset, 'id' | 'createdAt'>[] = [

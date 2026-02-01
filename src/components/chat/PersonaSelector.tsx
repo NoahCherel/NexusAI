@@ -5,6 +5,7 @@ import { useSettingsStore } from '@/stores/settings-store';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { ScrollArea } from '@/components/ui/scroll-area';
 import {
     Dialog,
     DialogContent,
@@ -127,82 +128,86 @@ export function PersonaSelector() {
                         <div className="px-2 py-1 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
                             Select Persona
                         </div>
-                        {personas.map((persona) => (
-                            <div
-                                key={persona.id}
-                                className={cn(
-                                    'flex items-center gap-2 p-2 rounded-lg cursor-pointer hover:bg-muted transition-colors group',
-                                    activePersonaId === persona.id && 'bg-muted'
-                                )}
-                            >
-                                <div
-                                    className="flex-1 flex items-center gap-2"
-                                    onClick={() => {
-                                        setActivePersonaId(persona.id);
-                                        setOpen(false);
-                                    }}
-                                >
-                                    <Avatar className="h-5 w-5">
-                                        <AvatarImage src={persona.avatar} />
-                                        <AvatarFallback className="text-[9px]">
-                                            {persona.name[0].toUpperCase()}
-                                        </AvatarFallback>
-                                    </Avatar>
-                                    <div className="flex-1 min-w-0">
-                                        <span className="text-xs font-medium truncate block">
-                                            {persona.name}
-                                        </span>
-                                        {persona.bio && (
-                                            <span className="text-[10px] text-muted-foreground truncate hidden sm:block">
-                                                {persona.bio}
-                                            </span>
+                        <ScrollArea className="max-h-[300px]">
+                            <div className="space-y-1">
+                                {personas.map((persona) => (
+                                    <div
+                                        key={persona.id}
+                                        className={cn(
+                                            'flex items-center gap-2 p-2 rounded-lg cursor-pointer hover:bg-muted transition-colors group',
+                                            activePersonaId === persona.id && 'bg-muted'
                                         )}
+                                    >
+                                        <div
+                                            className="flex-1 flex items-center gap-2"
+                                            onClick={() => {
+                                                setActivePersonaId(persona.id);
+                                                setOpen(false);
+                                            }}
+                                        >
+                                            <Avatar className="h-5 w-5">
+                                                <AvatarImage src={persona.avatar} />
+                                                <AvatarFallback className="text-[9px]">
+                                                    {persona.name[0].toUpperCase()}
+                                                </AvatarFallback>
+                                            </Avatar>
+                                            <div className="flex-1 min-w-0">
+                                                <span className="text-xs font-medium truncate block">
+                                                    {persona.name}
+                                                </span>
+                                                {persona.bio && (
+                                                    <span className="text-[10px] text-muted-foreground truncate hidden sm:block">
+                                                        {persona.bio}
+                                                    </span>
+                                                )}
+                                            </div>
+                                        </div>
+                                        <div className="sm:hidden flex items-center gap-2 pr-1 shrink-0">
+                                            <Button
+                                                variant="ghost"
+                                                size="icon"
+                                                className="h-9 w-9 bg-muted/50 rounded-full"
+                                                onClick={() => openEditDialog(persona)}
+                                            >
+                                                <Edit2 className="h-3.5 w-3.5" />
+                                            </Button>
+                                            <Button
+                                                variant="ghost"
+                                                size="icon"
+                                                className="h-9 w-9 bg-destructive/10 text-destructive rounded-full"
+                                                onClick={() => handleDelete(persona.id, persona.name)}
+                                            >
+                                                <Trash2 className="h-3.5 w-3.5" />
+                                            </Button>
+                                        </div>
+                                        <div className="hidden sm:flex group-hover:flex items-center gap-0.5 shrink-0 ml-2">
+                                            <Button
+                                                variant="ghost"
+                                                size="icon"
+                                                className="h-5 w-5"
+                                                onClick={() => openEditDialog(persona)}
+                                            >
+                                                <Edit2 className="h-2.5 w-2.5" />
+                                            </Button>
+                                            <Button
+                                                variant="ghost"
+                                                size="icon"
+                                                className="h-5 w-5 hover:text-destructive"
+                                                onClick={() => handleDelete(persona.id, persona.name)}
+                                            >
+                                                <Trash2 className="h-2.5 w-2.5" />
+                                            </Button>
+                                        </div>
                                     </div>
-                                </div>
-                                <div className="sm:hidden flex items-center gap-2 pr-1 shrink-0">
-                                    <Button
-                                        variant="ghost"
-                                        size="icon"
-                                        className="h-9 w-9 bg-muted/50 rounded-full"
-                                        onClick={() => openEditDialog(persona)}
-                                    >
-                                        <Edit2 className="h-3.5 w-3.5" />
-                                    </Button>
-                                    <Button
-                                        variant="ghost"
-                                        size="icon"
-                                        className="h-9 w-9 bg-destructive/10 text-destructive rounded-full"
-                                        onClick={() => handleDelete(persona.id, persona.name)}
-                                    >
-                                        <Trash2 className="h-3.5 w-3.5" />
-                                    </Button>
-                                </div>
-                                <div className="hidden sm:flex group-hover:flex items-center gap-0.5 shrink-0 ml-2">
-                                    <Button
-                                        variant="ghost"
-                                        size="icon"
-                                        className="h-5 w-5"
-                                        onClick={() => openEditDialog(persona)}
-                                    >
-                                        <Edit2 className="h-2.5 w-2.5" />
-                                    </Button>
-                                    <Button
-                                        variant="ghost"
-                                        size="icon"
-                                        className="h-5 w-5 hover:text-destructive"
-                                        onClick={() => handleDelete(persona.id, persona.name)}
-                                    >
-                                        <Trash2 className="h-2.5 w-2.5" />
-                                    </Button>
-                                </div>
-                            </div>
-                        ))}
+                                ))}
 
-                        {personas.length === 0 && (
-                            <div className="px-2 py-3 text-xs text-muted-foreground italic text-center">
-                                No personas yet
+                                {personas.length === 0 && (
+                                    <div className="px-2 py-3 text-xs text-muted-foreground italic text-center">
+                                        No personas yet
+                                    </div>
+                                )}
                             </div>
-                        )}
+                        </ScrollArea>
 
                         <Button
                             variant="ghost"

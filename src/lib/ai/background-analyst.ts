@@ -21,9 +21,13 @@ Your task is to analyze the latest message/action and determine if it changes th
 
 CRITICAL INSTRUCTIONS FOR RELATIONSHIPS:
 - You must consider the User's Persona (Role) and the context provided in "User Reference".
-- Hostile/Aggressive actions (attacking, insulting, threatening, declaring war) MUST result in NEGATIVE relationship changes (e.g., -10, -20).
-- Friendly/Helpful actions (giving gifts, saving, complimenting, allied speech) result in POSITIVE changes (e.g., +5, +10).
-- If NPCs are rallying AGAINST the User (e.g., "We shall vanquish him!"), this represents a NEGATIVE shift in their affinity towards the User (they hate the user more).
+- be REALISTIC. Relationships evolve slowly.
+- Minor friendly interactions (agreement, small talk) should only yield +1 or +2.
+- Minor hostile interactions (snark, disagreement) should only yield -1 or -2.
+- Reserve large changes (+/- 10 or more) for SIGNIFICANT events only (saving a life, betrayal, murder).
+- Hostile/Aggressive actions (attacking, insulting, threatening) MUST result in NEGATIVE relationship changes.
+- Friendly/Helpful actions (giving gifts, saving, complimenting) result in POSITIVE changes.
+- If NPCs are rallying AGAINST the User, this represents a NEGATIVE shift.
 - Do NOT assume interaction implies friendship. Use the context.
 
 RULES:

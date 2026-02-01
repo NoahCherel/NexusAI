@@ -42,13 +42,6 @@ export const DEFAULT_MODELS: CustomModel[] = [
         isFree: true,
     },
     {
-        id: 'deepseek-r1',
-        name: 'DeepSeek R1 (Free)',
-        modelId: 'deepseek/deepseek-r1:free',
-        provider: 'openrouter',
-        isFree: true,
-    },
-    {
         id: 'deepseek-r1-0528',
         name: 'DeepSeek R1 0528 (Free)',
         modelId: 'deepseek/deepseek-r1-0528:free',

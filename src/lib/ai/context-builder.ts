@@ -88,31 +88,56 @@ export function getActiveLorebookEntries(
 
 /**
  * Formats world state for template insertion
+ * Now uses a cleaner format without heavy section headers
  */
-function formatWorldState(worldState: WorldState): string {
-    const parts = [
-        '--- CURRENT WORLD STATE ---',
-        worldState.location ? `Location: ${worldState.location}` : null,
-        worldState.inventory.length > 0 ? `Inventory: ${worldState.inventory.join(', ')}` : null,
-        Object.keys(worldState.relationships).length > 0
-            ? `Relationships: ${Object.entries(worldState.relationships)
-                .map(([name, val]) => `${name}: ${val}%`)
-                .join(', ')}`
-            : null,
-    ].filter(Boolean);
+function formatWorldState(worldState: WorldState, recentCharacterNames?: string[]): string {
+    const parts: string[] = [];
 
-    return parts.length > 1 ? parts.join('\n') : '';
+    if (worldState.location) {
+        parts.push(`Location: ${worldState.location}`);
+    }
+
+    // Only include relationships for characters mentioned recently (if provided)
+    // Format: "Name: X% (explanation)"
+    if (Object.keys(worldState.relationships).length > 0) {
+        const relationshipEntries = Object.entries(worldState.relationships)
+            .filter(([name]) => !recentCharacterNames || recentCharacterNames.includes(name))
+            .map(([name, val]) => {
+                // Add explanation based on value
+                let explanation = '';
+                if (val <= -75) explanation = 'hated';
+                else if (val <= -50) explanation = 'despised';
+                else if (val <= -25) explanation = 'disliked';
+                else if (val < 0) explanation = 'wary';
+                else if (val === 0) explanation = 'neutral';
+                else if (val <= 25) explanation = 'friendly';
+                else if (val <= 50) explanation = 'liked';
+                else if (val <= 75) explanation = 'trusted';
+                else explanation = 'adored';
+                return `${name}: ${val}% (${explanation})`;
+            });
+
+        if (relationshipEntries.length > 0) {
+            parts.push(`Relationships: ${relationshipEntries.join(', ')}`);
+        }
+    }
+
+    if (worldState.inventory && worldState.inventory.length > 0) {
+        parts.push(`Inventory: ${worldState.inventory.join(', ')}`);
+    }
+
+    return parts.length > 0 ? parts.join('\n') : '';
 }
 
 /**
- * Formats lorebook entries for template insertion
+ * Formats lorebook entries for template insertion (character-focused)
  */
 function formatLorebookEntries(entries: LorebookEntry[]): string {
     if (entries.length === 0) return '';
 
-    const loreSection = entries.map((e) => `[Info about ${e.keys[0]}: ${e.content}]`).join('\n');
+    const loreSection = entries.map((e) => `[About ${e.keys[0]}: ${e.content}]`).join('\n');
 
-    return `--- WORLD KNOWLEDGE ---\n${loreSection}`;
+    return loreSection;
 }
 
 /**
@@ -127,12 +152,24 @@ export function resolveSystemPromptTemplate(
     worldState: WorldState,
     activeLorebookEntries: LorebookEntry[],
     userPersona?: { name: string; bio: string; description?: string } | null,
-    longTermMemory?: string[]
+    longTermMemory?: string[],
+    recentMessages?: Message[]
 ): string {
     const formattedMemory =
         longTermMemory && longTermMemory.length > 0
-            ? `--- LONG TERM MEMORY ---\n${longTermMemory.join('\n')}`
+            ? `The story so far:\n${longTermMemory.join('\n')}`
             : '';
+
+    // Extract character names mentioned in recent messages (last 4)
+    // for filtering relationships
+    let recentCharacterNames: string[] | undefined;
+    if (recentMessages && recentMessages.length > 0) {
+        const last4 = recentMessages.slice(-4);
+        const combinedText = last4.map(m => m.content).join(' ').toLowerCase();
+        // Get all relationship names and filter to those mentioned
+        recentCharacterNames = Object.keys(worldState.relationships)
+            .filter(name => combinedText.includes(name.toLowerCase()));
+    }
 
     const replacements: Record<string, string> = {
         '{{character_name}}': character.name,
@@ -141,7 +178,7 @@ export function resolveSystemPromptTemplate(
         '{{character_personality}}': character.personality || '',
         '{{scenario}}': character.scenario || '',
         '{{first_message}}': character.first_mes || '',
-        '{{world_state}}': formatWorldState(worldState),
+        '{{world_state}}': formatWorldState(worldState, recentCharacterNames),
         '{{lorebook}}': formatLorebookEntries(activeLorebookEntries),
         '{{memory}}': formattedMemory,
         '{{long_term_memory}}': formattedMemory, // Alias
@@ -166,6 +203,12 @@ export function resolveSystemPromptTemplate(
  * Builds the final system prompt.
  * Joins Pre-History + Template + Post-History.
  */
+/**
+ * Builds the final system prompt.
+ * Joins Pre-History + Template + Post-History.
+ * 
+ * @param excludePostHistory - If true, post-history is not appended (caller handles it manually, e.g. appending to last message)
+ */
 export function buildSystemPrompt(
     character: CharacterCard,
     worldState: WorldState,
@@ -176,6 +219,8 @@ export function buildSystemPrompt(
         postHistory?: string;
         userPersona?: { name: string; bio: string; description?: string } | null;
         longTermMemory?: string[];
+        recentMessages?: Message[];
+        excludePostHistory?: boolean;
     } = {}
 ): string {
     const promptTemplate = options.template || DEFAULT_SYSTEM_PROMPT_TEMPLATE;
@@ -185,10 +230,16 @@ export function buildSystemPrompt(
         worldState,
         activeLorebookEntries,
         options.userPersona,
-        options.longTermMemory
+        options.longTermMemory,
+        options.recentMessages
     );
 
-    const parts = [options.preHistory, resolvedBody, options.postHistory].filter(Boolean);
+    // If excludePostHistory is true, we don't include it here
+    const parts = [
+        options.preHistory,
+        resolvedBody,
+        options.excludePostHistory ? null : options.postHistory
+    ].filter(Boolean);
 
     let prompt = parts.join('\n\n');
 
@@ -200,13 +251,14 @@ export function buildSystemPrompt(
         promptTemplate.includes('{{user_bio}}') || promptTemplate.includes('{{user_description}}');
 
     if (!hasMemory && options.longTermMemory && options.longTermMemory.length > 0) {
-        prompt += `\n\n--- LONG TERM MEMORY ---\n${options.longTermMemory.join('\n')}`;
+        prompt += `\n\nThe story so far:\n${options.longTermMemory.join('\n')}`;
     }
 
     if (!hasUserBio && options.userPersona?.bio) {
         const bio = options.userPersona.bio;
         const desc = options.userPersona.description || bio;
-        prompt += `\n\n--- USER PERSONA ---\nBio: ${bio}\nDescription: ${desc}`;
+        const personaText = desc !== bio ? `${bio} ${desc}` : bio;
+        prompt += `\n\nAbout ${options.userPersona.name || 'User'}: ${personaText}`;
     }
 
     // Add reinforcement if not already present and custom template not used (heuristic)

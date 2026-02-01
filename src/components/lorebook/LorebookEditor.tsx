@@ -209,7 +209,7 @@ export function LorebookEditor({ onClose }: { onClose: () => void }) {
                         <div className="flex-1 flex flex-col p-4 sm:p-6 gap-6 overflow-y-auto">
                             <div className="space-y-3">
                                 <label className="text-[10px] font-bold uppercase tracking-widest text-primary/70">
-                                    Keywords (comma separated)
+                                    Character Names / Triggers
                                 </label>
                                 <Input
                                     className="bg-muted/5 focus-visible:ring-primary/20 h-10 font-medium"
@@ -223,14 +223,14 @@ export function LorebookEditor({ onClose }: { onClose: () => void }) {
                                                 .filter(Boolean),
                                         })
                                     }
-                                    placeholder="e.g. Castle, King, Magic"
+                                    placeholder="e.g. Erza, Natsu, Gray"
                                 />
                             </div>
 
                             <div className="flex-1 flex flex-col gap-3 min-h-0">
                                 <div className="flex items-center justify-between">
                                     <label className="text-[10px] font-bold uppercase tracking-widest text-primary/70">
-                                        Entry Content
+                                        Character Description
                                     </label>
                                     <span className="text-[10px] text-muted-foreground font-mono">
                                         {currentEntry.content.length} chars
@@ -245,7 +245,7 @@ export function LorebookEditor({ onClose }: { onClose: () => void }) {
                                             content: e.target.value,
                                         })
                                     }
-                                    placeholder="Describe the lore item here..."
+                                    placeholder="Describe the character's personality, appearance, abilities, and role in the story..."
                                 />
                             </div>
 

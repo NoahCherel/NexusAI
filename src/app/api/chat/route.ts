@@ -39,17 +39,24 @@ export async function POST(req: NextRequest) {
 
         const origin = req.headers.get('origin') || 'http://localhost:3000';
 
-        // Build system message
-        let effectiveSystem = systemPrompt || 'You are a helpful AI assistant.';
-        if (userPersona) {
-            effectiveSystem += `\n\n[USER INFO]\nName: ${userPersona.name}\nBio: ${userPersona.bio}\n\n[INSTRUCTION]\nAdapt your responses to address the user as "${userPersona.name}" and take into account their bio.`;
+        // Build system message (only if provided explicit systemPrompt or userPersona)
+        const fullMessages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [...messages];
+
+        let effectiveSystem = '';
+        if (systemPrompt) {
+            effectiveSystem = systemPrompt;
         }
 
-        // Build messages array with system prompt
-        const fullMessages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
-            { role: 'system', content: effectiveSystem },
-            ...messages,
-        ];
+        if (userPersona) {
+            // If we have an existing system prompt, append. If not, start one.
+            const prefix = effectiveSystem ? '\n\n' : '';
+            effectiveSystem += `${prefix}[USER INFO]\nName: ${userPersona.name}\nBio: ${userPersona.bio}\n\n[INSTRUCTION]\nAdapt your responses to address the user as "${userPersona.name}" and take into account their bio.`;
+        }
+
+        // Only prepend a system message if we actually constructed one
+        if (effectiveSystem) {
+            fullMessages.unshift({ role: 'system', content: effectiveSystem });
+        }
 
         // Determine effective model ID
         let effectiveModelId = model;
