@@ -36,16 +36,16 @@ export async function extractLorebookEntries(
 
     const existingKeysStr =
         existingKeys.length > 0
-            ? `Existing keys to SKIP (do not create entries for these): ${existingKeys.join(', ')}`
+            ? `Existing keys (you may still extract NEW info about these): ${existingKeys.join(', ')}`
             : 'No existing keys.';
 
-    const systemPrompt = `You are a world-building assistant. Analyze the AI response and extract NEW world facts only.
+    const systemPrompt = `You are a world-building assistant. Analyze the AI response and extract world facts.
 
 CRITICAL RULES:
 1. Extract ONLY Proper Nouns (Named Characters, Named Unique Locations, Named Unique Artifacts).
 2. Do NOT create entries for generic objects, traps, items, formations, or concepts.
-3. SKIP any entities that already exist in the existing keys list below.
-4. Be VERY concise - each entry max 2-3 sentences.
+3. Extract NEW information about entities, including entities that already exist in the lorebook.
+4. Be VERY concise - each entry max 2-3 sentences describing only the NEW facts revealed.
 5. Categorize: "character" for persons, "location" for places, "notion" for groups/organizations.
 
 **MOST IMPORTANT - ONE ENTITY PER ENTRY:**
@@ -54,14 +54,15 @@ CRITICAL RULES:
 - NEVER put multiple different characters/entities in the same entry
 - If two characters interact, create TWO separate entries - one for each character
 - Bad example: {"keys":["Noah","Komoaru"],"content":"They escaped together"} ❌
-- Good example: {"keys":["Komoaru"],"content":"A former thief who allied with Noah"} ✓
+- Good example: {"keys":["Komoaru"],"content":"Revealed to have ice magic abilities"} ✓
 
-6. If there are no NEW entities to extract, return an empty array: []
+6. Only extract genuinely NEW information - don't repeat what's already known.
+7. If there is no NEW information to extract, return an empty array: []
 
 ${existingKeysStr}
 
 Output format (JSON array only):
-[{"keys":["EntityName","AltName"],"content":"Description of this ONE entity","priority":10,"category":"character"}]`;
+[{"keys":["EntityName","AltName"],"content":"NEW facts about this entity","priority":10,"category":"character"}]`;
 
     try {
         const response = await fetch('/api/chat', {

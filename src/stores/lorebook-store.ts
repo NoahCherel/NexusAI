@@ -148,14 +148,48 @@ export const useLorebookStore = create<LorebookState>()((set, get) => ({
     },
 
     // AI-generated entry (append-only, blockchain-style)
+    // If entry matches existing keys, APPEND the new content to the existing entry
     addAIEntry: async (entry) => {
         const state = get();
         if (!state.activeLorebook || !state.activeCharacterId) return;
 
-        // Simply append the new entry
+        // Check if any existing entry shares a key with the new entry
+        const currentEntries = [...state.activeLorebook.entries];
+        const existingEntryIndex = currentEntries.findIndex((existing) =>
+            existing.keys.some((existingKey) =>
+                entry.keys.some(
+                    (newKey) => newKey.toLowerCase() === existingKey.toLowerCase()
+                )
+            )
+        );
+
+        let historyType: 'ai_add' | 'ai_append' = 'ai_add';
+        let finalEntry: LorebookEntry;
+
+        if (existingEntryIndex !== -1) {
+            // APPEND to existing entry (never overwrite)
+            const existingEntry = currentEntries[existingEntryIndex];
+
+            // Append new content to the end
+            const appendedContent = existingEntry.content.trim() + '\n\n' + entry.content.trim();
+
+            finalEntry = {
+                ...existingEntry,
+                content: appendedContent,
+                priority: Math.max(existingEntry.priority || 10, entry.priority || 10),
+            };
+
+            currentEntries[existingEntryIndex] = finalEntry;
+            historyType = 'ai_append';
+        } else {
+            // New entry
+            finalEntry = entry;
+            currentEntries.push(entry);
+        }
+
         const updatedLorebook: Lorebook = {
             ...state.activeLorebook,
-            entries: [...state.activeLorebook.entries, entry],
+            entries: currentEntries,
         };
 
         // Get the last history entry for chain linking
@@ -166,8 +200,8 @@ export const useLorebookStore = create<LorebookState>()((set, get) => ({
             id: generateId(),
             characterId: state.activeCharacterId,
             timestamp: Date.now(),
-            type: 'ai_add',
-            entryData: entry,
+            type: historyType,
+            entryData: finalEntry,
             previousEntryId: lastHistoryEntry?.id,
         };
 
@@ -191,24 +225,60 @@ export const useLorebookStore = create<LorebookState>()((set, get) => ({
     },
 
     // Batch add AI entries atomically (prevents race conditions)
+    // If an entry matches existing keys, APPEND the new content to the existing entry
     addAIEntries: async (entries) => {
         const state = get();
         if (!state.activeLorebook || !state.activeCharacterId || entries.length === 0) return;
 
-        // Simply append all new entries
-        const newEntries = [...state.activeLorebook.entries, ...entries];
+        // Work with a copy of current entries
+        const currentEntries = [...state.activeLorebook.entries];
         const historyEntries: LorebookHistoryEntry[] = [];
         const lastHistoryEntry = state.history[state.history.length - 1];
         let previousId = lastHistoryEntry?.id;
 
-        // Create history entries for each new entry
         for (const entry of entries) {
+            // Check if any existing entry shares a key with the new entry
+            const existingEntryIndex = currentEntries.findIndex((existing) =>
+                existing.keys.some((existingKey) =>
+                    entry.keys.some(
+                        (newKey) => newKey.toLowerCase() === existingKey.toLowerCase()
+                    )
+                )
+            );
+
+            let historyType: 'ai_add' | 'ai_append' = 'ai_add';
+            let finalEntry: typeof entry;
+
+            if (existingEntryIndex !== -1) {
+                // APPEND to existing entry (never overwrite)
+                const existingEntry = currentEntries[existingEntryIndex];
+
+                // Append new content to the end
+                const appendedContent = existingEntry.content.trim() + '\n\n' + entry.content.trim();
+
+                finalEntry = {
+                    ...existingEntry,
+                    content: appendedContent,
+                    // Keep the higher priority
+                    priority: Math.max(existingEntry.priority || 10, entry.priority || 10),
+                };
+
+                // Update the entry in place
+                currentEntries[existingEntryIndex] = finalEntry;
+                historyType = 'ai_append';
+            } else {
+                // New entry - add to list
+                finalEntry = entry;
+                currentEntries.push(entry);
+            }
+
+            // Create history entry
             const historyEntry: LorebookHistoryEntry = {
                 id: generateId(),
                 characterId: state.activeCharacterId!,
                 timestamp: Date.now(),
-                type: 'ai_add',
-                entryData: entry,
+                type: historyType,
+                entryData: finalEntry,
                 previousEntryId: previousId,
             };
             historyEntries.push(historyEntry);
@@ -217,7 +287,7 @@ export const useLorebookStore = create<LorebookState>()((set, get) => ({
 
         const updatedLorebook: Lorebook = {
             ...state.activeLorebook,
-            entries: newEntries,
+            entries: currentEntries,
         };
 
         // Persist history entries to IndexedDB
