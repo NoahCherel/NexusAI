@@ -36,24 +36,32 @@ export async function extractLorebookEntries(
 
     const existingKeysStr =
         existingKeys.length > 0
-            ? `Existing keys to avoid duplicating: ${existingKeys.join(', ')}`
+            ? `Existing keys to SKIP (do not create entries for these): ${existingKeys.join(', ')}`
             : 'No existing keys.';
 
-    const systemPrompt = `You are a world-building assistant. Analyze the AI response and extract/update world facts.
+    const systemPrompt = `You are a world-building assistant. Analyze the AI response and extract NEW world facts only.
 
-Rules:
+CRITICAL RULES:
 1. Extract ONLY Proper Nouns (Named Characters, Named Unique Locations, Named Unique Artifacts).
-2. Do NOT create entries for generic objects, traps, items, formations, or concepts (e.g., 'Spiked wall trap', 'Diamond formation', 'Iron Sword').
-3. If info relates to an existing key (from the list below), USE THAT KEY to allow updates/merging.
+2. Do NOT create entries for generic objects, traps, items, formations, or concepts.
+3. SKIP any entities that already exist in the existing keys list below.
 4. Be VERY concise - each entry max 2-3 sentences.
-5. Categorize each entry as: "character" (for persons) or "location" (for named places). Only use "notion" for named unique concepts/groups (e.g. "The Jedi Order").
-6. IMPORTANT: Create SEPARATE entries for each distinct character. Do NOT bundle multiple characters into a single entry.
-7. Return ONLY a valid JSON array containing ALL extracted entries. Do NOT split into multiple arrays.
+5. Categorize: "character" for persons, "location" for places, "notion" for groups/organizations.
+
+**MOST IMPORTANT - ONE ENTITY PER ENTRY:**
+- Each entry must be about EXACTLY ONE entity (one character, one location, etc.)
+- The "keys" array should contain ONLY variations of that ONE entity's name (e.g., ["Komoaru", "Komo"] or ["Knight-Captain Ruyijon", "Ruyijon"])
+- NEVER put multiple different characters/entities in the same entry
+- If two characters interact, create TWO separate entries - one for each character
+- Bad example: {"keys":["Noah","Komoaru"],"content":"They escaped together"} ❌
+- Good example: {"keys":["Komoaru"],"content":"A former thief who allied with Noah"} ✓
+
+6. If there are no NEW entities to extract, return an empty array: []
 
 ${existingKeysStr}
 
 Output format (JSON array only):
-[{"keys":["keyword1","keyword2"],"content":"Brief description","priority":10,"category":"character"}]`;
+[{"keys":["EntityName","AltName"],"content":"Description of this ONE entity","priority":10,"category":"character"}]`;
 
     try {
         const response = await fetch('/api/chat', {
