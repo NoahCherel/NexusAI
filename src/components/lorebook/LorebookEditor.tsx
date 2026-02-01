@@ -1,12 +1,13 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useLorebookStore, useCharacterStore } from '@/stores';
+import { useLorebookStore, useCharacterStore, useSettingsStore } from '@/stores';
+import { decryptApiKey } from '@/lib/crypto';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Plus, Trash2, Save, X, Search, Book, ChevronLeft } from 'lucide-react';
+import { Plus, Trash2, Save, X, Search, Book, ChevronLeft, Sparkles, Loader2 } from 'lucide-react';
 import type { LorebookEntry } from '@/types';
 import { cn } from '@/lib/utils';
 import {
@@ -25,6 +26,7 @@ export function LorebookEditor({ onClose }: { onClose: () => void }) {
     const [searchQuery, setSearchQuery] = useState('');
     const [isMobile, setIsMobile] = useState(false);
     const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
+    const [isSummarizing, setIsSummarizing] = useState(false);
 
     // Character Store Integration
     const { getActiveCharacter, updateCharacter } = useCharacterStore();
@@ -55,6 +57,93 @@ export function LorebookEditor({ onClose }: { onClose: () => void }) {
         };
         addEntry(newEntry);
         setSelectedEntryIndex(activeLorebook?.entries.length || 0);
+    };
+
+    const handleSummarize = async () => {
+        if (selectedEntryIndex === null || isSummarizing) return;
+
+        // Get the entry directly from the store
+        const entry = activeLorebook?.entries[selectedEntryIndex];
+        if (!entry) return;
+
+        setIsSummarizing(true);
+        try {
+            // Get API key from settings
+            const { apiKeys } = useSettingsStore.getState();
+            const keyConfig = apiKeys.find((k) => k.provider === 'openrouter');
+            let apiKey = '';
+            if (keyConfig) {
+                apiKey = await decryptApiKey(keyConfig.encryptedKey);
+            }
+
+            // Direct call to OpenRouter API
+            const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${apiKey}`,
+                    'HTTP-Referer': window.location.origin,
+                },
+                body: JSON.stringify({
+                    model: 'tngtech/deepseek-r1t2-chimera:free',
+                    messages: [
+                        {
+                            role: 'system',
+                            content: 'You are a lorebook entry summarizer. Condense the following text while keeping ALL essential information: character traits, relationships, abilities, appearance, and key facts. Be concise but complete. Output ONLY the condensed text, nothing else.',
+                        },
+                        {
+                            role: 'user',
+                            content: `Summarize this lorebook entry:\n\n${entry.content}`,
+                        },
+                    ],
+                    temperature: 0.3,
+                    max_tokens: 2000,
+                    stream: true,
+                }),
+            });
+
+            if (!response.ok) throw new Error('Summarization failed');
+
+            const reader = response.body?.getReader();
+            if (!reader) throw new Error('No reader');
+
+            const decoder = new TextDecoder();
+            let summary = '';
+
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+
+                const chunk = decoder.decode(value, { stream: true });
+                const lines = chunk.split('\n').filter((line) => line.startsWith('data: '));
+
+                for (const line of lines) {
+                    const data = line.slice(6);
+                    if (data === '[DONE]') continue;
+                    try {
+                        const parsed = JSON.parse(data);
+                        const content = parsed.choices?.[0]?.delta?.content;
+                        if (content) summary += content;
+                    } catch {
+                        // Ignore parsing errors
+                    }
+                }
+            }
+
+            // Clean up summary (remove thoughts if any)
+            const cleanSummary = summary.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+
+            if (cleanSummary && cleanSummary.length < entry.content.length) {
+                updateEntry(selectedEntryIndex, {
+                    ...entry,
+                    content: cleanSummary,
+                });
+            }
+        } catch (error) {
+            console.error('Summarization error:', error);
+        } finally {
+            setIsSummarizing(false);
+        }
     };
 
     const filteredEntries =
@@ -145,11 +234,18 @@ export function LorebookEditor({ onClose }: { onClose: () => void }) {
                     <div className="flex-1 overflow-y-auto min-h-0 custom-scrollbar">
                         <div className="flex flex-col p-2 gap-1.5 pt-3">
                             {filteredEntries.map(({ entry, index }) => (
-                                <button
+                                <div
                                     key={index}
+                                    role="button"
+                                    tabIndex={0}
                                     onClick={() => setSelectedEntryIndex(index)}
+                                    onKeyDown={(e) => {
+                                        if (e.key === 'Enter' || e.key === ' ') {
+                                            setSelectedEntryIndex(index);
+                                        }
+                                    }}
                                     className={cn(
-                                        'text-left p-2.5 rounded-lg text-xs sm:text-sm transition-all flex items-center justify-between group h-11 shrink-0',
+                                        'text-left p-2.5 rounded-lg text-xs sm:text-sm transition-all flex items-center justify-between group h-11 shrink-0 cursor-pointer',
                                         selectedEntryIndex === index
                                             ? 'bg-primary text-primary-foreground shadow-md shadow-primary/20 translate-x-1'
                                             : 'hover:bg-muted/80 text-muted-foreground hover:text-foreground'
@@ -182,7 +278,7 @@ export function LorebookEditor({ onClose }: { onClose: () => void }) {
                                             <Trash2 className="w-3.5 h-3.5" />
                                         </Button>
                                     </div>
-                                </button>
+                                </div>
                             ))}
                             {filteredEntries.length === 0 && (
                                 <div className="text-center py-12 px-6">
@@ -232,9 +328,26 @@ export function LorebookEditor({ onClose }: { onClose: () => void }) {
                                     <label className="text-[10px] font-bold uppercase tracking-widest text-primary/70">
                                         Character Description
                                     </label>
-                                    <span className="text-[10px] text-muted-foreground font-mono">
-                                        {currentEntry.content.length} chars
-                                    </span>
+                                    <div className="flex items-center gap-2">
+                                        <Button
+                                            variant="ghost"
+                                            size="sm"
+                                            onClick={handleSummarize}
+                                            disabled={isSummarizing || currentEntry.content.length < 100}
+                                            className="h-7 gap-1.5 text-xs text-primary/70 hover:text-primary hover:bg-primary/10"
+                                            title="AI-powered summarization to reduce token usage"
+                                        >
+                                            {isSummarizing ? (
+                                                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                            ) : (
+                                                <Sparkles className="w-3.5 h-3.5" />
+                                            )}
+                                            Summarize
+                                        </Button>
+                                        <span className="text-[10px] text-muted-foreground font-mono">
+                                            {currentEntry.content.length} chars
+                                        </span>
+                                    </div>
                                 </div>
                                 <Textarea
                                     className="flex-1 min-h-[250px] sm:min-h-[300px] resize-none font-sans text-sm leading-relaxed p-4 bg-muted/5 focus-visible:ring-primary/20"
