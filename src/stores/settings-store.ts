@@ -167,6 +167,7 @@ interface SettingsState {
     showThoughts: boolean;
     showWorldState: boolean;
     immersiveMode: boolean;
+    lorebookAutoExtract: boolean;
 
     // Actions
     setApiKey: (config: ApiKeyConfig) => void;
@@ -189,6 +190,7 @@ interface SettingsState {
     setShowThoughts: (show: boolean) => void;
     setShowWorldState: (show: boolean) => void;
     setImmersiveMode: (immersive: boolean) => void;
+    setLorebookAutoExtract: (enabled: boolean) => void;
 
     // Preset Actions
     addPreset: (preset: APIPreset) => void;
@@ -218,6 +220,7 @@ export const useSettingsStore = create<SettingsState>()(
             showThoughts: true,
             showWorldState: true,
             immersiveMode: false,
+            lorebookAutoExtract: true,
 
             // Actions
             setApiKey: (config) =>
@@ -266,6 +269,7 @@ export const useSettingsStore = create<SettingsState>()(
             setShowThoughts: (showThoughts) => set({ showThoughts }),
             setShowWorldState: (showWorldState) => set({ showWorldState }),
             setImmersiveMode: (immersiveMode) => set({ immersiveMode }),
+            setLorebookAutoExtract: (lorebookAutoExtract) => set({ lorebookAutoExtract }),
 
             // Preset Actions
             addPreset: (preset) =>

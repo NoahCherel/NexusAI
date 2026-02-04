@@ -6,8 +6,7 @@ import { decryptApiKey } from '@/lib/crypto';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
-import { ScrollArea } from '@/components/ui/scroll-area';
-import { Plus, Trash2, Save, X, Search, Book, ChevronLeft, Sparkles, Loader2 } from 'lucide-react';
+import { Plus, Trash2, Save, X, Search, Book, ChevronLeft, Sparkles, Loader2, Check, Inbox } from 'lucide-react';
 import type { LorebookEntry } from '@/types';
 import { cn } from '@/lib/utils';
 import {
@@ -20,13 +19,15 @@ import {
 } from '@/components/ui/dialog';
 
 export function LorebookEditor({ onClose }: { onClose: () => void }) {
-    const { activeLorebook, addEntry, updateEntry, deleteEntry } = useLorebookStore();
+    const { activeLorebook, addEntry, updateEntry, deleteEntry, pendingSuggestions, acceptSuggestion, rejectSuggestion } =
+        useLorebookStore();
 
     const [selectedEntryIndex, setSelectedEntryIndex] = useState<number | null>(null);
     const [searchQuery, setSearchQuery] = useState('');
     const [isMobile, setIsMobile] = useState(false);
     const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
     const [isSummarizing, setIsSummarizing] = useState(false);
+    const [viewMode, setViewMode] = useState<'entries' | 'suggestions'>('entries');
 
     // Character Store Integration
     const { getActiveCharacter, updateCharacter } = useCharacterStore();
@@ -231,66 +232,153 @@ export function LorebookEditor({ onClose }: { onClose: () => void }) {
                         </Button>
                     </div>
 
-                    <div className="flex-1 overflow-y-auto min-h-0 custom-scrollbar">
-                        <div className="flex flex-col p-2 gap-1.5 pt-3">
-                            {filteredEntries.map(({ entry, index }) => (
-                                <div
-                                    key={index}
-                                    role="button"
-                                    tabIndex={0}
-                                    onClick={() => setSelectedEntryIndex(index)}
-                                    onKeyDown={(e) => {
-                                        if (e.key === 'Enter' || e.key === ' ') {
-                                            setSelectedEntryIndex(index);
-                                        }
-                                    }}
-                                    className={cn(
-                                        'text-left p-2.5 rounded-lg text-xs sm:text-sm transition-all flex items-center justify-between group h-11 shrink-0 cursor-pointer',
-                                        selectedEntryIndex === index
-                                            ? 'bg-primary text-primary-foreground shadow-md shadow-primary/20 translate-x-1'
-                                            : 'hover:bg-muted/80 text-muted-foreground hover:text-foreground'
-                                    )}
-                                >
-                                    <span className="truncate font-semibold px-1 flex-1">
-                                        {entry.keys[0] || 'Untitled'}
-                                    </span>
-                                    <div className="flex items-center gap-1.5 opacity-60">
-                                        {entry.keys.length > 1 && (
-                                            <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-black/10">
-                                                +{entry.keys.length - 1}
-                                            </span>
-                                        )}
-                                        {!entry.enabled && (
-                                            <div className="w-1.5 h-1.5 rounded-full bg-destructive" />
-                                        )}
-                                        <Button
-                                            variant="ghost"
-                                            size="icon"
-                                            className="h-6 w-6 opacity-60 hover:opacity-100 hover:bg-destructive/10 hover:text-destructive"
-                                            onClick={(e) => {
-                                                e.stopPropagation();
-                                                deleteEntry(index);
-                                                if (selectedEntryIndex === index) {
-                                                    setSelectedEntryIndex(null);
-                                                }
-                                            }}
-                                        >
-                                            <Trash2 className="w-3.5 h-3.5" />
-                                        </Button>
-                                    </div>
-                                </div>
-                            ))}
-                            {filteredEntries.length === 0 && (
-                                <div className="text-center py-12 px-6">
-                                    <div className="bg-muted/20 w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-3">
-                                        <Search className="w-6 h-6 opacity-20" />
-                                    </div>
-                                    <p className="text-muted-foreground text-xs font-medium">
-                                        No lore entries found
-                                    </p>
-                                </div>
+                    <div className="flex border-b border-border/50">
+                        <button
+                            onClick={() => setViewMode('entries')}
+                            className={cn(
+                                'flex-1 py-2 text-xs font-medium border-b-2 transition-colors',
+                                viewMode === 'entries'
+                                    ? 'border-primary text-primary bg-primary/5'
+                                    : 'border-transparent text-muted-foreground hover:bg-muted/50'
                             )}
-                        </div>
+                        >
+                            <span className="flex items-center justify-center gap-2">
+                                <Book className="w-3.5 h-3.5" /> Entries ({activeLorebook?.entries.length || 0})
+                            </span>
+                        </button>
+                        <button
+                            onClick={() => setViewMode('suggestions')}
+                            className={cn(
+                                'flex-1 py-2 text-xs font-medium border-b-2 transition-colors',
+                                viewMode === 'suggestions'
+                                    ? 'border-primary text-primary bg-primary/5'
+                                    : 'border-transparent text-muted-foreground hover:bg-muted/50'
+                            )}
+                        >
+                            <span className="flex items-center justify-center gap-2 relative">
+                                <Inbox className="w-3.5 h-3.5" /> Suggestions
+                                {pendingSuggestions.length > 0 && (
+                                    <span className="absolute -top-0.5 -right-3 min-w-[14px] h-3.5 px-0.5 rounded-full bg-primary text-[9px] text-primary-foreground flex items-center justify-center leading-none">
+                                        {pendingSuggestions.length}
+                                    </span>
+                                )}
+                            </span>
+                        </button>
+                    </div>
+
+                    <div className="flex-1 overflow-y-auto min-h-0 custom-scrollbar">
+                        {viewMode === 'entries' ? (
+                            <div className="flex flex-col p-2 gap-1.5 pt-3">
+                                {filteredEntries.map(({ entry, index }) => (
+                                    <div
+                                        key={index}
+                                        role="button"
+                                        tabIndex={0}
+                                        onClick={() => setSelectedEntryIndex(index)}
+                                        onKeyDown={(e) => {
+                                            if (e.key === 'Enter' || e.key === ' ') {
+                                                setSelectedEntryIndex(index);
+                                            }
+                                        }}
+                                        className={cn(
+                                            'text-left p-2.5 rounded-lg text-xs sm:text-sm transition-all flex items-center justify-between group h-11 shrink-0 cursor-pointer',
+                                            selectedEntryIndex === index
+                                                ? 'bg-primary text-primary-foreground shadow-md shadow-primary/20 translate-x-1'
+                                                : 'hover:bg-muted/80 text-muted-foreground hover:text-foreground'
+                                        )}
+                                    >
+                                        <span className="truncate font-semibold px-1 flex-1">
+                                            {entry.keys[0] || 'Untitled'}
+                                        </span>
+                                        <div className="flex items-center gap-1.5 opacity-60">
+                                            {entry.keys.length > 1 && (
+                                                <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-black/10">
+                                                    +{entry.keys.length - 1}
+                                                </span>
+                                            )}
+                                            {!entry.enabled && (
+                                                <div className="w-1.5 h-1.5 rounded-full bg-destructive" />
+                                            )}
+                                            <Button
+                                                variant="ghost"
+                                                size="icon"
+                                                className="h-6 w-6 opacity-60 hover:opacity-100 hover:bg-destructive/10 hover:text-destructive"
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    deleteEntry(index);
+                                                    if (selectedEntryIndex === index) {
+                                                        setSelectedEntryIndex(null);
+                                                    }
+                                                }}
+                                            >
+                                                <Trash2 className="w-3.5 h-3.5" />
+                                            </Button>
+                                        </div>
+                                    </div>
+                                ))}
+                                {filteredEntries.length === 0 && (
+                                    <div className="text-center py-12 px-6">
+                                        <div className="bg-muted/20 w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-3">
+                                            <Search className="w-6 h-6 opacity-20" />
+                                        </div>
+                                        <p className="text-muted-foreground text-xs font-medium">
+                                            No lore entries found
+                                        </p>
+                                    </div>
+                                )}
+                            </div>
+                        ) : (
+                            <div className="flex flex-col p-2 gap-2 pt-3">
+                                <p className="px-2 text-[10px] text-muted-foreground uppercase font-bold tracking-wider mb-1">
+                                    Pending Review
+                                </p>
+                                {pendingSuggestions.map((suggestion) => (
+                                    <div
+                                        key={suggestion.id}
+                                        className="bg-card border rounded-lg p-3 space-y-2 text-sm shadow-sm"
+                                    >
+                                        <div className="flex flex-wrap gap-1">
+                                            {suggestion.keys.map((k, i) => (
+                                                <span key={i} className="bg-primary/10 text-primary text-[10px] font-bold px-1.5 py-0.5 rounded">
+                                                    {k}
+                                                </span>
+                                            ))}
+                                        </div>
+                                        <p className="text-muted-foreground text-xs line-clamp-4">
+                                            {suggestion.content}
+                                        </p>
+                                        <div className="flex items-center gap-2 pt-1 border-t border-border/40 mt-2">
+                                            <Button
+                                                size="sm"
+                                                variant="outline"
+                                                onClick={() => acceptSuggestion(suggestion.id)}
+                                                className="h-7 text-[10px] gap-1 flex-1 text-green-500 hover:text-green-600 hover:bg-green-500/10 border-green-500/20"
+                                            >
+                                                <Check className="w-3 h-3" /> Accept
+                                            </Button>
+                                            <Button
+                                                size="sm"
+                                                variant="outline"
+                                                onClick={() => rejectSuggestion(suggestion.id)}
+                                                className="h-7 text-[10px] gap-1 flex-1 text-destructive hover:text-destructive hover:bg-destructive/10 border-destructive/20"
+                                            >
+                                                <X className="w-3 h-3" /> Reject
+                                            </Button>
+                                        </div>
+                                    </div>
+                                ))}
+                                {pendingSuggestions.length === 0 && (
+                                    <div className="text-center py-12 px-6">
+                                        <div className="bg-muted/20 w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-3">
+                                            <Inbox className="w-6 h-6 opacity-20" />
+                                        </div>
+                                        <p className="text-muted-foreground text-xs font-medium">
+                                            No pending suggestions
+                                        </p>
+                                    </div>
+                                )}
+                            </div>
+                        )}
                     </div>
                 </div>
 
@@ -450,6 +538,6 @@ export function LorebookEditor({ onClose }: { onClose: () => void }) {
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
-        </div>
+        </div >
     );
 }

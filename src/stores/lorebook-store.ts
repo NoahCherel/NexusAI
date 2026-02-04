@@ -2,12 +2,24 @@ import { create } from 'zustand';
 import type { Lorebook, LorebookEntry } from '@/types/character';
 import { addLorebookHistoryEntry, getLorebookHistory, type LorebookHistoryEntry } from '@/lib/db';
 
+// Pending suggestion from AI extraction
+export interface LorebookSuggestion {
+    id: string;
+    keys: string[];
+    content: string;
+    category?: 'character' | 'location' | 'notion';
+    timestamp: number;
+}
+
 interface LorebookState {
     // Current editing state
     activeLorebook: Lorebook | null;
     activeCharacterId: string | null;
     history: LorebookHistoryEntry[];
     isLoadingHistory: boolean;
+
+    // Pending suggestions queue
+    pendingSuggestions: LorebookSuggestion[];
 
     // Actions
     setActiveLorebook: (lorebook: Lorebook | null, characterId?: string) => void;
@@ -21,6 +33,13 @@ interface LorebookState {
     addAIEntry: (entry: LorebookEntry) => Promise<void>;
     addAIEntries: (entries: LorebookEntry[]) => Promise<void>; // Batch add
 
+    // Suggestion actions
+    addSuggestion: (suggestion: Omit<LorebookSuggestion, 'id' | 'timestamp'>) => void;
+    addSuggestions: (suggestions: Omit<LorebookSuggestion, 'id' | 'timestamp'>[]) => void;
+    acceptSuggestion: (id: string) => Promise<void>;
+    rejectSuggestion: (id: string) => void;
+    clearSuggestions: () => void;
+
     // Import/Export
     importLorebook: (json: string) => boolean;
 }
@@ -32,6 +51,7 @@ export const useLorebookStore = create<LorebookState>()((set, get) => ({
     activeCharacterId: null,
     history: [],
     isLoadingHistory: false,
+    pendingSuggestions: [],
 
     setActiveLorebook: (lorebook, characterId) =>
         set({
@@ -323,5 +343,121 @@ export const useLorebookStore = create<LorebookState>()((set, get) => ({
             console.error('Failed to import lorebook', e);
             return false;
         }
+    },
+
+    // Suggestion actions
+    addSuggestion: (suggestion) => {
+        const newSuggestion: LorebookSuggestion = {
+            ...suggestion,
+            id: generateId(),
+            timestamp: Date.now(),
+        };
+        set((s) => ({
+            pendingSuggestions: [...s.pendingSuggestions, newSuggestion],
+        }));
+    },
+
+    addSuggestions: (suggestions) => {
+        const newSuggestions: LorebookSuggestion[] = suggestions.map((s) => ({
+            ...s,
+            id: generateId(),
+            timestamp: Date.now(),
+        }));
+        set((s) => ({
+            pendingSuggestions: [...s.pendingSuggestions, ...newSuggestions],
+        }));
+    },
+
+    acceptSuggestion: async (id) => {
+        const state = get();
+        const suggestion = state.pendingSuggestions.find((s) => s.id === id);
+        if (!suggestion || !state.activeLorebook || !state.activeCharacterId) return;
+
+        const currentEntries = [...state.activeLorebook.entries];
+
+        // Find matching entry - pick the one where matching key is LEFTMOST (key order = importance)
+        let bestMatchIndex = -1;
+        let bestMatchKeyPosition = Infinity;
+
+        for (let i = 0; i < currentEntries.length; i++) {
+            const entry = currentEntries[i];
+            for (const suggestionKey of suggestion.keys) {
+                const keyIndex = entry.keys.findIndex(
+                    (k) => k.toLowerCase() === suggestionKey.toLowerCase()
+                );
+                if (keyIndex !== -1 && keyIndex < bestMatchKeyPosition) {
+                    bestMatchIndex = i;
+                    bestMatchKeyPosition = keyIndex;
+                }
+            }
+        }
+
+        let finalEntry: LorebookEntry;
+        let historyType: 'ai_add' | 'ai_append' = 'ai_add';
+
+        if (bestMatchIndex !== -1) {
+            // Append to existing entry
+            const existingEntry = currentEntries[bestMatchIndex];
+            const appendedContent = existingEntry.content.trim() + '\n\n' + suggestion.content.trim();
+
+            finalEntry = {
+                ...existingEntry,
+                content: appendedContent,
+            };
+            currentEntries[bestMatchIndex] = finalEntry;
+            historyType = 'ai_append';
+        } else {
+            // Create new entry
+            finalEntry = {
+                keys: suggestion.keys,
+                content: suggestion.content,
+                enabled: true,
+                priority: 10,
+                category: suggestion.category,
+            };
+            currentEntries.push(finalEntry);
+        }
+
+        const updatedLorebook: Lorebook = {
+            ...state.activeLorebook,
+            entries: currentEntries,
+        };
+
+        // Create history entry
+        const lastHistoryEntry = state.history[state.history.length - 1];
+        const historyEntry: LorebookHistoryEntry = {
+            id: generateId(),
+            characterId: state.activeCharacterId,
+            timestamp: Date.now(),
+            type: historyType,
+            entryData: finalEntry,
+            previousEntryId: lastHistoryEntry?.id,
+        };
+
+        await addLorebookHistoryEntry(historyEntry);
+
+        // Update state - remove from suggestions, update lorebook
+        set((s) => ({
+            activeLorebook: updatedLorebook,
+            history: [...s.history, historyEntry],
+            pendingSuggestions: s.pendingSuggestions.filter((s) => s.id !== id),
+        }));
+
+        // Persist to character
+        const { useCharacterStore } = await import('@/stores/character-store');
+        const charStore = useCharacterStore.getState();
+        await charStore.updateCharacter(state.activeCharacterId, {
+            character_book: updatedLorebook,
+        });
+    },
+
+    rejectSuggestion: (id) => {
+        set((s) => ({
+            pendingSuggestions: s.pendingSuggestions.filter((s) => s.id !== id),
+        }));
+    },
+
+    clearSuggestions: () => {
+        set({ pendingSuggestions: [] });
     },
 }));

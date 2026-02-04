@@ -36,6 +36,8 @@ export function SettingsPanel({ open, onOpenChange }: SettingsPanelProps) {
         setShowWorldState,
         setEnableReasoning,
         setImmersiveMode,
+        lorebookAutoExtract,
+        setLorebookAutoExtract,
     } = useSettingsStore();
 
     const [newKey, setNewKey] = useState('');
@@ -217,6 +219,27 @@ export function SettingsPanel({ open, onOpenChange }: SettingsPanelProps) {
                                             className="w-16"
                                         >
                                             {enableReasoning ? 'On' : 'Off'}
+                                        </Button>
+                                    </div>
+                                </div>
+
+                                <div className="space-y-4">
+                                    <div className="flex items-center justify-between p-4 border rounded-lg bg-card/50">
+                                        <div>
+                                            <p className="text-sm font-medium">
+                                                Auto-Extract Lorebook
+                                            </p>
+                                            <p className="text-xs text-muted-foreground mt-1">
+                                                Automatically analyze chat to suggest new lorebook entries or append to existing ones (Suggestions Queue)
+                                            </p>
+                                        </div>
+                                        <Button
+                                            variant={lorebookAutoExtract ? 'default' : 'secondary'}
+                                            size="sm"
+                                            onClick={() => setLorebookAutoExtract(!lorebookAutoExtract)}
+                                            className="w-16"
+                                        >
+                                            {lorebookAutoExtract ? 'On' : 'Off'}
                                         </Button>
                                     </div>
                                 </div>

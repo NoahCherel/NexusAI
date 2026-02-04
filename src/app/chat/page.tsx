@@ -528,15 +528,22 @@ Instructions:
                     }
                 }
 
-                // Lorebook extraction
-                if (activeLorebook && fullContent) {
+                // Lorebook extraction (only if enabled in settings)
+                const { lorebookAutoExtract } = useSettingsStore.getState();
+                if (lorebookAutoExtract && activeLorebook && fullContent) {
                     const existingKeys = activeLorebook.entries.flatMap((e) => e.keys);
                     extractLorebookEntries(fullContent, existingKeys)
                         .then((newEntries) => {
                             if (newEntries.length > 0) {
-                                const { addAIEntries } = useLorebookStore.getState();
-                                // Use batch add to prevent race conditions
-                                addAIEntries(newEntries);
+                                const { addSuggestions } = useLorebookStore.getState();
+                                // Add to suggestions queue for user approval
+                                addSuggestions(
+                                    newEntries.map((e) => ({
+                                        keys: e.keys,
+                                        content: e.content,
+                                        category: e.category,
+                                    }))
+                                );
                             }
                         })
                         .catch((err) => console.error('Lorebook extraction failed:', err));
