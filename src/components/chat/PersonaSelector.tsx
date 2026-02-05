@@ -36,16 +36,17 @@ export function PersonaSelector() {
     const [editingPersona, setEditingPersona] = useState<{
         id?: string;
         name: string;
+        displayName?: string;
         bio: string;
         avatar: string;
     } | null>(null);
 
     const activePersona = personas.find((p) => p.id === activePersonaId);
-    const displayName = activePersona?.name || 'You';
+    const displayName = activePersona?.displayName || activePersona?.name || 'You';
     const displayAvatar = activePersona?.avatar;
 
     const openCreateDialog = () => {
-        setEditingPersona({ name: '', bio: '', avatar: '' });
+        setEditingPersona({ name: '', displayName: '', bio: '', avatar: '' });
         setDialogOpen(true);
         setOpen(false);
     };
@@ -54,6 +55,7 @@ export function PersonaSelector() {
         setEditingPersona({
             id: persona.id,
             name: persona.name,
+            displayName: persona.displayName || '',
             bio: persona.bio,
             avatar: persona.avatar || '',
         });
@@ -68,6 +70,7 @@ export function PersonaSelector() {
             // Update existing
             updatePersona(editingPersona.id, {
                 name: editingPersona.name.trim(),
+                displayName: editingPersona.displayName?.trim(),
                 bio: editingPersona.bio,
                 avatar: editingPersona.avatar,
             });
@@ -153,7 +156,12 @@ export function PersonaSelector() {
                                             </Avatar>
                                             <div className="flex-1 min-w-0">
                                                 <span className="text-xs font-medium truncate block">
-                                                    {persona.name}
+                                                    {persona.displayName || persona.name}
+                                                    {persona.displayName && (
+                                                        <span className="ml-1 text-[10px] text-muted-foreground font-normal">
+                                                            ({persona.name})
+                                                        </span>
+                                                    )}
                                                 </span>
                                                 {persona.bio && (
                                                     <span className="text-[10px] text-muted-foreground truncate hidden sm:block">
@@ -238,11 +246,23 @@ export function PersonaSelector() {
                         <div className="space-y-2">
                             <label className="text-sm font-medium">Name</label>
                             <Input
-                                placeholder="Your character name..."
+                                placeholder="Character name (used by AI)..."
                                 value={editingPersona?.name || ''}
                                 onChange={(e) =>
                                     setEditingPersona((prev) =>
                                         prev ? { ...prev, name: e.target.value } : null
+                                    )
+                                }
+                            />
+                        </div>
+                        <div className="space-y-2">
+                            <label className="text-sm font-medium">System Label (Optional)</label>
+                            <Input
+                                placeholder="UI label (e.g. 'Angry Mode')..."
+                                value={editingPersona?.displayName || ''}
+                                onChange={(e) =>
+                                    setEditingPersona((prev) =>
+                                        prev ? { ...prev, displayName: e.target.value } : null
                                     )
                                 }
                             />

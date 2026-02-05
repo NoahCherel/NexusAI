@@ -7,8 +7,6 @@ import {
     ANALYST_PROMPT,
     parseAnalystResponse,
     mergeWorldState,
-    LOREBOOK_CONSOLIDATION_PROMPT,
-    parseConsolidationResponse,
 } from '@/lib/ai/background-analyst';
 import { decryptApiKey } from '@/lib/crypto';
 
@@ -28,7 +26,6 @@ interface UseWorldStateAnalyzerReturn {
  */
 export function useWorldStateAnalyzer(): UseWorldStateAnalyzerReturn {
     const [isAnalyzing, setIsAnalyzing] = useState(false);
-    const isConsolidatingRef = useRef(false);
 
     // Helper to perform AI request directly to OpenRouter
     const performAIRequest = async (
@@ -83,65 +80,6 @@ export function useWorldStateAnalyzer(): UseWorldStateAnalyzerReturn {
         }
         return null;
     };
-
-    const consolidateLorebook = useCallback(async (conversationId: string, apiKey: string) => {
-        if (isConsolidatingRef.current) return;
-
-        const { activeLorebook, updateLorebook } = useLorebookStore.getState();
-        if (!activeLorebook || activeLorebook.entries.length < 2) return;
-
-        isConsolidatingRef.current = true;
-
-        try {
-            const entriesList = activeLorebook.entries
-                .map((e, i) => `[${i}] Keywords: ${e.keys.join(', ')}\nContent: ${e.content}`)
-                .join('\n\n');
-
-            const models = [
-                'tngtech/deepseek-r1t2-chimera:free',
-                'meta-llama/llama-3.3-70b-instruct:free',
-                'mistralai/mistral-small-3.1-24b-instruct:free',
-            ];
-
-            const resultData = await performAIRequest(
-                models,
-                [
-                    { role: 'system', content: LOREBOOK_CONSOLIDATION_PROMPT },
-                    { role: 'user', content: `Lorebook Entries:\n${entriesList}` },
-                ],
-                apiKey,
-                0.1,
-                16000 // Increased limit for consolidation
-            );
-
-            if (!resultData) return;
-
-            const result = parseConsolidationResponse(resultData.content);
-
-            if (result && result.consolidated.length > 0) {
-                const mergedIndices = new Set<number>();
-                result.consolidated.forEach((c) =>
-                    c.originalIndices.forEach((idx) => mergedIndices.add(idx))
-                );
-
-                const newEntries = activeLorebook.entries.filter((_, i) => !mergedIndices.has(i));
-
-                result.consolidated.forEach((c) => {
-                    newEntries.push({
-                        keys: c.keywords,
-                        content: c.content,
-                        enabled: true,
-                    });
-                });
-
-                updateLorebook({ ...activeLorebook, entries: newEntries });
-            }
-        } catch (error) {
-            console.error('[LorebookManager] Error:', error);
-        } finally {
-            isConsolidatingRef.current = false;
-        }
-    }, []);
 
     const analyzeMessage = useCallback(
         async (message: string, characterName: string, conversationId?: string, force = false) => {
@@ -220,25 +158,13 @@ export function useWorldStateAnalyzer(): UseWorldStateAnalyzerReturn {
                         }
                     }
                 }
-
-                // --- 2. Lorebook Consolidation Check (Every 10 messages) ---
-                // We use a simplified check using localStorage for persistence across reloads/sessions
-                const MSG_COUNT_KEY = `msg_count_${targetConversationId}`;
-                const currentCount = parseInt(localStorage.getItem(MSG_COUNT_KEY) || '0', 10);
-                const newCount = currentCount + 1;
-                localStorage.setItem(MSG_COUNT_KEY, newCount.toString());
-
-                if (newCount % 1 === 0) { // Debugging: Every message for now, normally 10
-                    // Fire and forget consolidation
-                    consolidateLorebook(targetConversationId, apiKey).catch(console.error);
-                }
             } catch (error) {
                 console.error('[WorldStateAnalyzer] Error:', error);
             } finally {
                 setIsAnalyzing(false);
             }
         },
-        [consolidateLorebook]
+        []
     );
 
     return {

@@ -6,8 +6,9 @@ import { decryptApiKey } from '@/lib/crypto';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
-import { Plus, Trash2, Save, X, Search, Book, ChevronLeft, Sparkles, Loader2, Check, Inbox } from 'lucide-react';
-import type { LorebookEntry } from '@/types';
+import { Plus, Trash2, Save, X, Search, Book, ChevronLeft, Sparkles, Loader2, Check, Inbox, Upload, Download } from 'lucide-react';
+import type { LorebookEntry, Lorebook } from '@/types';
+import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import {
     Dialog,
@@ -19,7 +20,7 @@ import {
 } from '@/components/ui/dialog';
 
 export function LorebookEditor({ onClose }: { onClose: () => void }) {
-    const { activeLorebook, addEntry, updateEntry, deleteEntry, pendingSuggestions, acceptSuggestion, rejectSuggestion } =
+    const { activeLorebook, addEntry, updateEntry, deleteEntry, pendingSuggestions, acceptSuggestion, rejectSuggestion, updateLorebook } =
         useLorebookStore();
 
     const [selectedEntryIndex, setSelectedEntryIndex] = useState<number | null>(null);
@@ -47,6 +48,58 @@ export function LorebookEditor({ onClose }: { onClose: () => void }) {
                 character_book: activeLorebook,
             });
         }
+    };
+
+    const handleImport = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onload = (event) => {
+            try {
+                const json = JSON.parse(event.target?.result as string);
+
+                // Basic validation
+                if (!json || typeof json !== 'object' || !Array.isArray(json.entries)) {
+                    throw new Error('Invalid lorebook format');
+                }
+
+                // If importing into existing lorebook, preserve name if not present in import
+                const newLorebook: Lorebook = {
+                    ...activeLorebook, // Keep existing metadata by default
+                    ...json, // Overwrite with imported data
+                    entries: json.entries, // Ensure entries are taken from import
+                };
+
+                updateLorebook(newLorebook);
+                toast.success('Lorebook imported successfully');
+            } catch (error) {
+                console.error('Import failed:', error);
+                toast.error('Failed to import lorebook: Invalid JSON');
+            }
+        };
+        reader.readAsText(file);
+
+        // Reset input
+        e.target.value = '';
+    };
+
+    const handleExport = () => {
+        if (!activeLorebook) return;
+
+        const jsonString = JSON.stringify(activeLorebook, null, 2);
+        const blob = new Blob([jsonString], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `lorebook-${new Date().toISOString().slice(0, 10)}.json`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+
+        toast.success('Lorebook exported');
     };
 
     const handleAddEntry = () => {
@@ -187,18 +240,38 @@ export function LorebookEditor({ onClose }: { onClose: () => void }) {
                     </h2>
                 </div>
                 <div className="flex items-center gap-1 sm:gap-2 shrink-0">
-                    {character && (
+                    <div className="flex items-center border-r pr-2 mr-2 gap-1 border-border/40">
+                        <label className="cursor-pointer">
+                            <input
+                                type="file"
+                                className="hidden"
+                                accept=".json"
+                                onChange={handleImport}
+                            />
+                            <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8 text-muted-foreground hover:text-primary"
+                                title="Import Lorebook JSON"
+                                asChild
+                            >
+                                <span>
+                                    <Upload className="w-4 h-4" />
+                                </span>
+                            </Button>
+                        </label>
                         <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={handleSaveToCharacter}
-                            className="h-8 gap-2 px-2 sm:px-3 border-primary/20 bg-primary/5 text-primary hover:bg-primary/10"
+                            variant="ghost"
+                            size="icon"
+                            onClick={handleExport}
+                            className="h-8 w-8 text-muted-foreground hover:text-primary"
+                            title="Export to JSON"
                         >
-                            <Save className="w-3.5 h-3.5" />
-                            <span className="hidden sm:inline">Save to {character.name}</span>
-                            <span className="sm:hidden">Save</span>
+                            <Download className="w-4 h-4" />
                         </Button>
-                    )}
+                    </div>
+
+
                     <Button variant="ghost" size="icon" onClick={onClose} className="h-8 w-8">
                         <X className="w-4 h-4" />
                     </Button>

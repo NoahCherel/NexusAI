@@ -53,7 +53,7 @@ export function CharacterCard({
                         className="object-cover"
                     />
                     <AvatarFallback className="rounded-lg bg-muted text-muted-foreground text-[10px] font-bold">
-                        {character.name.slice(0, 2).toUpperCase()}
+                        {(character.displayName || character.name).slice(0, 2).toUpperCase()}
                     </AvatarFallback>
                 </Avatar>
                 {isActive && (
@@ -102,7 +102,9 @@ export function CharacterCard({
                                 isActive ? 'text-primary' : 'text-foreground'
                             )}
                         >
-                            {character.name.length > 16 ? character.name.slice(0, 16) + '...' : character.name}
+                            {(character.displayName?.length || 0) > 16
+                                ? character.displayName!.slice(0, 16) + '...'
+                                : character.displayName || (character.name.length > 16 ? character.name.slice(0, 16) + '...' : character.name)}
                         </h3>
                     </div>
 

@@ -12,6 +12,7 @@ export interface ApiKeyConfig {
 export interface Persona {
     id: string;
     name: string;
+    displayName?: string; // For UI demarcation
     bio: string;
     avatar?: string;
 }

@@ -2,6 +2,7 @@
 export interface CharacterCard {
     id: string;
     name: string;
+    displayName?: string; // For UI demarcation
     description: string;
     personality: string;
     scenario: string;

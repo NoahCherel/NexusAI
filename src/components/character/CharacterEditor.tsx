@@ -28,6 +28,7 @@ export function CharacterEditor({ isOpen, onClose, character }: CharacterEditorP
 
     const [formData, setFormData] = useState({
         name: '',
+        displayName: '',
         description: '',
         personality: '',
         scenario: '',
@@ -45,6 +46,7 @@ export function CharacterEditor({ isOpen, onClose, character }: CharacterEditorP
         if (character) {
             setFormData({
                 name: character.name || '',
+                displayName: character.displayName || '',
                 description: character.description || '',
                 personality: character.personality || '',
                 scenario: character.scenario || '',
@@ -58,6 +60,7 @@ export function CharacterEditor({ isOpen, onClose, character }: CharacterEditorP
             // Reset for new character
             setFormData({
                 name: '',
+                displayName: '',
                 description: '',
                 personality: '',
                 scenario: '',
@@ -84,6 +87,7 @@ export function CharacterEditor({ isOpen, onClose, character }: CharacterEditorP
                 // Update existing character
                 await updateCharacter(character.id, {
                     name: formData.name,
+                    displayName: formData.displayName,
                     description: formData.description,
                     personality: formData.personality,
                     scenario: formData.scenario,
@@ -98,6 +102,7 @@ export function CharacterEditor({ isOpen, onClose, character }: CharacterEditorP
                 const newCharacter: CharacterCard = {
                     id: crypto.randomUUID(),
                     name: formData.name,
+                    displayName: formData.displayName,
                     description: formData.description,
                     personality: formData.personality,
                     scenario: formData.scenario,
@@ -141,7 +146,6 @@ export function CharacterEditor({ isOpen, onClose, character }: CharacterEditorP
 
                 <div className="flex-1 overflow-y-auto px-4">
                     <div className="space-y-4 py-4">
-                        {/* Name */}
                         <div className="space-y-2">
                             <Label
                                 htmlFor="name"
@@ -155,7 +159,26 @@ export function CharacterEditor({ isOpen, onClose, character }: CharacterEditorP
                                 onChange={(e) =>
                                     setFormData((prev) => ({ ...prev, name: e.target.value }))
                                 }
-                                placeholder="Character name"
+                                placeholder="Character name (used in chat)"
+                                className="bg-background/50"
+                            />
+                        </div>
+
+                        {/* Display Name */}
+                        <div className="space-y-2">
+                            <Label
+                                htmlFor="displayName"
+                                className="flex items-center gap-2 text-sm font-medium"
+                            >
+                                <Tags className="w-4 h-4" /> System Label (Optional)
+                            </Label>
+                            <Input
+                                id="displayName"
+                                value={formData.displayName}
+                                onChange={(e) =>
+                                    setFormData((prev) => ({ ...prev, displayName: e.target.value }))
+                                }
+                                placeholder="UI label (e.g. 'Goku (Super)') - Only visible to you"
                                 className="bg-background/50"
                             />
                         </div>

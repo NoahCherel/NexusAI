@@ -32,6 +32,7 @@ export function Sidebar({ isCollapsed, onToggle }: SidebarProps) {
     const filteredCharacters = characters.filter(
         (c) =>
             c.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            c.displayName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
             c.tags?.some((t) => t.toLowerCase().includes(searchTerm.toLowerCase()))
     );
 

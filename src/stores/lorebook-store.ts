@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { Lorebook, LorebookEntry } from '@/types/character';
+import { LorebookCategory, type Lorebook, type LorebookEntry } from '@/types/character';
 import { addLorebookHistoryEntry, getLorebookHistory, type LorebookHistoryEntry } from '@/lib/db';
 
 // Pending suggestion from AI extraction
@@ -413,7 +413,7 @@ export const useLorebookStore = create<LorebookState>()((set, get) => ({
                 content: suggestion.content,
                 enabled: true,
                 priority: 10,
-                category: suggestion.category,
+                category: suggestion.category as LorebookCategory,
             };
             currentEntries.push(finalEntry);
         }
