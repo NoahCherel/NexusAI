@@ -9,8 +9,16 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
-import { Search, Plus, Users, Upload } from 'lucide-react';
+import { Search, Plus, Users, Upload, ArrowUpDown, Clock, SortAsc } from 'lucide-react';
 import { exportToJson } from '@/lib/export-utils';
+import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuTrigger,
+    DropdownMenuSeparator,
+    DropdownMenuLabel
+} from '@/components/ui/dropdown-menu';
 import { useChatStore } from '@/stores/chat-store';
 import type { CharacterCard as CharacterCardType } from '@/types';
 
@@ -24,12 +32,33 @@ export function CharacterPanel({ trigger }: CharacterPanelProps) {
     const [searchTerm, setSearchTerm] = useState('');
     const [isEditorOpen, setIsEditorOpen] = useState(false);
     const [editingCharacter, setEditingCharacter] = useState<CharacterCardType | null>(null);
+    const [sortOption, setSortOption] = useState<'name' | 'recent'>('recent');
 
-    const filteredCharacters = characters.filter(
-        (c) =>
-            c.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            c.tags?.some((t) => t.toLowerCase().includes(searchTerm.toLowerCase()))
-    );
+    const { getConversationMessages, conversations: allConversations } = useChatStore();
+
+    // Helper to get last activity time for a character
+    const getLastActivity = (characterId: string) => {
+        const charConvs = allConversations
+            .filter((c) => c.characterId === characterId)
+            .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime());
+        return charConvs.length > 0 ? charConvs[0].updatedAt.getTime() : 0;
+    };
+
+    const filteredCharacters = characters
+        .filter(
+            (c) =>
+                c.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                c.displayName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                c.tags?.some((t) => t.toLowerCase().includes(searchTerm.toLowerCase()))
+        )
+        .sort((a, b) => {
+            if (sortOption === 'recent') {
+                const timeA = getLastActivity(a.id);
+                const timeB = getLastActivity(b.id);
+                if (timeA !== timeB) return timeB - timeA;
+            }
+            return a.name.localeCompare(b.name);
+        });
 
     const handleEdit = (character: CharacterCardType) => {
         setEditingCharacter(character);
@@ -51,7 +80,7 @@ export function CharacterPanel({ trigger }: CharacterPanelProps) {
         setIsOpen(false);
     };
 
-    const { getConversationMessages, conversations: allConversations } = useChatStore();
+
 
     const handleExport = async (character: CharacterCardType) => {
         const charConvs = allConversations
@@ -146,6 +175,33 @@ export function CharacterPanel({ trigger }: CharacterPanelProps) {
                             >
                                 <Plus className="w-4 h-4" /> New
                             </Button>
+                        </div>
+                        <div className="flex justify-end">
+                            <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
+                                    <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        className="h-8 gap-1 text-xs text-muted-foreground hover:text-foreground"
+                                    >
+                                        <ArrowUpDown className="w-3 h-3" />
+                                        Sort: {sortOption === 'recent' ? 'Recent' : 'Name'}
+                                    </Button>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent align="end" className="w-48">
+                                    <DropdownMenuLabel>Sort By</DropdownMenuLabel>
+                                    <DropdownMenuSeparator />
+                                    <DropdownMenuItem onClick={() => setSortOption('name')}>
+                                        <SortAsc className="w-4 h-4 mr-2" />
+                                        Name (A-Z)
+                                        {sortOption === 'name' && <Clock className="w-3 h-3 ml-auto opacity-0" />}
+                                    </DropdownMenuItem>
+                                    <DropdownMenuItem onClick={() => setSortOption('recent')}>
+                                        <Clock className="w-4 h-4 mr-2" />
+                                        Recent Activity
+                                    </DropdownMenuItem>
+                                </DropdownMenuContent>
+                            </DropdownMenu>
                         </div>
                     </div>
 
