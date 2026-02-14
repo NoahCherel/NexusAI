@@ -20,7 +20,7 @@ import {
 } from '@/components/ui/dialog';
 
 export function LorebookEditor({ onClose }: { onClose: () => void }) {
-    const { activeLorebook, addEntry, updateEntry, deleteEntry, pendingSuggestions, acceptSuggestion, rejectSuggestion, updateLorebook } =
+    const { activeLorebook, addEntry, updateEntry, deleteEntry, pendingSuggestions, acceptSuggestion, rejectSuggestion, clearSuggestions, updateLorebook } =
         useLorebookStore();
 
     const [selectedEntryIndex, setSelectedEntryIndex] = useState<number | null>(null);
@@ -29,6 +29,7 @@ export function LorebookEditor({ onClose }: { onClose: () => void }) {
     const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
     const [isSummarizing, setIsSummarizing] = useState(false);
     const [viewMode, setViewMode] = useState<'entries' | 'suggestions'>('entries');
+    const [keysRawText, setKeysRawText] = useState('');
 
     // Character Store Integration
     const { getActiveCharacter, updateCharacter } = useCharacterStore();
@@ -41,6 +42,13 @@ export function LorebookEditor({ onClose }: { onClose: () => void }) {
         window.addEventListener('resize', checkMobile);
         return () => window.removeEventListener('resize', checkMobile);
     }, []);
+
+    // Sync raw keys text when selected entry changes
+    useEffect(() => {
+        if (selectedEntryIndex !== null && activeLorebook?.entries[selectedEntryIndex]) {
+            setKeysRawText(activeLorebook.entries[selectedEntryIndex].keys.join(', '));
+        }
+    }, [selectedEntryIndex, activeLorebook]);
 
     const handleSaveToCharacter = () => {
         if (character && activeLorebook) {
@@ -139,7 +147,7 @@ export function LorebookEditor({ onClose }: { onClose: () => void }) {
                     'HTTP-Referer': window.location.origin,
                 },
                 body: JSON.stringify({
-                    model: 'tngtech/deepseek-r1t2-chimera:free',
+                    model: 'deepseek/deepseek-r1-0528:free',
                     messages: [
                         {
                             role: 'system',
@@ -402,9 +410,39 @@ export function LorebookEditor({ onClose }: { onClose: () => void }) {
                             </div>
                         ) : (
                             <div className="flex flex-col p-2 gap-2 pt-3">
-                                <p className="px-2 text-[10px] text-muted-foreground uppercase font-bold tracking-wider mb-1">
-                                    Pending Review
-                                </p>
+                                <div className="flex items-center justify-between px-2 mb-1">
+                                    <p className="text-[10px] text-muted-foreground uppercase font-bold tracking-wider">
+                                        Pending Review
+                                    </p>
+                                    {pendingSuggestions.length > 0 && (
+                                        <div className="flex gap-1.5">
+                                            <Button
+                                                size="sm"
+                                                variant="outline"
+                                                onClick={async () => {
+                                                    for (const s of pendingSuggestions) {
+                                                        await acceptSuggestion(s.id);
+                                                    }
+                                                    toast.success(`Accepted ${pendingSuggestions.length} suggestions`);
+                                                }}
+                                                className="h-6 text-[9px] gap-1 text-green-500 hover:text-green-600 hover:bg-green-500/10 border-green-500/20 px-2"
+                                            >
+                                                <Check className="w-2.5 h-2.5" /> Accept All
+                                            </Button>
+                                            <Button
+                                                size="sm"
+                                                variant="outline"
+                                                onClick={() => {
+                                                    clearSuggestions();
+                                                    toast.success('All suggestions rejected');
+                                                }}
+                                                className="h-6 text-[9px] gap-1 text-destructive hover:text-destructive hover:bg-destructive/10 border-destructive/20 px-2"
+                                            >
+                                                <X className="w-2.5 h-2.5" /> Reject All
+                                            </Button>
+                                        </div>
+                                    )}
+                                </div>
                                 {pendingSuggestions.map((suggestion) => (
                                     <div
                                         key={suggestion.id}
@@ -470,17 +508,31 @@ export function LorebookEditor({ onClose }: { onClose: () => void }) {
                                 </label>
                                 <Input
                                     className="bg-muted/5 focus-visible:ring-primary/20 h-10 font-medium"
-                                    value={currentEntry.keys.join(', ')}
-                                    onChange={(e) =>
-                                        updateEntry(selectedEntryIndex!, {
-                                            ...currentEntry,
-                                            keys: e.target.value
-                                                .split(',')
-                                                .map((s) => s.trim())
-                                                .filter(Boolean),
-                                        })
-                                    }
-                                    placeholder="e.g. Erza, Natsu, Gray"
+                                    value={keysRawText}
+                                    onChange={(e) => setKeysRawText(e.target.value)}
+                                    onBlur={() => {
+                                        if (selectedEntryIndex !== null && currentEntry) {
+                                            updateEntry(selectedEntryIndex, {
+                                                ...currentEntry,
+                                                keys: keysRawText
+                                                    .split(',')
+                                                    .map((s) => s.trim())
+                                                    .filter(Boolean),
+                                            });
+                                        }
+                                    }}
+                                    onKeyDown={(e) => {
+                                        if (e.key === 'Enter' && selectedEntryIndex !== null && currentEntry) {
+                                            updateEntry(selectedEntryIndex, {
+                                                ...currentEntry,
+                                                keys: keysRawText
+                                                    .split(',')
+                                                    .map((s) => s.trim())
+                                                    .filter(Boolean),
+                                            });
+                                        }
+                                    }}
+                                    placeholder="e.g. Erza, Natsu, Gray (comma-separated)"
                                 />
                             </div>
 

@@ -124,7 +124,7 @@ export function useWorldStateAnalyzer(): UseWorldStateAnalyzerReturn {
                 );
 
                 const models = [
-                    'tngtech/deepseek-r1t2-chimera:free', // Requested Primary
+                    'deepseek/deepseek-r1-0528:free', // Primary
                     'meta-llama/llama-3.3-70b-instruct:free',
                     'mistralai/mistral-small-3.1-24b-instruct:free',
                 ];

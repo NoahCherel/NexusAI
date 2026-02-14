@@ -185,17 +185,46 @@ export function TreeVisualization({ isOpen, onClose }: TreeVisualizationProps) {
 
     const handleMouseUp = () => setIsDragging(false);
 
-    // Touch Handlers
+    // Touch Handlers (with pinch-to-zoom)
+    const lastTouchDistance = useRef<number | null>(null);
+
     const handleTouchStart = (e: React.TouchEvent) => {
-        if ((e.target as Element).tagName === 'svg' || (e.target as Element).tagName === 'g') {
-            setIsDragging(true);
-            const touch = e.touches[0];
-            dragStart.current = { x: touch.clientX - view.x, y: touch.clientY - view.y };
+        if (e.touches.length === 2) {
+            // Pinch start
+            const dx = e.touches[0].clientX - e.touches[1].clientX;
+            const dy = e.touches[0].clientY - e.touches[1].clientY;
+            lastTouchDistance.current = Math.sqrt(dx * dx + dy * dy);
+            return;
+        }
+        if (e.touches.length === 1) {
+            const target = e.target as Element;
+            const isBackground = target.tagName === 'svg' || target.tagName === 'g' || target.closest('g[data-panzoom]');
+            if (isBackground) {
+                setIsDragging(true);
+                const touch = e.touches[0];
+                dragStart.current = { x: touch.clientX - view.x, y: touch.clientY - view.y };
+            }
         }
     };
 
     const handleTouchMove = (e: React.TouchEvent) => {
-        if (isDragging) {
+        if (e.touches.length === 2) {
+            // Pinch zoom
+            const dx = e.touches[0].clientX - e.touches[1].clientX;
+            const dy = e.touches[0].clientY - e.touches[1].clientY;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+            if (lastTouchDistance.current !== null) {
+                const delta = distance - lastTouchDistance.current;
+                const zoomSpeed = 0.005;
+                setView((v) => ({
+                    ...v,
+                    scale: Math.max(0.2, Math.min(3, v.scale + delta * zoomSpeed)),
+                }));
+            }
+            lastTouchDistance.current = distance;
+            return;
+        }
+        if (isDragging && e.touches.length === 1) {
             const touch = e.touches[0];
             setView((v) => ({
                 ...v,
@@ -205,23 +234,30 @@ export function TreeVisualization({ isOpen, onClose }: TreeVisualizationProps) {
         }
     };
 
-    const handleTouchEnd = () => setIsDragging(false);
+    const handleTouchEnd = () => {
+        setIsDragging(false);
+        lastTouchDistance.current = null;
+    };
 
     const hasData = treeData && treeData.nodes.length > 0;
 
-    // Center on first node or active node on open
+    // Center on active node on open, with scale adapted for mobile
     useEffect(() => {
         if (isOpen && hasData && svgRef.current) {
             const containerWidth = svgRef.current.clientWidth;
-            // Try to center active node, otherwise first node
-            const targetNode = treeData!.nodes[0]; // Simple fallback
+            const containerHeight = svgRef.current.clientHeight;
+            // Find active leaf or fallback to first node
+            const activeNode = treeData!.nodes.find(n => treeData!.activePath.has(n.id) && n.children.length === 0) 
+                || treeData!.nodes.find(n => treeData!.activePath.has(n.id))
+                || treeData!.nodes[0];
+            const initialScale = isMobile ? 0.7 : 1;
             setView({
-                x: containerWidth / 2 - targetNode.x,
-                y: 50,
-                scale: 1,
+                x: containerWidth / 2 - (activeNode.x + NODE_WIDTH / 2) * initialScale,
+                y: containerHeight / 2 - (activeNode.y + NODE_HEIGHT / 2) * initialScale,
+                scale: initialScale,
             });
         }
-    }, [isOpen, hasData, treeData]);
+    }, [isOpen, hasData, treeData, isMobile, NODE_WIDTH, NODE_HEIGHT]);
 
     if (!isOpen) return null;
 
@@ -234,19 +270,19 @@ export function TreeVisualization({ isOpen, onClose }: TreeVisualizationProps) {
                 className="fixed inset-0 z-50 bg-background/95 backdrop-blur-sm flex flex-col"
             >
                 {/* Header */}
-                <div className="flex items-center justify-between p-4 border-b bg-card/50 z-10 px-6">
-                    <div className="flex items-center gap-3">
-                        <div className="p-2 bg-primary/10 rounded-lg">
-                            <GitBranch className="h-5 w-5 text-primary" />
+                <div className="flex items-center justify-between p-3 md:p-4 border-b bg-card/50 z-10 px-4 md:px-6">
+                    <div className="flex items-center gap-2 md:gap-3">
+                        <div className="p-1.5 md:p-2 bg-primary/10 rounded-lg">
+                            <GitBranch className="h-4 w-4 md:h-5 md:w-5 text-primary" />
                         </div>
                         <div>
-                            <h2 className="font-bold text-lg leading-tight">Conversation Tree</h2>
-                            <p className="text-xs text-muted-foreground">
+                            <h2 className="font-bold text-base md:text-lg leading-tight">Conversation Tree</h2>
+                            <p className="text-[10px] md:text-xs text-muted-foreground">
                                 Flow chart of all dialogue branches
                             </p>
                         </div>
                     </div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-1 md:gap-2">
                         <Button
                             variant="outline"
                             size="icon"
@@ -284,7 +320,7 @@ export function TreeVisualization({ isOpen, onClose }: TreeVisualizationProps) {
 
                 {/* Canvas */}
                 <div
-                    className="flex-1 w-full h-full relative overflow-hidden bg-dot-pattern cursor-move select-none"
+                    className="flex-1 w-full h-full relative overflow-hidden bg-dot-pattern cursor-move select-none touch-manipulation"
                     onMouseDown={handleMouseDown}
                     onMouseMove={handleMouseMove}
                     onMouseUp={handleMouseUp}
@@ -304,7 +340,7 @@ export function TreeVisualization({ isOpen, onClose }: TreeVisualizationProps) {
                         </div>
                     ) : (
                         <svg ref={svgRef} className="w-full h-full block">
-                            <g transform={`translate(${view.x},${view.y}) scale(${view.scale})`}>
+                            <g data-panzoom transform={`translate(${view.x},${view.y}) scale(${view.scale})`}>
                                 {/* Edges */}
                                 {treeData?.edges.map((edge, i) => {
                                     const startHeading = edge.active

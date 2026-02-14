@@ -30,6 +30,7 @@ interface ChatInputProps {
     placeholder?: string;
     disabled?: boolean;
     onImpersonate?: () => Promise<string | void>;
+    onDraftChange?: (draft: string) => void;
 }
 
 export function ChatInput({
@@ -39,6 +40,7 @@ export function ChatInput({
     placeholder = 'Écrivez votre message...',
     disabled = false,
     onImpersonate,
+    onDraftChange,
 }: ChatInputProps) {
     const [message, setMessage] = useState('');
     const [isFocused, setIsFocused] = useState(false);
@@ -137,7 +139,10 @@ export function ChatInput({
                 <Textarea
                     ref={textareaRef}
                     value={message}
-                    onChange={(e) => setMessage(e.target.value)}
+                    onChange={(e) => {
+                        setMessage(e.target.value);
+                        onDraftChange?.(e.target.value);
+                    }}
                     onKeyDown={handleKeyDown}
                     onFocus={() => setIsFocused(true)}
                     onBlur={() => setIsFocused(false)}

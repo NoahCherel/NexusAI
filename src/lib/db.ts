@@ -1,9 +1,9 @@
 import { openDB, DBSchema, IDBPDatabase } from 'idb';
 import type { CharacterCard, Conversation, Message, LorebookEntry } from '@/types';
+import type { VectorEntry, MemorySummary, WorldFact } from '@/types/rag';
 
 // Database version - increment when schema changes
-// Database version - increment when schema changes
-const DB_VERSION = 4;
+const DB_VERSION = 5;
 const DB_NAME = 'nexusai-db';
 
 // Lorebook history entry for blockchain-style tracking
@@ -46,6 +46,21 @@ interface NexusAIDB extends DBSchema {
     settings: {
         key: string;
         value: unknown;
+    };
+    vectors: {
+        key: string;
+        value: VectorEntry;
+        indexes: { 'by-conversation': string };
+    };
+    summaries: {
+        key: string;
+        value: MemorySummary;
+        indexes: { 'by-conversation': string; 'by-level': number };
+    };
+    facts: {
+        key: string;
+        value: WorldFact;
+        indexes: { 'by-conversation': string; 'by-category': string; 'by-importance': number };
     };
 }
 
@@ -184,6 +199,23 @@ export async function initDB(): Promise<IDBPDatabase<NexusAIDB>> {
             if (!db.objectStoreNames.contains('settings')) {
                 db.createObjectStore('settings', { keyPath: 'key' });
             }
+
+            // RAG stores (v5)
+            if (!db.objectStoreNames.contains('vectors')) {
+                const vecStore = db.createObjectStore('vectors', { keyPath: 'id' });
+                vecStore.createIndex('by-conversation', 'conversationId');
+            }
+            if (!db.objectStoreNames.contains('summaries')) {
+                const sumStore = db.createObjectStore('summaries', { keyPath: 'id' });
+                sumStore.createIndex('by-conversation', 'conversationId');
+                sumStore.createIndex('by-level', 'level');
+            }
+            if (!db.objectStoreNames.contains('facts')) {
+                const factStore = db.createObjectStore('facts', { keyPath: 'id' });
+                factStore.createIndex('by-conversation', 'conversationId');
+                factStore.createIndex('by-category', 'category');
+                factStore.createIndex('by-importance', 'importance');
+            }
         },
     });
 
@@ -283,6 +315,94 @@ export async function getSetting<T>(key: string): Promise<T | undefined> {
     const db = await initDB();
     const result = await db.get('settings', key);
     return (result as { value: unknown } | undefined)?.value as T | undefined;
+}
+
+// ============ RAG Store Operations ============
+
+// Vector operations
+export async function saveVector(entry: VectorEntry): Promise<void> {
+    const db = await initDB();
+    await db.put('vectors', entry);
+}
+
+export async function getVectorsByConversation(conversationId: string): Promise<VectorEntry[]> {
+    const db = await initDB();
+    return db.getAllFromIndex('vectors', 'by-conversation', conversationId);
+}
+
+export async function deleteVectorsByConversation(conversationId: string): Promise<void> {
+    const db = await initDB();
+    const tx = db.transaction('vectors', 'readwrite');
+    const index = tx.store.index('by-conversation');
+    let cursor = await index.openKeyCursor(IDBKeyRange.only(conversationId));
+    while (cursor) {
+        await cursor.delete();
+        cursor = await cursor.continue();
+    }
+    await tx.done;
+}
+
+// Summary operations
+export async function saveSummary(summary: MemorySummary): Promise<void> {
+    const db = await initDB();
+    await db.put('summaries', summary);
+}
+
+export async function getSummariesByConversation(conversationId: string): Promise<MemorySummary[]> {
+    const db = await initDB();
+    return db.getAllFromIndex('summaries', 'by-conversation', conversationId);
+}
+
+export async function deleteSummariesByConversation(conversationId: string): Promise<void> {
+    const db = await initDB();
+    const tx = db.transaction('summaries', 'readwrite');
+    const index = tx.store.index('by-conversation');
+    let cursor = await index.openKeyCursor(IDBKeyRange.only(conversationId));
+    while (cursor) {
+        await cursor.delete();
+        cursor = await cursor.continue();
+    }
+    await tx.done;
+}
+
+// Fact operations
+export async function saveFact(fact: WorldFact): Promise<void> {
+    const db = await initDB();
+    await db.put('facts', fact);
+}
+
+export async function saveFactsBatch(facts: WorldFact[]): Promise<void> {
+    const db = await initDB();
+    const tx = db.transaction('facts', 'readwrite');
+    for (const fact of facts) {
+        await tx.store.put(fact);
+    }
+    await tx.done;
+}
+
+export async function getFactsByConversation(conversationId: string): Promise<WorldFact[]> {
+    const db = await initDB();
+    return db.getAllFromIndex('facts', 'by-conversation', conversationId);
+}
+
+export async function updateFact(id: string, updates: Partial<WorldFact>): Promise<void> {
+    const db = await initDB();
+    const existing = await db.get('facts', id);
+    if (existing) {
+        await db.put('facts', { ...existing, ...updates });
+    }
+}
+
+export async function deleteFactsByConversation(conversationId: string): Promise<void> {
+    const db = await initDB();
+    const tx = db.transaction('facts', 'readwrite');
+    const index = tx.store.index('by-conversation');
+    let cursor = await index.openKeyCursor(IDBKeyRange.only(conversationId));
+    while (cursor) {
+        await cursor.delete();
+        cursor = await cursor.continue();
+    }
+    await tx.done;
 }
 
 // Utility: Export all data (for backup)

@@ -55,6 +55,14 @@ export function PresetEditor() {
         deletePreset,
         setActivePreset,
         initializeDefaultPresets,
+        lorebookAutoExtract,
+        setLorebookAutoExtract,
+        enableFactExtraction,
+        setEnableFactExtraction,
+        enableHierarchicalSummaries,
+        setEnableHierarchicalSummaries,
+        enableRAGRetrieval,
+        setEnableRAGRetrieval,
     } = useSettingsStore();
 
     // Ensure defaults exist
@@ -755,6 +763,75 @@ export function PresetEditor() {
                                         }
                                     >
                                         {activePreset.useAutoSummarization ? 'On' : 'Off'}
+                                    </Button>
+                                </div>
+                            </div>
+
+                            {/* RAG / Memory System */}
+                            <div className="space-y-4">
+                                <Label>Memory System (RAG)</Label>
+
+                                <div className="flex items-center justify-between p-2 border rounded">
+                                    <div>
+                                        <p className="text-sm font-medium">RAG Retrieval</p>
+                                        <p className="text-xs text-muted-foreground">
+                                            Retrieve relevant past context for each message
+                                        </p>
+                                    </div>
+                                    <Button
+                                        size="sm"
+                                        variant={enableRAGRetrieval ? 'default' : 'secondary'}
+                                        onClick={() => setEnableRAGRetrieval(!enableRAGRetrieval)}
+                                    >
+                                        {enableRAGRetrieval ? 'On' : 'Off'}
+                                    </Button>
+                                </div>
+
+                                <div className="flex items-center justify-between p-2 border rounded">
+                                    <div>
+                                        <p className="text-sm font-medium">Fact Extraction</p>
+                                        <p className="text-xs text-muted-foreground">
+                                            Extract key facts from AI responses
+                                        </p>
+                                    </div>
+                                    <Button
+                                        size="sm"
+                                        variant={enableFactExtraction ? 'default' : 'secondary'}
+                                        onClick={() => setEnableFactExtraction(!enableFactExtraction)}
+                                    >
+                                        {enableFactExtraction ? 'On' : 'Off'}
+                                    </Button>
+                                </div>
+
+                                <div className="flex items-center justify-between p-2 border rounded">
+                                    <div>
+                                        <p className="text-sm font-medium">Hierarchical Summaries</p>
+                                        <p className="text-xs text-muted-foreground">
+                                            Auto-create L0/L1/L2 story summaries
+                                        </p>
+                                    </div>
+                                    <Button
+                                        size="sm"
+                                        variant={enableHierarchicalSummaries ? 'default' : 'secondary'}
+                                        onClick={() => setEnableHierarchicalSummaries(!enableHierarchicalSummaries)}
+                                    >
+                                        {enableHierarchicalSummaries ? 'On' : 'Off'}
+                                    </Button>
+                                </div>
+
+                                <div className="flex items-center justify-between p-2 border rounded">
+                                    <div>
+                                        <p className="text-sm font-medium">Lorebook Auto-Extract</p>
+                                        <p className="text-xs text-muted-foreground">
+                                            Suggest new lorebook entries from AI responses
+                                        </p>
+                                    </div>
+                                    <Button
+                                        size="sm"
+                                        variant={lorebookAutoExtract ? 'default' : 'secondary'}
+                                        onClick={() => setLorebookAutoExtract(!lorebookAutoExtract)}
+                                    >
+                                        {lorebookAutoExtract ? 'On' : 'Off'}
                                     </Button>
                                 </div>
                             </div>

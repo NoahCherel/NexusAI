@@ -14,7 +14,7 @@ import {
     AlertTriangle,
     ArrowRight,
 } from 'lucide-react';
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, memo } from 'react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { ActionTooltip } from '@/components/ui/action-tooltip';
@@ -81,7 +81,7 @@ interface ChatBubbleProps {
     onNavigateBranch?: (id: string, direction: 'prev' | 'next') => void;
 }
 
-export function ChatBubble({
+export const ChatBubble = memo(function ChatBubble({
     id,
     role,
     content,
@@ -115,8 +115,13 @@ export function ChatBubble({
 
     useEffect(() => {
         if (isEditing && textareaRef.current) {
+            // Save cursor position before resize
+            const { selectionStart, selectionEnd } = textareaRef.current;
             textareaRef.current.style.height = 'auto';
             textareaRef.current.style.height = textareaRef.current.scrollHeight + 'px';
+            // Restore cursor position after resize
+            textareaRef.current.selectionStart = selectionStart;
+            textareaRef.current.selectionEnd = selectionEnd;
         }
     }, [isEditing, editContent]);
 
@@ -131,7 +136,7 @@ export function ChatBubble({
             initial="hidden"
             animate="visible"
             exit="exit"
-            layout="position"
+            layout={isEditing ? false : "position"}
             className="flex gap-3 group items-start py-4 border-b border-white/[0.03] last:border-0"
             onMouseEnter={() => setIsHovered(true)}
             onMouseLeave={() => setIsHovered(false)}
@@ -396,4 +401,4 @@ export function ChatBubble({
             </div>
         </motion.div>
     );
-}
+});

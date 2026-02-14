@@ -32,8 +32,8 @@ export const MODELS = {
         { id: 'meta-llama/llama-3.1-8b-instruct:free', name: 'Llama 3.1 8B (Free)', free: true },
         { id: 'deepseek/deepseek-r1:free', name: 'DeepSeek R1 (Free)', free: true },
         {
-            id: 'tngtech/deepseek-r1t2-chimera:free',
-            name: 'DeepSeek R1 Chimera (Free)',
+            id: 'deepseek/deepseek-r1-0528:free',
+            name: 'DeepSeek R1 0528 (Free)',
             free: true,
         },
         { id: 'anthropic/claude-3.5-sonnet', name: 'Claude 3.5 Sonnet', free: false },
