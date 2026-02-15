@@ -1076,8 +1076,9 @@ export default function ChatPage() {
         });
 
         // Build preview sections
+        // Pass original systemPrompt (without RAG) so preview shows sections separately without duplication
         const previewData = await buildContextPreview(
-            systemPrompt + (ragSections.length > 0 ? '\n\n' + ragSections.map(s => s.content).join('\n\n') : ''),
+            systemPrompt,
             ragSections,
             messagesPayload.filter(m => m.role !== 'system'),
             activePreset?.postHistoryInstructions,

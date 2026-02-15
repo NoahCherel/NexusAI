@@ -437,8 +437,6 @@ export async function buildContextPreview(
             label: `Lorebook (${activeLorebookEntries.length} entries)`,
             type: 'lorebook',
         });
-        // Warn: these tokens are already counted inside system prompt, so we note this
-        warnings.push(`ℹ️ Lorebook tokens (${lorebookTokens}) are included within System Prompt — not double-counted`);
     }
     
     // 3. RAG sections
@@ -472,7 +470,10 @@ export async function buildContextPreview(
     }
     
     // Calculate totals
-    const totalTokens = sections.reduce((sum, s) => sum + s.tokens, 0) + maxOutputTokens;
+    // Note: Lorebook tokens are already included in system prompt, so we exclude them from total
+    const totalTokens = sections
+        .filter(s => s.type !== 'lorebook')
+        .reduce((sum, s) => sum + s.tokens, 0) + maxOutputTokens;
     
     if (totalTokens > maxContextTokens) {
         warnings.push(`⚠️ Context exceeds limit: ${totalTokens} / ${maxContextTokens} tokens (including ${maxOutputTokens} reserved for output)`);
