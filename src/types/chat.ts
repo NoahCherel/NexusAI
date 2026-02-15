@@ -22,6 +22,7 @@ export interface Conversation {
     title: string;
     worldState: WorldState; // Kept for backward compatibility (maps to root branch)
     worldStates?: Record<string, WorldState>; // Branch-specific states (branchId -> state)
+    notes?: string[]; // Conversation-scoped persona notes/memories
     createdAt: Date;
     updatedAt: Date;
 }

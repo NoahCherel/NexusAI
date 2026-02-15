@@ -1,6 +1,8 @@
 import type { CharacterCard, Lorebook, LorebookEntry } from '@/types/character';
 import type { Message, WorldState } from '@/types/chat';
+import type { ContextSection } from '@/types/rag';
 import { DEFAULT_SYSTEM_PROMPT_TEMPLATE } from '@/types/preset';
+import { countTokens } from '@/lib/tokenizer';
 
 interface LorebookConfig {
     scanDepth?: number;
@@ -32,8 +34,8 @@ export function getActiveLorebookEntries(
     const matchedEntries = new Set<LorebookEntry>();
     let currentTokenCount = 0;
 
-    // Helper to estimate tokens (approx 4 chars per token)
-    const estimateTokens = (text: string) => Math.ceil(text.length / 4);
+    // Use proper tokenizer
+    const estimateTokens = (text: string) => countTokens(text);
 
     // 2. recursive scan function
     const scanForKeywords = (text: string) => {
@@ -268,4 +270,106 @@ export function buildSystemPrompt(
     }
 
     return prompt;
+}
+
+/**
+ * Build the full message payload with RAG-enhanced context and proper token budgeting.
+ * This replaces the old naive truncation approach.
+ */
+export function buildRAGEnhancedPayload(
+    systemPrompt: string,
+    ragSections: ContextSection[],
+    history: Message[],
+    options: {
+        maxContextTokens: number;
+        maxOutputTokens: number;
+        postHistoryInstructions?: string;
+        assistantPrefill?: string;
+        activeProvider?: string;
+    }
+): {
+    messagesPayload: { role: string; content: string }[];
+    includedMessageCount: number;
+    droppedMessageCount: number;
+    tokenBreakdown: {
+        system: number;
+        rag: number;
+        history: number;
+        postHistory: number;
+        total: number;
+    };
+} {
+    const {
+        maxContextTokens,
+        maxOutputTokens,
+        postHistoryInstructions,
+        assistantPrefill,
+        activeProvider,
+    } = options;
+
+    // 1. Calculate fixed costs
+    const systemTokens = countTokens(systemPrompt);
+    const postHistoryTokens = postHistoryInstructions ? countTokens(postHistoryInstructions) : 0;
+    
+    // 2. Inject RAG sections into system prompt
+    let enhancedSystemPrompt = systemPrompt;
+    let ragTokens = 0;
+    
+    // Sort RAG sections by priority (lower = higher priority)
+    const sortedRAG = [...ragSections].sort((a, b) => a.priority - b.priority);
+    
+    for (const section of sortedRAG) {
+        enhancedSystemPrompt += '\n\n' + section.content;
+        ragTokens += section.tokens;
+    }
+    
+    const enhancedSystemTokens = systemTokens + ragTokens;
+    
+    // 3. Calculate available budget for history
+    const availableForHistory = maxContextTokens - enhancedSystemTokens - maxOutputTokens - postHistoryTokens;
+    
+    // 4. Fill history from newest to oldest
+    const messagesPayload: { role: string; content: string }[] = [];
+    let historyTokens = 0;
+    const reversedHistory = [...history].reverse();
+    
+    for (const msg of reversedHistory) {
+        const msgTokens = countTokens(msg.content);
+        if (historyTokens + msgTokens > availableForHistory) break;
+        messagesPayload.unshift({ role: msg.role, content: msg.content });
+        historyTokens += msgTokens;
+    }
+    
+    const includedMessageCount = messagesPayload.length;
+    const droppedMessageCount = history.length - includedMessageCount;
+    
+    // 5. Assemble final payload
+    // System message first
+    messagesPayload.unshift({ role: 'system', content: enhancedSystemPrompt });
+    
+    // Post-history instructions
+    if (postHistoryInstructions) {
+        messagesPayload.push({ role: 'system', content: postHistoryInstructions });
+    }
+    
+    // Assistant prefill
+    if (assistantPrefill) {
+        const supportsPrefill = activeProvider === 'anthropic' || activeProvider === 'openrouter';
+        if (supportsPrefill) {
+            messagesPayload.push({ role: 'assistant', content: assistantPrefill });
+        }
+    }
+    
+    return {
+        messagesPayload,
+        includedMessageCount,
+        droppedMessageCount,
+        tokenBreakdown: {
+            system: systemTokens,
+            rag: ragTokens,
+            history: historyTokens,
+            postHistory: postHistoryTokens,
+            total: enhancedSystemTokens + historyTokens + postHistoryTokens + maxOutputTokens,
+        },
+    };
 }

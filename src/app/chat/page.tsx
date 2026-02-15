@@ -2,7 +2,7 @@
 
 import { useRef, useEffect, useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Settings2, Sparkles, GitBranch, Brain, MoreVertical, Edit, Trash2, Download, Upload, Users } from 'lucide-react';
+import { Settings2, Sparkles, GitBranch, Brain, MoreVertical, Edit, Trash2, Download, Upload, Users, Eye, ChevronUp } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
     DropdownMenu,
@@ -17,6 +17,7 @@ import {
     WorldStatePanel,
     PersonaSelector,
     ModelSelector,
+    ContextPreviewPanel,
 } from '@/components/chat';
 import { SettingsPanel, CharacterPanel } from '@/components/layout';
 import { CharacterEditor } from '@/components/character';
@@ -25,7 +26,7 @@ import { useNotificationStore } from '@/components/ui/api-notification';
 import { useWorldStateAnalyzer } from '@/hooks';
 import { decryptApiKey } from '@/lib/crypto';
 import { parseStreamingChunk, normalizeCoT } from '@/lib/ai/cot-middleware';
-import { buildSystemPrompt, getActiveLorebookEntries } from '@/lib/ai/context-builder';
+import { buildSystemPrompt, getActiveLorebookEntries, buildRAGEnhancedPayload } from '@/lib/ai/context-builder';
 import { LorebookEditor } from '@/components/lorebook';
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import {
@@ -42,6 +43,31 @@ import { LandingPage } from '@/components/chat/LandingPage';
 import { useAppInitialization } from '@/hooks/useAppInitialization';
 import { extractLorebookEntries } from '@/lib/lorebook-extractor';
 import { APINotificationToast } from '@/components/ui/api-notification';
+import { retrieveRelevantContext, hybridLorebookSearch, indexMessageChunk, buildContextPreview } from '@/lib/ai/rag-service';
+import { embedText } from '@/lib/ai/embedding-service';
+import { countTokens } from '@/lib/tokenizer';
+import {
+    shouldCreateL0Summary,
+    shouldCreateL1Summary,
+    shouldCreateL2Summary,
+    getNextChunkToSummarize,
+    getL0SummariesForL1,
+    getL1SummariesForL2,
+    parseSummarizationResponse,
+    buildL0Prompt,
+    buildL1Prompt,
+    buildL2Prompt,
+    createSummary,
+    DEFAULT_CHUNK_SIZE,
+    SUMMARIZATION_PROMPT_L0,
+    SUMMARIZATION_PROMPT_L1,
+    SUMMARIZATION_PROMPT_L2,
+} from '@/lib/ai/hierarchical-summarizer';
+import { FACT_EXTRACTION_PROMPT, parseFactExtractionResponse, buildFactExtractionPrompt, deduplicateFacts, buildFactExtractionSystemPrompt } from '@/lib/ai/fact-extractor';
+import { getAdaptiveChunkSize } from '@/lib/ai/message-quality';
+import { deriveWorldStateUpdates, applyWorldStateUpdate } from '@/lib/ai/world-state-updater';
+import { saveFactsBatch, getFactsByConversation, getSummariesByConversation } from '@/lib/db';
+import type { ContextSection, WorldFact } from '@/types/rag';
 import type { Message } from '@/types';
 
 export default function ChatPage() {
@@ -54,6 +80,21 @@ export default function ChatPage() {
     const [isWorldStateDialogOpen, setIsWorldStateDialogOpen] = useState(false);
     const [currentApiKey, setCurrentApiKey] = useState<string | null>(null);
     const [isCharacterEditorOpen, setIsCharacterEditorOpen] = useState(false);
+
+    // Context preview state
+    const [isContextPreviewOpen, setIsContextPreviewOpen] = useState(false);
+    const [contextPreviewData, setContextPreviewData] = useState<{
+        sections: ContextSection[];
+        totalTokens: number;
+        maxTokens: number;
+        maxOutputTokens: number;
+        warnings: string[];
+        includedMessages: number;
+        droppedMessages: number;
+    } | null>(null);
+
+    // Draft message from ChatInput (for context preview)
+    const draftMessageRef = useRef('');
 
     // Initialize IndexedDB and load data
     useAppInitialization();
@@ -86,6 +127,22 @@ export default function ChatPage() {
         () => (activeConversationId ? getActiveBranchMessages(activeConversationId) : []),
         [activeConversationId, getActiveBranchMessages, storeMessages] // storeMessages triggers re-render
     );
+
+    // Message pagination: only display last N messages, with "Load More" button
+    const MESSAGE_PAGE_SIZE = 200;
+    const [displayLimit, setDisplayLimit] = useState(MESSAGE_PAGE_SIZE);
+    const displayedMessages = useMemo(() => {
+        if (messages.length <= displayLimit) return messages;
+        return messages.slice(messages.length - displayLimit);
+    }, [messages, displayLimit]);
+    const hasMoreMessages = messages.length > displayLimit;
+    const hiddenMessageCount = Math.max(0, messages.length - displayLimit);
+
+    // Reset display limit when switching conversations
+    useEffect(() => {
+        setDisplayLimit(MESSAGE_PAGE_SIZE);
+    }, [activeConversationId]);
+
     const { analyzeMessage, isAnalyzing } = useWorldStateAnalyzer();
     const {
         apiKeys,
@@ -221,91 +278,239 @@ export default function ChatPage() {
         }
     }, [messages]);
 
-    // Auto-Summary Logic (Every 5 messages)
+    // Hierarchical Auto-Summary & Fact Extraction Logic
     useEffect(() => {
-        const checkAndSummarize = async () => {
-            if (!character || !activeConversationId || messages.length === 0) return;
+        const { enableHierarchicalSummaries } = useSettingsStore.getState();
+        const runHierarchicalSummary = async () => {
+            if (!enableHierarchicalSummaries) return;
+            if (!character || !activeConversationId || messages.length === 0 || !currentApiKey) return;
 
-            // Check if we hit a multiple of 5 and haven't summarized yet
-            // We only count messages in the active branch
-            const currentCount = messages.length;
+            try {
+                const existingSummaries = await getSummariesByConversation(activeConversationId);
+                const activePersona = personas.find((p) => p.id === activePersonaId);
+                const userName = activePersona?.name || 'You';
 
-            if (currentCount > 0 && currentCount % 15 === 0 && currentCount > lastSummarizedCount.current) {
-                console.log('Triggering auto-summary for message count:', currentCount);
-                lastSummarizedCount.current = currentCount; // Mark as processed immediately to prevent double-fire
+                // Adaptive chunk size based on message quality/density
+                const recentMsgs = messages.slice(-15);
+                const adaptiveChunkSize = getAdaptiveChunkSize(
+                    recentMsgs.map(m => ({ role: m.role, content: m.content })),
+                    DEFAULT_CHUNK_SIZE
+                );
 
-                try {
-                    // Get the last 15 messages
-                    const recentMessages = messages.slice(-15);
-                    const recentContext = recentMessages.map(m => `${m.role}: ${m.content}`).join('\n\n');
+                // Check L0 (chunk summary with adaptive frequency)
+                if (shouldCreateL0Summary(messages.length, existingSummaries, adaptiveChunkSize)) {
+                    const chunk = getNextChunkToSummarize(messages, existingSummaries, adaptiveChunkSize);
+                    if (chunk) {
+                        const l0Index = existingSummaries.filter(s => s.level === 0).length;
+                        const startIdx = l0Index * DEFAULT_CHUNK_SIZE;
+                        const endIdx = startIdx + chunk.length;
 
-                    const systemPrompt = `You are a long-term memory assistant for a roleplay chat.
-Your task is to summarize the recent interaction to maintain a continuity of memory.
-Previous Memory:
-${character.longTermMemory?.join('\n') || 'None'}
+                        console.log(`[RAG] Creating L0 summary for messages ${startIdx}-${endIdx} (adaptive chunk=${adaptiveChunkSize})`);
+                        lastSummarizedCount.current = messages.length;
 
-Recent Interaction (last 15 messages):
-${recentContext}
+                        const prompt = buildL0Prompt(chunk, character.name, userName);
 
-Instructions:
-1. Create a concise summary of the recent interaction (approx 1-2 paragraphs).
-2. Ensure it connects logically to the previous memory.
-3. specific important details (names, locations, key decisions).
-4. Output ONLY the new summary text.`;
+                        const response = await fetch('/api/chat', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                messages: [{ role: 'user', content: prompt }],
+                                provider: 'openrouter',
+                                model: 'deepseek/deepseek-r1-0528:free',
+                                apiKey: currentApiKey,
+                                systemPrompt: SUMMARIZATION_PROMPT_L0,
+                                temperature: 0.3,
+                                maxTokens: 2000,
+                            }),
+                        });
 
-                    // Call Deepseek R1 Free
-                    const response = await fetch('/api/chat', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            messages: [{ role: 'user', content: 'Update long-term memory.' }], // Dummy message, real work is in system prompt
-                            provider: 'openrouter', // Assuming OpenRouter is the provider for Deepseek R1 Free
-                            model: 'deepseek/deepseek-r1-0528:free',
-                            apiKey: currentApiKey, // Use current key (hope it works for OpenRouter free models which might not need key or use generic one? If user has OpenRouter key it will work)
-                            systemPrompt: systemPrompt,
-                            temperature: 0.7,
-                            maxTokens: 8000,
-                        }),
-                    });
+                        if (response.ok) {
+                            const reader = response.body?.getReader();
+                            const decoder = new TextDecoder();
+                            let text = '';
+                            if (reader) {
+                                while (true) {
+                                    const { done, value } = await reader.read();
+                                    if (done) break;
+                                    text += decoder.decode(value, { stream: true });
+                                }
+                            }
 
-                    if (!response.ok) throw new Error('Summary API failed');
+                            const cleanText = text.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+                            const parsed = parseSummarizationResponse(cleanText);
 
-                    // Read response
-                    const reader = response.body?.getReader();
-                    const decoder = new TextDecoder();
-                    let summary = '';
-                    if (reader) {
-                        while (true) {
-                            const { done, value } = await reader.read();
-                            if (done) break;
-                            summary += decoder.decode(value, { stream: true });
+                            if (parsed) {
+                                const embedding = await embedText(parsed.summary);
+                                const summary = await createSummary(
+                                    activeConversationId,
+                                    0,
+                                    parsed.summary,
+                                    parsed.keyFacts,
+                                    [startIdx, endIdx],
+                                    [],
+                                    embedding
+                                );
+
+                                // Also index as a vector chunk for retrieval (with branch path)
+                                const branchPath = messages.map(m => m.id);
+                                await indexMessageChunk(chunk, activeConversationId, parsed.summary, {
+                                    characters: [character.name],
+                                    location: worldState.location,
+                                    importance: 5,
+                                }, branchPath);
+
+                                // Extract facts from key facts
+                                if (parsed.keyFacts.length > 0) {
+                                    const existingFacts = await getFactsByConversation(activeConversationId);
+                                    const newFacts: Omit<WorldFact, 'id' | 'embedding'>[] = parsed.keyFacts.map(kf => ({
+                                        conversationId: activeConversationId,
+                                        messageId: chunk[chunk.length - 1].id,
+                                        fact: kf,
+                                        category: 'event' as const,
+                                        importance: 5,
+                                        active: true,
+                                        timestamp: Date.now(),
+                                        relatedEntities: [],
+                                        lastAccessedAt: Date.now(),
+                                        accessCount: 0,
+                                    }));
+
+                                    const deduped = deduplicateFacts(newFacts, existingFacts);
+                                    if (deduped.length > 0) {
+                                        const factsWithIds: WorldFact[] = deduped.map(f => ({
+                                            ...f,
+                                            id: crypto.randomUUID(),
+                                            embedding: [],
+                                            branchPath,
+                                        }));
+
+                                        // Embed facts in background
+                                        for (const fact of factsWithIds) {
+                                            fact.embedding = await embedText(fact.fact);
+                                        }
+
+                                        await saveFactsBatch(factsWithIds);
+                                    }
+                                }
+
+                                console.log('[RAG] L0 summary created:', summary.id);
+                            }
+                        }
+
+                    }
+                }
+
+                // Check L1 (section summary from L0s)
+                const updatedSummaries = await getSummariesByConversation(activeConversationId);
+                if (shouldCreateL1Summary(updatedSummaries)) {
+                    const l0s = getL0SummariesForL1(updatedSummaries);
+                    if (l0s) {
+                        console.log('[RAG] Creating L1 summary from', l0s.length, 'L0 summaries');
+                        const prompt = buildL1Prompt(l0s);
+
+                        const response = await fetch('/api/chat', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                messages: [{ role: 'user', content: prompt }],
+                                provider: 'openrouter',
+                                model: 'deepseek/deepseek-r1-0528:free',
+                                apiKey: currentApiKey,
+                                systemPrompt: SUMMARIZATION_PROMPT_L1,
+                                temperature: 0.3,
+                                maxTokens: 2000,
+                            }),
+                        });
+
+                        if (response.ok) {
+                            const reader = response.body?.getReader();
+                            const decoder = new TextDecoder();
+                            let text = '';
+                            if (reader) {
+                                while (true) {
+                                    const { done, value } = await reader.read();
+                                    if (done) break;
+                                    text += decoder.decode(value, { stream: true });
+                                }
+                            }
+
+                            const cleanText = text.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+                            const parsed = parseSummarizationResponse(cleanText);
+                            if (parsed) {
+                                const range: [number, number] = [
+                                    Math.min(...l0s.map(s => s.messageRange[0])),
+                                    Math.max(...l0s.map(s => s.messageRange[1])),
+                                ];
+                                const embedding = await embedText(parsed.summary);
+                                await createSummary(activeConversationId, 1, parsed.summary, parsed.keyFacts, range, l0s.map(s => s.id), embedding);
+                                console.log('[RAG] L1 summary created');
+                            }
                         }
                     }
-
-                    // Cleanup summary (remove thoughts if any)
-                    const cleanSummary = summary.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
-
-                    if (cleanSummary) {
-                        // Update Character Memory
-                        const newMemory = [...(character.longTermMemory || []), cleanSummary];
-                        await updateCharacter(character.id, { longTermMemory: newMemory });
-                        console.log('Auto-summary updated.');
-                    }
-
-                } catch (error) {
-                    console.error('Auto-summary failed:', error);
                 }
+
+                // Check L2 (arc summary from L1s)
+                const finalSummaries = await getSummariesByConversation(activeConversationId);
+                if (shouldCreateL2Summary(finalSummaries)) {
+                    const l1s = getL1SummariesForL2(finalSummaries);
+                    if (l1s) {
+                        console.log('[RAG] Creating L2 arc summary from', l1s.length, 'L1 summaries');
+                        const prompt = buildL2Prompt(l1s);
+
+                        const response = await fetch('/api/chat', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                messages: [{ role: 'user', content: prompt }],
+                                provider: 'openrouter',
+                                model: 'deepseek/deepseek-r1-0528:free',
+                                apiKey: currentApiKey,
+                                systemPrompt: SUMMARIZATION_PROMPT_L2,
+                                temperature: 0.3,
+                                maxTokens: 2000,
+                            }),
+                        });
+
+                        if (response.ok) {
+                            const reader = response.body?.getReader();
+                            const decoder = new TextDecoder();
+                            let text = '';
+                            if (reader) {
+                                while (true) {
+                                    const { done, value } = await reader.read();
+                                    if (done) break;
+                                    text += decoder.decode(value, { stream: true });
+                                }
+                            }
+
+                            const cleanText = text.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+                            const parsed = parseSummarizationResponse(cleanText);
+                            if (parsed) {
+                                const range: [number, number] = [
+                                    Math.min(...l1s.map(s => s.messageRange[0])),
+                                    Math.max(...l1s.map(s => s.messageRange[1])),
+                                ];
+                                const embedding = await embedText(parsed.summary);
+                                await createSummary(activeConversationId, 2, parsed.summary, parsed.keyFacts, range, l1s.map(s => s.id), embedding);
+                                console.log('[RAG] L2 arc summary created');
+                            }
+                        }
+                    }
+                }
+            } catch (error) {
+                console.error('[RAG] Hierarchical summary error:', error);
             }
         };
 
-        checkAndSummarize();
-    }, [messages, character, activeConversationId, currentApiKey, updateCharacter]);
+        runHierarchicalSummary();
+    }, [messages, character, activeConversationId, currentApiKey, updateCharacter, personas, activePersonaId, worldState.location]);
 
     const triggerAiReponse = async (
         history: CAMessage[],
         options: {
             isImpersonation?: boolean;
             prefill?: string;
+            skipFactExtraction?: boolean;
         } = {}
     ) => {
         if (!currentApiKey || !character) return;
@@ -320,40 +525,85 @@ Instructions:
         const activePreset = getActivePreset();
         const activePersona = personas.find((p) => p.id === activePersonaId);
 
-        // Helper to estimate tokens (approx 4 chars per token)
-        const estimateTokens = (text: string) => Math.ceil(text.length / 4);
-
-        // 1. Calculate Active Lorebook Entries (World Info) using STORE data
+        // 1. Calculate Active Lorebook Entries (hybrid: keyword + semantic)
         const useLorebooks = activePreset?.useLorebooks ?? true;
         const lorebookTokenBudget = activePreset?.lorebookTokenBudget ?? 2000;
-        const activeEntries = useLorebooks
-            ? getActiveLorebookEntries(
-                history.map((m) => ({
-                    ...m,
-                    conversationId: '',
-                    parentId: null,
-                    isActiveBranch: true,
-                    createdAt: new Date(),
-                })) as unknown as CAMessage[],
-                activeLorebook || undefined,
-                {
-                    scanDepth: activePreset?.lorebookScanDepth,
-                    tokenBudget: lorebookTokenBudget,
-                    recursive: activePreset?.lorebookRecursiveScanning,
-                    matchWholeWords: activePreset?.matchWholeWords,
-                }
-            )
-            : [];
+        
+        let activeEntries;
+        const lastUserMsg = history[history.length - 1]?.content || '';
+        
+        if (useLorebooks && activeLorebook?.entries && activeLorebook.entries.length > 0) {
+            try {
+                const queryEmbedding = await embedText(lastUserMsg);
+                activeEntries = await hybridLorebookSearch(
+                    lastUserMsg,
+                    queryEmbedding,
+                    activeLorebook.entries,
+                    history.map((m) => ({
+                        ...m,
+                        conversationId: '',
+                        parentId: null,
+                        isActiveBranch: true,
+                        createdAt: new Date(),
+                    })) as unknown as CAMessage[],
+                    {
+                        scanDepth: activePreset?.lorebookScanDepth,
+                        tokenBudget: lorebookTokenBudget,
+                        matchWholeWords: activePreset?.matchWholeWords,
+                    }
+                );
+            } catch (err) {
+                console.warn('[RAG] Hybrid lorebook search failed, falling back:', err);
+                activeEntries = getActiveLorebookEntries(
+                    history.map((m) => ({
+                        ...m,
+                        conversationId: '',
+                        parentId: null,
+                        isActiveBranch: true,
+                        createdAt: new Date(),
+                    })) as unknown as CAMessage[],
+                    activeLorebook || undefined,
+                    {
+                        scanDepth: activePreset?.lorebookScanDepth,
+                        tokenBudget: lorebookTokenBudget,
+                        recursive: activePreset?.lorebookRecursiveScanning,
+                        matchWholeWords: activePreset?.matchWholeWords,
+                    }
+                );
+            }
+        } else {
+            activeEntries = useLorebooks
+                ? getActiveLorebookEntries(
+                    history.map((m) => ({
+                        ...m,
+                        conversationId: '',
+                        parentId: null,
+                        isActiveBranch: true,
+                        createdAt: new Date(),
+                    })) as unknown as CAMessage[],
+                    activeLorebook || undefined,
+                    {
+                        scanDepth: activePreset?.lorebookScanDepth,
+                        tokenBudget: lorebookTokenBudget,
+                        recursive: activePreset?.lorebookRecursiveScanning,
+                        matchWholeWords: activePreset?.matchWholeWords,
+                    }
+                )
+                : [];
+        }
 
         // 2. Build Enhanced System Prompt
+        // Combine conversation-scoped notes with character-level memory
+        const currentConv = conversations.find(c => c.id === activeConversationId);
+        const combinedMemory = [...(currentConv?.notes || []), ...(character.longTermMemory || [])];
         let systemPrompt = buildSystemPrompt(character, worldState, activeEntries, {
             template: activePreset?.systemPromptTemplate,
             preHistory: activePreset?.preHistoryInstructions,
             postHistory: activePreset?.postHistoryInstructions,
             userPersona: activePersona,
-            longTermMemory: character.longTermMemory,
-            recentMessages: history, // Pass history for extracting mentioned characters
-            excludePostHistory: true, // we will append manually to last message
+            longTermMemory: combinedMemory,
+            recentMessages: history,
+            excludePostHistory: true,
         });
 
         // Handle Impersonation System Prompt Override
@@ -367,12 +617,53 @@ Instructions:
                 activePersona?.name || 'User'
             );
 
-            // Append or Replace? Usually we want to force the role.
-            // We append it to the END of the system prompt to override previous instructions.
             systemPrompt += `\n\n[SYSTEM: ${resolvedImpersonation}]`;
         }
 
-        // 3. Prepare Target Message (Assistant or User)
+        // 3. RAG: Retrieve relevant context
+        const { enableRAGRetrieval, enableFactExtraction, minRAGConfidence } = useSettingsStore.getState();
+        const maxContextTokens = activePreset?.maxContextTokens ?? 16384;
+        const maxOutputTokens = activePreset?.maxOutputTokens ?? 2048;
+        const systemTokens = countTokens(systemPrompt);
+        const proportionalBudget = Math.floor((maxContextTokens - systemTokens - maxOutputTokens) * 0.25);
+        const minimumBudget = Math.floor(maxContextTokens * 0.15);
+        const ragBudget = Math.max(proportionalBudget, minimumBudget);
+
+        let ragSections: ContextSection[] = [];
+        if (enableRAGRetrieval && activeConversationId && ragBudget > 50) {
+            try {
+                // Pass active branch message IDs for branch-aware filtering
+                const activeBranchIds = messages.map(m => m.id);
+                ragSections = await retrieveRelevantContext(
+                    lastUserMsg,
+                    activeConversationId,
+                    ragBudget,
+                    { worldState, activeBranchMessageIds: activeBranchIds, minConfidence: minRAGConfidence }
+                );
+            } catch (err) {
+                console.warn('[RAG] Context retrieval failed:', err);
+            }
+        }
+
+        // 4. Build RAG-enhanced payload with proper token budgeting
+        const {
+            messagesPayload,
+            includedMessageCount,
+            droppedMessageCount,
+            tokenBreakdown,
+        } = buildRAGEnhancedPayload(systemPrompt, ragSections, history as CAMessage[], {
+            maxContextTokens,
+            maxOutputTokens,
+            postHistoryInstructions: activePreset?.postHistoryInstructions,
+            assistantPrefill: options.prefill,
+            activeProvider,
+        });
+
+        if (droppedMessageCount > 0) {
+            console.log(`[RAG] Context: ${includedMessageCount} msgs included, ${droppedMessageCount} truncated. Tokens: sys=${tokenBreakdown.system} rag=${tokenBreakdown.rag} hist=${tokenBreakdown.history} total=${tokenBreakdown.total}`);
+        }
+
+        // 5. Prepare Target Message (Assistant or User)
         const targetRole = options.isImpersonation ? 'user' : 'assistant';
         const targetId = crypto.randomUUID();
 
@@ -392,46 +683,6 @@ Instructions:
                 messageOrder: history.length + 1,
                 regenerationIndex: 0,
             });
-        }
-
-        // 4. API Request Construction with Context Truncation
-        const maxContextTokens = activePreset?.maxContextTokens ?? 16384;
-        const maxOutputTokens = activePreset?.maxOutputTokens ?? 2048;
-
-        // Reserve tokens for system prompt and output
-        const systemPromptTokens = estimateTokens(systemPrompt);
-        const availableForHistory = maxContextTokens - systemPromptTokens - maxOutputTokens;
-
-        // Build messages payload with truncation (keep recent messages)
-        let messagesPayload: { role: string; content: string }[] = [];
-        let currentTokenCount = 0;
-
-        // Process messages from newest to oldest, then reverse
-        const reversedHistory = [...history].reverse();
-        for (const msg of reversedHistory) {
-            const msgTokens = estimateTokens(msg.content);
-            if (currentTokenCount + msgTokens > availableForHistory) {
-                break;
-            }
-            messagesPayload.unshift({ role: msg.role, content: msg.content });
-            currentTokenCount += msgTokens;
-        }
-
-        // Inject Post-History as a separate System Message
-        if (activePreset?.postHistoryInstructions) {
-            messagesPayload.push({ role: 'system', content: activePreset.postHistoryInstructions });
-        }
-
-        // Insert System Message at the beginning (Message 0)
-        messagesPayload.unshift({ role: 'system', content: systemPrompt });
-
-        // Handle Prefill for API
-        if (options.prefill && targetRole === 'assistant') {
-            const supportsPrefill =
-                activeProvider === 'anthropic' || activeProvider === 'openrouter';
-            if (supportsPrefill) {
-                messagesPayload.push({ role: 'assistant', content: options.prefill });
-            }
         }
 
         try {
@@ -528,25 +779,107 @@ Instructions:
                     }
                 }
 
-                // Lorebook extraction (only if enabled in settings)
-                const { lorebookAutoExtract } = useSettingsStore.getState();
-                if (lorebookAutoExtract && activeLorebook && fullContent) {
-                    const existingKeys = activeLorebook.entries.flatMap((e) => e.keys);
-                    extractLorebookEntries(fullContent, existingKeys)
-                        .then((newEntries) => {
-                            if (newEntries.length > 0) {
-                                const { addSuggestions } = useLorebookStore.getState();
-                                // Add to suggestions queue for user approval
-                                addSuggestions(
-                                    newEntries.map((e) => ({
-                                        keys: e.keys,
-                                        content: e.content,
-                                        category: e.category,
-                                    }))
+                // Lorebook extraction is now handled in handleSend on the previous message
+
+                // RAG: Background fact extraction from the AI response (skip on regeneration)
+                if (enableFactExtraction && activeConversationId && fullContent && !options.skipFactExtraction) {
+                    (async () => {
+                        try {
+                            const factPrompt = buildFactExtractionPrompt(
+                                fullContent,
+                                worldState,
+                                character.name,
+                                activePersona?.name || 'User'
+                            );
+
+                            const openRouterKey = await (async () => {
+                                const orConfig = apiKeys.find(k => k.provider === 'openrouter');
+                                if (!orConfig) return currentApiKey;
+                                return await decryptApiKey(orConfig.encryptedKey) || currentApiKey;
+                            })();
+
+                            const { customFactCategories } = useSettingsStore.getState();
+                            const factSystemPrompt = customFactCategories.length > 0
+                                ? buildFactExtractionSystemPrompt(customFactCategories)
+                                : FACT_EXTRACTION_PROMPT;
+
+                            const factResponse = await fetch('/api/chat', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({
+                                    messages: [{ role: 'user', content: factPrompt }],
+                                    provider: 'openrouter',
+                                    model: 'meta-llama/llama-3.3-70b-instruct:free',
+                                    apiKey: openRouterKey,
+                                    systemPrompt: factSystemPrompt,
+                                    temperature: 0.2,
+                                    maxTokens: 2000,
+                                }),
+                            });
+
+                            if (factResponse.ok) {
+                                const reader = factResponse.body?.getReader();
+                                const decoder = new TextDecoder();
+                                let factText = '';
+                                if (reader) {
+                                    while (true) {
+                                        const { done, value } = await reader.read();
+                                        if (done) break;
+                                        factText += decoder.decode(value, { stream: true });
+                                    }
+                                }
+
+                                const cleanFactText = factText.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+                                const extractedFacts = parseFactExtractionResponse(
+                                    cleanFactText,
+                                    activeConversationId,
+                                    targetId
                                 );
+
+                                if (extractedFacts.length > 0) {
+                                    const existingFacts = await getFactsByConversation(activeConversationId);
+                                    const deduped = deduplicateFacts(extractedFacts, existingFacts);
+
+                                    if (deduped.length > 0) {
+                                        // Tag facts with active branch path for branch-aware retrieval
+                                        const branchPath = messages.map(m => m.id);
+                                        const factsWithIds: WorldFact[] = [];
+                                        for (const f of deduped) {
+                                            const emb = await embedText(f.fact);
+                                            factsWithIds.push({
+                                                ...f,
+                                                id: crypto.randomUUID(),
+                                                embedding: emb,
+                                                branchPath,
+                                            });
+                                        }
+                                        await saveFactsBatch(factsWithIds);
+                                        console.log(`[RAG] Extracted ${factsWithIds.length} facts from response`);
+
+                                        // Auto-update world state from extracted facts
+                                        try {
+                                            const activePersona = personas.find(p => p.id === activePersonaId);
+                                            const wsUpdates = deriveWorldStateUpdates(
+                                                factsWithIds,
+                                                worldState,
+                                                character.name,
+                                                activePersona?.name || 'You'
+                                            );
+                                            const wsChanges = applyWorldStateUpdate(worldState, wsUpdates);
+                                            if (wsChanges && activeConversationId) {
+                                                useChatStore.getState().updateWorldState(activeConversationId, wsChanges);
+                                                console.log('[RAG] Auto world state update:', wsChanges);
+                                            }
+                                        } catch (wsErr) {
+                                            console.warn('[RAG] Auto world state update failed:', wsErr);
+                                        }
+                                    }
+                                }
                             }
-                        })
-                        .catch((err) => console.error('Lorebook extraction failed:', err));
+                        } catch (err) {
+                            console.error('[RAG] Fact extraction failed:', err);
+                        }
+                    })();
                 }
             }
         } catch (error) {
@@ -599,6 +932,30 @@ Instructions:
     const handleSend = async (userMessage: string) => {
         if (!activeConversationId || !character) return;
 
+        // Lorebook extraction on the PREVIOUS assistant message (the one the user is confirming by replying)
+        // This ensures only the active regeneration branch gets extracted
+        const { lorebookAutoExtract } = useSettingsStore.getState();
+        if (lorebookAutoExtract && activeLorebook && messages.length > 0) {
+            const lastAssistantMsg = [...messages].reverse().find(m => m.role === 'assistant');
+            if (lastAssistantMsg?.content) {
+                const existingKeys = activeLorebook.entries.flatMap((e) => e.keys);
+                extractLorebookEntries(lastAssistantMsg.content, existingKeys)
+                    .then((newEntries) => {
+                        if (newEntries.length > 0) {
+                            const { addSuggestions } = useLorebookStore.getState();
+                            addSuggestions(
+                                newEntries.map((e) => ({
+                                    keys: e.keys,
+                                    content: e.content,
+                                    category: e.category,
+                                }))
+                            );
+                        }
+                    })
+                    .catch((err) => console.error('Lorebook extraction failed:', err));
+            }
+        }
+
         const lastParams = messages.length > 0 ? messages[messages.length - 1] : null;
 
         const newUserMessage: Message = {
@@ -621,6 +978,125 @@ Instructions:
         // Construct history for API (include the new message)
         const history = [...messages, newUserMessage];
         await triggerAiReponse(history, { prefill });
+    };
+
+    // Context Preview handler - builds a preview of what would be sent
+    const handleContextPreview = async () => {
+        if (!character || !activeConversationId || !currentApiKey) return;
+
+        const activePreset = getActivePreset();
+        const activePersona = personas.find((p) => p.id === activePersonaId);
+
+        // Simulate what would be sent, including any draft message in the input
+        const draftText = draftMessageRef.current?.trim() || '';
+        const simulatedMessages = draftText
+            ? [
+                ...messages,
+                {
+                    id: 'draft-preview',
+                    conversationId: activeConversationId,
+                    parentId: messages[messages.length - 1]?.id || null,
+                    role: 'user' as const,
+                    content: draftText,
+                    isActiveBranch: true,
+                    createdAt: new Date(),
+                    messageOrder: messages.length + 1,
+                    regenerationIndex: 0,
+                },
+            ]
+            : messages;
+
+        // Build system prompt
+        const useLorebooks = activePreset?.useLorebooks ?? true;
+        const lorebookTokenBudget = activePreset?.lorebookTokenBudget ?? 2000;
+        const activeEntries = useLorebooks
+            ? getActiveLorebookEntries(
+                simulatedMessages.map((m) => ({
+                    ...m,
+                    conversationId: '',
+                    parentId: null,
+                    isActiveBranch: true,
+                    createdAt: new Date(),
+                })) as unknown as CAMessage[],
+                activeLorebook || undefined,
+                {
+                    scanDepth: activePreset?.lorebookScanDepth,
+                    tokenBudget: lorebookTokenBudget,
+                    recursive: activePreset?.lorebookRecursiveScanning,
+                    matchWholeWords: activePreset?.matchWholeWords,
+                }
+            )
+            : [];
+
+        const conv = conversations.find(c => c.id === activeConversationId);
+        const combinedMem = [...(conv?.notes || []), ...(character.longTermMemory || [])];
+        const systemPrompt = buildSystemPrompt(character, worldState, activeEntries, {
+            template: activePreset?.systemPromptTemplate,
+            preHistory: activePreset?.preHistoryInstructions,
+            postHistory: activePreset?.postHistoryInstructions,
+            userPersona: activePersona,
+            longTermMemory: combinedMem,
+            recentMessages: simulatedMessages,
+            excludePostHistory: true,
+        });
+
+        const maxContextTokens = activePreset?.maxContextTokens ?? 16384;
+        const maxOutputTokens = activePreset?.maxOutputTokens ?? 2048;
+
+        // Get RAG sections
+        const systemTokens = countTokens(systemPrompt);
+        const proportionalBudget = Math.floor((maxContextTokens - systemTokens - maxOutputTokens) * 0.25);
+        const minimumBudget = Math.floor(maxContextTokens * 0.15);
+        const ragBudget = Math.max(proportionalBudget, minimumBudget);
+        const lastMsg = simulatedMessages[simulatedMessages.length - 1]?.content || '';
+
+        let ragSections: ContextSection[] = [];
+        try {
+            const { minRAGConfidence: previewMinConf } = useSettingsStore.getState();
+            ragSections = await retrieveRelevantContext(lastMsg, activeConversationId, ragBudget, {
+                worldState,
+                activeBranchMessageIds: simulatedMessages.map(m => m.id),
+                minConfidence: previewMinConf,
+            });
+        } catch (err) {
+            console.warn('[Preview] RAG retrieval failed:', err);
+        }
+
+        // Build payload
+        const {
+            messagesPayload,
+            includedMessageCount,
+            droppedMessageCount,
+            tokenBreakdown,
+        } = buildRAGEnhancedPayload(systemPrompt, ragSections, simulatedMessages as CAMessage[], {
+            maxContextTokens,
+            maxOutputTokens,
+            postHistoryInstructions: activePreset?.postHistoryInstructions,
+            activeProvider,
+        });
+
+        // Build preview sections
+        const previewData = await buildContextPreview(
+            systemPrompt + (ragSections.length > 0 ? '\n\n' + ragSections.map(s => s.content).join('\n\n') : ''),
+            ragSections,
+            messagesPayload.filter(m => m.role !== 'system'),
+            activePreset?.postHistoryInstructions,
+            maxContextTokens,
+            maxOutputTokens,
+            activeEntries
+        );
+
+        setContextPreviewData({
+            ...previewData,
+            maxOutputTokens,
+            includedMessages: includedMessageCount,
+            droppedMessages: droppedMessageCount,
+            warnings: [
+                ...previewData.warnings,
+                ...(draftText ? [`Draft message included: "${draftText.slice(0, 80)}${draftText.length > 80 ? '...' : ''}"`] : []),
+            ],
+        });
+        setIsContextPreviewOpen(true);
     };
 
     const handleImpersonate = async (): Promise<string | void> => {
@@ -655,12 +1131,14 @@ Instructions:
                 )
                 : [];
 
+            const impConv = conversations.find(c => c.id === activeConversationId);
+            const impMem = [...(impConv?.notes || []), ...(character.longTermMemory || [])];
             let systemPrompt = buildSystemPrompt(character, worldState, activeEntries, {
                 template: activePreset?.systemPromptTemplate,
                 preHistory: activePreset?.preHistoryInstructions,
                 postHistory: activePreset?.postHistoryInstructions,
                 userPersona: activePersona,
-                longTermMemory: character.longTermMemory,
+                longTermMemory: impMem,
                 recentMessages: messages, // Pass current messages for context
                 excludePostHistory: true,
             });
@@ -751,7 +1229,7 @@ Instructions:
             // Create a sibling!
             // Just trigger AI with history up to parent
             const history = messages.slice(0, msgIndex);
-            await triggerAiReponse(history);
+            await triggerAiReponse(history, { skipFactExtraction: true });
         }
     };
 
@@ -777,7 +1255,7 @@ Instructions:
         deleteMessage(id);
 
         // Trigger AI with prefill
-        await triggerAiReponse(history, { prefill });
+        await triggerAiReponse(history, { prefill, skipFactExtraction: true });
     };
 
     const handleEditMessage = (id: string, newContent: string) => {
@@ -1088,7 +1566,21 @@ Instructions:
                                             <p>The story begins here...</p>
                                         </div>
                                     ) : (
-                                        messages.map((msg) => {
+                                        <>
+                                            {hasMoreMessages && (
+                                                <div className="flex justify-center py-4">
+                                                    <Button
+                                                        variant="outline"
+                                                        size="sm"
+                                                        onClick={() => setDisplayLimit(prev => prev + MESSAGE_PAGE_SIZE)}
+                                                        className="gap-2 text-xs text-muted-foreground hover:text-foreground"
+                                                    >
+                                                        <ChevronUp className="h-3.5 w-3.5" />
+                                                        Load {Math.min(MESSAGE_PAGE_SIZE, hiddenMessageCount)} more messages ({hiddenMessageCount} hidden)
+                                                    </Button>
+                                                </div>
+                                            )}
+                                            {displayedMessages.map((msg) => {
                                             const siblingsInfo = getMessageSiblingsInfo(msg.id);
                                             // Replace {{user}} with persona name for display
                                             const displayContent = msg.content.replace(
@@ -1129,7 +1621,8 @@ Instructions:
                                                     onNavigateBranch={navigateToSibling}
                                                 />
                                             );
-                                        })
+                                        })}
+                                        </>
                                     )}
 
                                     <div ref={scrollRef} />
@@ -1199,6 +1692,15 @@ Instructions:
                                         >
                                             <Brain className="h-4 w-4" />
                                         </Button>
+                                        <Button
+                                            variant="ghost"
+                                            size="sm"
+                                            className="h-8 w-8 p-0 text-muted-foreground hover:text-foreground shrink-0"
+                                            onClick={handleContextPreview}
+                                            title="Context Preview"
+                                        >
+                                            <Eye className="h-4 w-4" />
+                                        </Button>
                                     </div>
                                 )}
                                 <ChatInput
@@ -1207,6 +1709,7 @@ Instructions:
                                     isLoading={isLoading}
                                     disabled={!currentApiKey}
                                     onImpersonate={handleImpersonate}
+                                    onDraftChange={(draft) => { draftMessageRef.current = draft; }}
                                     placeholder={
                                         !currentApiKey
                                             ? 'Missing API Key...'
@@ -1350,6 +1853,21 @@ Instructions:
             )}
 
             <APINotificationToast />
+
+            {/* Context Preview Panel */}
+            {contextPreviewData && (
+                <ContextPreviewPanel
+                    isOpen={isContextPreviewOpen}
+                    onClose={() => setIsContextPreviewOpen(false)}
+                    sections={contextPreviewData.sections}
+                    totalTokens={contextPreviewData.totalTokens}
+                    maxTokens={contextPreviewData.maxTokens}
+                    maxOutputTokens={contextPreviewData.maxOutputTokens}
+                    warnings={contextPreviewData.warnings}
+                    includedMessages={contextPreviewData.includedMessages}
+                    droppedMessages={contextPreviewData.droppedMessages}
+                />
+            )}
         </div>
     );
 }

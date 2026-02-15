@@ -6,6 +6,7 @@ import { useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { ScrollArea } from '@/components/ui/scroll-area';
 import { useChatStore } from '@/stores/chat-store';
 
 interface WorldStatePanelProps {
@@ -268,7 +269,7 @@ export function WorldStatePanel({
                             </div>
                             {!isAddingRelation && (
                                 <button
-                                    className="p-1 hover:bg-muted rounded-md transition-colors opacity-50 hover:opacity-100"
+                                    className="p-1.5 hover:bg-muted rounded-md transition-colors opacity-50 hover:opacity-100"
                                     onClick={() => setIsAddingRelation(true)}
                                 >
                                     <Plus className="w-3.5 h-3.5" />
@@ -276,7 +277,8 @@ export function WorldStatePanel({
                             )}
                         </div>
 
-                        <div className="max-h-[300px] overflow-y-auto pr-1 space-y-4 custom-scrollbar">
+                        <ScrollArea className="max-h-[250px]">
+                            <div className="pr-2 space-y-3">
                             {relationshipEntries.map(([name, level]) => {
                                 const percent = Math.max(0, Math.min(100, (level + 100) / 2));
                                 let color = 'bg-gray-500';
@@ -288,25 +290,25 @@ export function WorldStatePanel({
                                 return (
                                     <div
                                         key={name}
-                                        className="space-y-2 group bg-background/20 p-2 rounded-lg border border-border/20"
+                                        className="space-y-2 group bg-background/20 p-2.5 rounded-lg border border-border/20"
                                     >
-                                        <div className="flex items-center justify-between text-xs font-semibold">
-                                            <span className="flex items-center gap-1 truncate max-w-[140px]">
-                                                {name}
+                                        <div className="flex items-center justify-between text-xs font-semibold gap-2">
+                                            <span className="flex items-center gap-1 truncate min-w-0">
+                                                <span className="truncate">{name}</span>
                                                 <button
                                                     onClick={() => handleRemoveRelation(name)}
-                                                    className="p-1 hover:bg-destructive/10 rounded opacity-100 lg:opacity-0 lg:group-hover:opacity-100 transition-opacity"
+                                                    className="p-1 hover:bg-destructive/10 rounded opacity-100 lg:opacity-0 lg:group-hover:opacity-100 transition-opacity shrink-0"
                                                 >
                                                     <Trash2 className="w-3 h-3 text-destructive" />
                                                 </button>
                                             </span>
 
-                                            <div className="flex items-center gap-1">
+                                            <div className="flex items-center gap-0.5 shrink-0">
                                                 <button
                                                     onClick={() =>
                                                         handleUpdateRelationValue(name, level - 5)
                                                     }
-                                                    className="w-6 h-6 flex items-center justify-center bg-muted/40 hover:bg-muted rounded text-xs"
+                                                    className="w-7 h-7 flex items-center justify-center bg-muted/40 hover:bg-muted rounded text-sm font-bold touch-manipulation"
                                                 >
                                                     -
                                                 </button>
@@ -327,7 +329,7 @@ export function WorldStatePanel({
                                                     onClick={() =>
                                                         handleUpdateRelationValue(name, level + 5)
                                                     }
-                                                    className="w-6 h-6 flex items-center justify-center bg-muted/40 hover:bg-muted rounded text-xs"
+                                                    className="w-7 h-7 flex items-center justify-center bg-muted/40 hover:bg-muted rounded text-sm font-bold touch-manipulation"
                                                 >
                                                     +
                                                 </button>
@@ -349,7 +351,8 @@ export function WorldStatePanel({
                                     No tracked relationships
                                 </div>
                             )}
-                        </div>
+                            </div>
+                        </ScrollArea>
 
                         {isAddingRelation && (
                             <div className="flex flex-col gap-2 mt-2 p-3 bg-muted/30 rounded-lg border border-primary/20">

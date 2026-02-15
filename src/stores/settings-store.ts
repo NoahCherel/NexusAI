@@ -43,13 +43,7 @@ export const DEFAULT_MODELS: CustomModel[] = [
         provider: 'openrouter',
         isFree: true,
     },
-    {
-        id: 'deepseek-r1t2-chimera',
-        name: 'DeepSeek R1t2 Chimera (Free)',
-        modelId: 'tngtech/deepseek-r1t2-chimera:free',
-        provider: 'openrouter',
-        isFree: true,
-    },
+
     {
         id: 'mistral-small-3.1',
         name: 'Mistral Small 3.1 24B (Free)',
@@ -170,6 +164,13 @@ interface SettingsState {
     immersiveMode: boolean;
     lorebookAutoExtract: boolean;
 
+    // RAG / Memory Settings
+    enableFactExtraction: boolean;
+    enableHierarchicalSummaries: boolean;
+    enableRAGRetrieval: boolean;
+    minRAGConfidence: number; // 0–1, minimum confidence threshold for RAG sections
+    customFactCategories: string[]; // User-defined fact categories (in addition to built-in ones)
+
     // Actions
     setApiKey: (config: ApiKeyConfig) => void;
     removeApiKey: (provider: string) => void;
@@ -192,6 +193,11 @@ interface SettingsState {
     setShowWorldState: (show: boolean) => void;
     setImmersiveMode: (immersive: boolean) => void;
     setLorebookAutoExtract: (enabled: boolean) => void;
+    setEnableFactExtraction: (enabled: boolean) => void;
+    setEnableHierarchicalSummaries: (enabled: boolean) => void;
+    setEnableRAGRetrieval: (enabled: boolean) => void;
+    setMinRAGConfidence: (value: number) => void;
+    setCustomFactCategories: (categories: string[]) => void;
 
     // Preset Actions
     addPreset: (preset: APIPreset) => void;
@@ -208,7 +214,7 @@ export const useSettingsStore = create<SettingsState>()(
             // Default state
             apiKeys: [],
             activeProvider: 'openrouter',
-            activeModel: 'tngtech/deepseek-r1t2-chimera:free',
+            activeModel: 'deepseek/deepseek-r1-0528:free',
             customModels: [],
             temperature: 0.8,
             maxTokens: 2048,
@@ -222,6 +228,11 @@ export const useSettingsStore = create<SettingsState>()(
             showWorldState: true,
             immersiveMode: false,
             lorebookAutoExtract: true,
+            enableFactExtraction: true,
+            enableHierarchicalSummaries: true,
+            enableRAGRetrieval: true,
+            minRAGConfidence: 0,
+            customFactCategories: [],
 
             // Actions
             setApiKey: (config) =>
@@ -271,6 +282,11 @@ export const useSettingsStore = create<SettingsState>()(
             setShowWorldState: (showWorldState) => set({ showWorldState }),
             setImmersiveMode: (immersiveMode) => set({ immersiveMode }),
             setLorebookAutoExtract: (lorebookAutoExtract) => set({ lorebookAutoExtract }),
+            setEnableFactExtraction: (enableFactExtraction) => set({ enableFactExtraction }),
+            setEnableHierarchicalSummaries: (enableHierarchicalSummaries) => set({ enableHierarchicalSummaries }),
+            setEnableRAGRetrieval: (enableRAGRetrieval) => set({ enableRAGRetrieval }),
+            setMinRAGConfidence: (minRAGConfidence) => set({ minRAGConfidence: Math.max(0, Math.min(1, minRAGConfidence)) }),
+            setCustomFactCategories: (customFactCategories) => set({ customFactCategories }),
 
             // Preset Actions
             addPreset: (preset) =>
