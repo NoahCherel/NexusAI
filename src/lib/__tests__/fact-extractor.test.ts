@@ -68,7 +68,7 @@ describe('parseFactExtractionResponse', () => {
     it('validates category to known types', () => {
         const response = `[{"fact":"test","category":"invalid_category","importance":5,"entities":[],"tags":[]}]`;
         const result = parseFactExtractionResponse(response, 'c', 'm');
-        expect(result[0].category).toBe('event'); // Falls back to 'event'
+        expect(result[0].category).toBe('invalid_category'); // Custom categories are now accepted
     });
 
     it('filters out entries missing required fields', () => {

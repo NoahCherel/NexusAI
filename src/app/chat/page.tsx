@@ -58,11 +58,14 @@ import {
     buildL1Prompt,
     buildL2Prompt,
     createSummary,
+    DEFAULT_CHUNK_SIZE,
     SUMMARIZATION_PROMPT_L0,
     SUMMARIZATION_PROMPT_L1,
     SUMMARIZATION_PROMPT_L2,
 } from '@/lib/ai/hierarchical-summarizer';
-import { FACT_EXTRACTION_PROMPT, parseFactExtractionResponse, buildFactExtractionPrompt, deduplicateFacts } from '@/lib/ai/fact-extractor';
+import { FACT_EXTRACTION_PROMPT, parseFactExtractionResponse, buildFactExtractionPrompt, deduplicateFacts, buildFactExtractionSystemPrompt } from '@/lib/ai/fact-extractor';
+import { getAdaptiveChunkSize } from '@/lib/ai/message-quality';
+import { deriveWorldStateUpdates, applyWorldStateUpdate } from '@/lib/ai/world-state-updater';
 import { saveFactsBatch, getFactsByConversation, getSummariesByConversation } from '@/lib/db';
 import type { ContextSection, WorldFact } from '@/types/rag';
 import type { Message } from '@/types';
@@ -287,15 +290,22 @@ export default function ChatPage() {
                 const activePersona = personas.find((p) => p.id === activePersonaId);
                 const userName = activePersona?.name || 'You';
 
-                // Check L0 (chunk summary every 10 messages)
-                if (shouldCreateL0Summary(messages.length, existingSummaries)) {
-                    const chunk = getNextChunkToSummarize(messages, existingSummaries);
+                // Adaptive chunk size based on message quality/density
+                const recentMsgs = messages.slice(-15);
+                const adaptiveChunkSize = getAdaptiveChunkSize(
+                    recentMsgs.map(m => ({ role: m.role, content: m.content })),
+                    DEFAULT_CHUNK_SIZE
+                );
+
+                // Check L0 (chunk summary with adaptive frequency)
+                if (shouldCreateL0Summary(messages.length, existingSummaries, adaptiveChunkSize)) {
+                    const chunk = getNextChunkToSummarize(messages, existingSummaries, adaptiveChunkSize);
                     if (chunk) {
                         const l0Index = existingSummaries.filter(s => s.level === 0).length;
-                        const startIdx = l0Index * 10;
+                        const startIdx = l0Index * DEFAULT_CHUNK_SIZE;
                         const endIdx = startIdx + chunk.length;
 
-                        console.log(`[RAG] Creating L0 summary for messages ${startIdx}-${endIdx}`);
+                        console.log(`[RAG] Creating L0 summary for messages ${startIdx}-${endIdx} (adaptive chunk=${adaptiveChunkSize})`);
                         lastSummarizedCount.current = messages.length;
 
                         const prompt = buildL0Prompt(chunk, character.name, userName);
@@ -341,12 +351,13 @@ export default function ChatPage() {
                                     embedding
                                 );
 
-                                // Also index as a vector chunk for retrieval
+                                // Also index as a vector chunk for retrieval (with branch path)
+                                const branchPath = messages.map(m => m.id);
                                 await indexMessageChunk(chunk, activeConversationId, parsed.summary, {
                                     characters: [character.name],
                                     location: worldState.location,
                                     importance: 5,
-                                });
+                                }, branchPath);
 
                                 // Extract facts from key facts
                                 if (parsed.keyFacts.length > 0) {
@@ -370,6 +381,7 @@ export default function ChatPage() {
                                             ...f,
                                             id: crypto.randomUUID(),
                                             embedding: [],
+                                            branchPath,
                                         }));
 
                                         // Embed facts in background
@@ -581,12 +593,15 @@ export default function ChatPage() {
         }
 
         // 2. Build Enhanced System Prompt
+        // Combine conversation-scoped notes with character-level memory
+        const currentConv = conversations.find(c => c.id === activeConversationId);
+        const combinedMemory = [...(currentConv?.notes || []), ...(character.longTermMemory || [])];
         let systemPrompt = buildSystemPrompt(character, worldState, activeEntries, {
             template: activePreset?.systemPromptTemplate,
             preHistory: activePreset?.preHistoryInstructions,
             postHistory: activePreset?.postHistoryInstructions,
             userPersona: activePersona,
-            longTermMemory: character.longTermMemory,
+            longTermMemory: combinedMemory,
             recentMessages: history,
             excludePostHistory: true,
         });
@@ -606,7 +621,7 @@ export default function ChatPage() {
         }
 
         // 3. RAG: Retrieve relevant context
-        const { enableRAGRetrieval, enableFactExtraction } = useSettingsStore.getState();
+        const { enableRAGRetrieval, enableFactExtraction, minRAGConfidence } = useSettingsStore.getState();
         const maxContextTokens = activePreset?.maxContextTokens ?? 16384;
         const maxOutputTokens = activePreset?.maxOutputTokens ?? 2048;
         const systemTokens = countTokens(systemPrompt);
@@ -617,11 +632,13 @@ export default function ChatPage() {
         let ragSections: ContextSection[] = [];
         if (enableRAGRetrieval && activeConversationId && ragBudget > 50) {
             try {
+                // Pass active branch message IDs for branch-aware filtering
+                const activeBranchIds = messages.map(m => m.id);
                 ragSections = await retrieveRelevantContext(
                     lastUserMsg,
                     activeConversationId,
                     ragBudget,
-                    { worldState }
+                    { worldState, activeBranchMessageIds: activeBranchIds, minConfidence: minRAGConfidence }
                 );
             } catch (err) {
                 console.warn('[RAG] Context retrieval failed:', err);
@@ -781,6 +798,11 @@ export default function ChatPage() {
                                 return await decryptApiKey(orConfig.encryptedKey) || currentApiKey;
                             })();
 
+                            const { customFactCategories } = useSettingsStore.getState();
+                            const factSystemPrompt = customFactCategories.length > 0
+                                ? buildFactExtractionSystemPrompt(customFactCategories)
+                                : FACT_EXTRACTION_PROMPT;
+
                             const factResponse = await fetch('/api/chat', {
                                 method: 'POST',
                                 headers: { 'Content-Type': 'application/json' },
@@ -789,7 +811,7 @@ export default function ChatPage() {
                                     provider: 'openrouter',
                                     model: 'meta-llama/llama-3.3-70b-instruct:free',
                                     apiKey: openRouterKey,
-                                    systemPrompt: FACT_EXTRACTION_PROMPT,
+                                    systemPrompt: factSystemPrompt,
                                     temperature: 0.2,
                                     maxTokens: 2000,
                                 }),
@@ -819,6 +841,8 @@ export default function ChatPage() {
                                     const deduped = deduplicateFacts(extractedFacts, existingFacts);
 
                                     if (deduped.length > 0) {
+                                        // Tag facts with active branch path for branch-aware retrieval
+                                        const branchPath = messages.map(m => m.id);
                                         const factsWithIds: WorldFact[] = [];
                                         for (const f of deduped) {
                                             const emb = await embedText(f.fact);
@@ -826,10 +850,29 @@ export default function ChatPage() {
                                                 ...f,
                                                 id: crypto.randomUUID(),
                                                 embedding: emb,
+                                                branchPath,
                                             });
                                         }
                                         await saveFactsBatch(factsWithIds);
                                         console.log(`[RAG] Extracted ${factsWithIds.length} facts from response`);
+
+                                        // Auto-update world state from extracted facts
+                                        try {
+                                            const activePersona = personas.find(p => p.id === activePersonaId);
+                                            const wsUpdates = deriveWorldStateUpdates(
+                                                factsWithIds,
+                                                worldState,
+                                                character.name,
+                                                activePersona?.name || 'You'
+                                            );
+                                            const wsChanges = applyWorldStateUpdate(worldState, wsUpdates);
+                                            if (wsChanges && activeConversationId) {
+                                                useChatStore.getState().updateWorldState(activeConversationId, wsChanges);
+                                                console.log('[RAG] Auto world state update:', wsChanges);
+                                            }
+                                        } catch (wsErr) {
+                                            console.warn('[RAG] Auto world state update failed:', wsErr);
+                                        }
                                     }
                                 }
                             }
@@ -985,12 +1028,14 @@ export default function ChatPage() {
             )
             : [];
 
+        const conv = conversations.find(c => c.id === activeConversationId);
+        const combinedMem = [...(conv?.notes || []), ...(character.longTermMemory || [])];
         const systemPrompt = buildSystemPrompt(character, worldState, activeEntries, {
             template: activePreset?.systemPromptTemplate,
             preHistory: activePreset?.preHistoryInstructions,
             postHistory: activePreset?.postHistoryInstructions,
             userPersona: activePersona,
-            longTermMemory: character.longTermMemory,
+            longTermMemory: combinedMem,
             recentMessages: simulatedMessages,
             excludePostHistory: true,
         });
@@ -1007,7 +1052,12 @@ export default function ChatPage() {
 
         let ragSections: ContextSection[] = [];
         try {
-            ragSections = await retrieveRelevantContext(lastMsg, activeConversationId, ragBudget, { worldState });
+            const { minRAGConfidence: previewMinConf } = useSettingsStore.getState();
+            ragSections = await retrieveRelevantContext(lastMsg, activeConversationId, ragBudget, {
+                worldState,
+                activeBranchMessageIds: simulatedMessages.map(m => m.id),
+                minConfidence: previewMinConf,
+            });
         } catch (err) {
             console.warn('[Preview] RAG retrieval failed:', err);
         }
@@ -1081,12 +1131,14 @@ export default function ChatPage() {
                 )
                 : [];
 
+            const impConv = conversations.find(c => c.id === activeConversationId);
+            const impMem = [...(impConv?.notes || []), ...(character.longTermMemory || [])];
             let systemPrompt = buildSystemPrompt(character, worldState, activeEntries, {
                 template: activePreset?.systemPromptTemplate,
                 preHistory: activePreset?.preHistoryInstructions,
                 postHistory: activePreset?.postHistoryInstructions,
                 userPersona: activePersona,
-                longTermMemory: character.longTermMemory,
+                longTermMemory: impMem,
                 recentMessages: messages, // Pass current messages for context
                 excludePostHistory: true,
             });

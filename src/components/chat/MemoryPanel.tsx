@@ -27,7 +27,7 @@ import {
     DialogDescription,
     DialogFooter,
 } from '@/components/ui/dialog';
-import { getFactsByConversation, getSummariesByConversation, deleteFactsByConversation } from '@/lib/db';
+import { getFactsByConversation, getSummariesByConversation, deleteFactsByConversation, saveFactsBatch } from '@/lib/db';
 import type { WorldFact, MemorySummary } from '@/types/rag';
 import { useSettingsStore } from '@/stores/settings-store';
 import { decryptApiKey } from '@/lib/crypto';
@@ -41,7 +41,7 @@ type TabType = 'notes' | 'facts' | 'summaries';
 
 export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
     const { getActiveCharacter, updateLongTermMemory } = useCharacterStore();
-    const { getActiveBranchMessages, conversations, activeConversationId } = useChatStore();
+    const { getActiveBranchMessages, conversations, activeConversationId, updateConversationNotes } = useChatStore();
 
     const character = getActiveCharacter();
     const [activeTab, setActiveTab] = useState<TabType>('notes');
@@ -60,6 +60,8 @@ export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
     const [deletingFactIds, setDeletingFactIds] = useState<Set<string>>(new Set());
     const [isReindexing, setIsReindexing] = useState(false);
     const [reindexProgress, setReindexProgress] = useState('');
+    const [isMergingFacts, setIsMergingFacts] = useState(false);
+    const [mergeResult, setMergeResult] = useState('');
 
     // Load RAG data when tab changes
     const loadRagData = useCallback(async () => {
@@ -87,36 +89,38 @@ export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
 
     if (!character) return null;
 
-    const memories = character.longTermMemory || [];
+    // Use conversation-scoped notes (with fallback to character-level for backward compat)
     const conversation = conversations.find((c) => c.id === activeConversationId);
+    const memories = conversation?.notes || [];
 
     const handleAddMemory = async () => {
-        if (!newMemory.trim()) return;
+        if (!newMemory.trim() || !activeConversationId) return;
         const formattedEntry = formatMemoryEntry(newMemory.trim());
         const updated = [...memories, formattedEntry];
-        await updateLongTermMemory(character.id, updated);
+        updateConversationNotes(activeConversationId, updated);
         setNewMemory('');
     };
 
     const handleUpdateMemory = async (index: number) => {
-        if (!editValue.trim()) return;
+        if (!editValue.trim() || !activeConversationId) return;
         const updated = [...memories];
         updated[index] = editValue.trim();
-        await updateLongTermMemory(character.id, updated);
+        updateConversationNotes(activeConversationId, updated);
         setEditingIndex(null);
     };
 
     const handleDeleteMemory = async (index: number) => {
+        if (!activeConversationId) return;
         const updated = memories.filter((_, i) => i !== index);
-        await updateLongTermMemory(character.id, updated);
+        updateConversationNotes(activeConversationId, updated);
         setConfirmDeleteIndex(null);
     };
 
     const handleGenerateSummary = async () => {
-        if (!conversation) return;
+        if (!conversation || !activeConversationId) return;
         setIsGenerating(true);
         try {
-            const msgs = getActiveBranchMessages(activeConversationId!);
+            const msgs = getActiveBranchMessages(activeConversationId);
             const formattedMessages = msgs.map((m) => ({
                 role: m.role,
                 content: m.content,
@@ -128,7 +132,7 @@ export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
             );
             const formattedEntry = formatMemoryEntry(summary);
             const updated = [...memories, formattedEntry];
-            await updateLongTermMemory(character.id, updated);
+            updateConversationNotes(activeConversationId, updated);
         } catch (error) {
             console.error('Failed to generate summary:', error);
         } finally {
@@ -162,6 +166,53 @@ export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
             setConfirmClearFacts(false);
         } catch (err) {
             console.error('[MemoryPanel] Failed to clear facts:', err);
+        }
+    };
+
+    const handleMergeFacts = async () => {
+        if (facts.length < 2 || isMergingFacts) return;
+        setIsMergingFacts(true);
+        setMergeResult('');
+        try {
+            const { mergeRelatedFacts } = await import('@/lib/ai/fact-extractor');
+            const { embedText } = await import('@/lib/ai/embedding-service');
+            const { initDB } = await import('@/lib/db');
+
+            const { mergedFacts, deletedIds, clusterCount } = mergeRelatedFacts(facts, 0.7);
+
+            if (clusterCount === 0) {
+                setMergeResult('No similar facts found to merge.');
+                return;
+            }
+
+            const db = await initDB();
+
+            // Delete old facts
+            const tx = db.transaction('facts', 'readwrite');
+            for (const id of deletedIds) {
+                await tx.store.delete(id);
+            }
+            await tx.done;
+
+            // Create new merged facts with embeddings
+            const newFacts: WorldFact[] = await Promise.all(
+                mergedFacts.map(async (f) => ({
+                    ...f,
+                    id: crypto.randomUUID(),
+                    embedding: await embedText(f.fact),
+                }))
+            );
+
+            await saveFactsBatch(newFacts);
+
+            setMergeResult(`Merged ${deletedIds.length} facts into ${newFacts.length} (${clusterCount} clusters)`);
+            await loadRagData();
+        } catch (err) {
+            console.error('[MemoryPanel] Merge failed:', err);
+            setMergeResult('Merge failed: ' + (err instanceof Error ? err.message : 'Unknown error'));
+        } finally {
+            setIsMergingFacts(false);
+            setTimeout(() => setMergeResult(''), 4000);
         }
     };
 
@@ -407,7 +458,7 @@ export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
             consequence: 'text-red-400 bg-red-500/10',
             dialogue: 'text-cyan-400 bg-cyan-500/10',
         };
-        return colors[cat] || 'text-muted-foreground bg-muted/20';
+        return colors[cat] || 'text-indigo-400 bg-indigo-500/10'; // Custom categories get indigo
     };
 
     const getLevelLabel = (level: number) => {
@@ -442,7 +493,7 @@ export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
                         <div className="min-w-0">
                             <h2 className="font-bold text-sm truncate">Memory & Knowledge</h2>
                             <p className="text-xs text-muted-foreground truncate">
-                                {character.name}&apos;s persistent context
+                                {conversation?.title || character.name} — conversation memory
                             </p>
                         </div>
                     </div>
@@ -626,18 +677,33 @@ export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
                                 </div>
                             </div>
 
-                            {/* Clear all facts */}
+                            {/* Merge & Clear facts */}
                             {facts.length > 0 && (
-                                <div className="p-3 border-t bg-muted/10 shrink-0">
-                                    <Button
-                                        variant="outline"
-                                        size="sm"
-                                        className="w-full gap-2 text-xs text-destructive hover:text-destructive hover:bg-destructive/10 border-destructive/20"
-                                        onClick={() => setConfirmClearFacts(true)}
-                                    >
-                                        <Trash2 className="w-3.5 h-3.5" />
-                                        Clear All Facts ({facts.length})
-                                    </Button>
+                                <div className="p-3 border-t bg-muted/10 shrink-0 space-y-2">
+                                    {mergeResult && (
+                                        <p className="text-xs text-muted-foreground text-center">{mergeResult}</p>
+                                    )}
+                                    <div className="flex gap-2">
+                                        <Button
+                                            variant="outline"
+                                            size="sm"
+                                            className="flex-1 gap-2 text-xs"
+                                            onClick={handleMergeFacts}
+                                            disabled={isMergingFacts || facts.length < 2}
+                                        >
+                                            {isMergingFacts ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
+                                            Merge Similar
+                                        </Button>
+                                        <Button
+                                            variant="outline"
+                                            size="sm"
+                                            className="flex-1 gap-2 text-xs text-destructive hover:text-destructive hover:bg-destructive/10 border-destructive/20"
+                                            onClick={() => setConfirmClearFacts(true)}
+                                        >
+                                            <Trash2 className="w-3.5 h-3.5" />
+                                            Clear All ({facts.length})
+                                        </Button>
+                                    </div>
                                 </div>
                             )}
                         </div>

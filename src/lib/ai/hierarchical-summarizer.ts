@@ -15,7 +15,7 @@ import { saveSummary, getSummariesByConversation } from '@/lib/db';
 import { countTokens } from '@/lib/tokenizer';
 
 // Configuration
-const CHUNK_SIZE = 10;       // Messages per L0 summary
+export const DEFAULT_CHUNK_SIZE = 10;  // Messages per L0 summary (default)
 const L1_THRESHOLD = 5;      // L0 summaries per L1 summary
 const L2_THRESHOLD = 3;      // L1 summaries per L2 summary
 
@@ -66,14 +66,16 @@ RULES:
 
 /**
  * Check if a new L0 summary is needed based on message count.
+ * @param chunkSize - Dynamic chunk size (default: DEFAULT_CHUNK_SIZE)
  */
 export function shouldCreateL0Summary(
     messageCount: number,
-    existingSummaries: MemorySummary[]
+    existingSummaries: MemorySummary[],
+    chunkSize: number = DEFAULT_CHUNK_SIZE
 ): boolean {
     const l0Summaries = existingSummaries.filter(s => s.level === 0);
-    const coveredMessages = l0Summaries.length * CHUNK_SIZE;
-    return messageCount - coveredMessages >= CHUNK_SIZE;
+    const coveredMessages = l0Summaries.length * DEFAULT_CHUNK_SIZE; // Always use default for counting covered
+    return messageCount - coveredMessages >= chunkSize;
 }
 
 /**
@@ -104,7 +106,7 @@ export function getUnsummarizedMessages(
     existingSummaries: MemorySummary[]
 ): Message[] {
     const l0Summaries = existingSummaries.filter(s => s.level === 0);
-    const coveredCount = l0Summaries.length * CHUNK_SIZE;
+    const coveredCount = l0Summaries.length * DEFAULT_CHUNK_SIZE;
     
     // Sort by creation time
     const sorted = [...messages].sort((a, b) => 
@@ -116,14 +118,16 @@ export function getUnsummarizedMessages(
 
 /**
  * Get the chunk of messages to summarize next.
+ * @param chunkSize - Dynamic chunk size (default: DEFAULT_CHUNK_SIZE)
  */
 export function getNextChunkToSummarize(
     messages: Message[],
-    existingSummaries: MemorySummary[]
+    existingSummaries: MemorySummary[],
+    chunkSize: number = DEFAULT_CHUNK_SIZE
 ): Message[] | null {
     const unsummarized = getUnsummarizedMessages(messages, existingSummaries);
-    if (unsummarized.length < CHUNK_SIZE) return null;
-    return unsummarized.slice(0, CHUNK_SIZE);
+    if (unsummarized.length < chunkSize) return null;
+    return unsummarized.slice(0, chunkSize);
 }
 
 /**

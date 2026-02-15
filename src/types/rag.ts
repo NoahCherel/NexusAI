@@ -20,6 +20,7 @@ export interface VectorEntry {
         importance: number;        // 1-10 (computed by AI or heuristic)
         tags: string[];            // "combat", "dialogue", "discovery", etc.
     };
+    branchPath?: string[];         // Ordered message IDs forming the branch lineage
     createdAt: number;
 }
 
@@ -45,7 +46,7 @@ export interface MemorySummary {
 // Atomic Facts (World Events)
 // ============================================
 
-export type FactCategory = 'event' | 'relationship' | 'item' | 'location' | 'lore' | 'consequence' | 'dialogue';
+export type FactCategory = 'event' | 'relationship' | 'item' | 'location' | 'lore' | 'consequence' | 'dialogue' | string;
 
 export interface WorldFact {
     id: string;
@@ -60,6 +61,7 @@ export interface WorldFact {
     relatedEntities: string[];     // ["Fire Sword", "Kael", "Player"]
     lastAccessedAt: number;        // For temporal decay
     accessCount: number;           // Number of times retrieved
+    branchPath?: string[];         // Ordered message IDs forming the branch lineage
 }
 
 // ============================================
@@ -106,6 +108,7 @@ export interface ContextSection {
     tokens: number;
     label: string;                 // For context preview UI
     type: 'system' | 'memory' | 'fact' | 'summary' | 'lorebook' | 'history' | 'post-history';
+    confidence?: number;           // 0–1 relevance confidence score
 }
 
 // ============================================

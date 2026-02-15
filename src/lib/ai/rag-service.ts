@@ -93,12 +93,16 @@ export async function retrieveRelevantContext(
         topKChunks?: number;
         includeSummary?: boolean;
         worldState?: WorldState;
+        activeBranchMessageIds?: string[]; // Active branch message IDs for filtering
+        minConfidence?: number;            // Minimum confidence threshold (0–1)
     } = {}
 ): Promise<ContextSection[]> {
     const {
         topKFacts = 10,
         topKChunks = 5,
         includeSummary = true,
+        activeBranchMessageIds,
+        minConfidence = 0,
     } = options;
 
     const sections: ContextSection[] = [];
@@ -126,7 +130,20 @@ export async function retrieveRelevantContext(
 
     // 3. Retrieve relevant facts via vector search
     const facts = await getFactsByConversation(conversationId);
-    const activeFacts = facts.filter(f => f.active);
+    let activeFacts = facts.filter(f => f.active);
+
+    // Branch-aware filtering: only include facts from the active branch lineage
+    if (activeBranchMessageIds && activeBranchMessageIds.length > 0) {
+        const branchSet = new Set(activeBranchMessageIds);
+        activeFacts = activeFacts.filter(f => {
+            // If fact has branchPath, check it overlaps with active branch
+            if (f.branchPath && f.branchPath.length > 0) {
+                return f.branchPath.some(id => branchSet.has(id));
+            }
+            // Facts without branchPath (legacy) are always included
+            return true;
+        });
+    }
     
     if (activeFacts.length > 0 && remainingBudget > 50) {
         const factResults = retrieveRelevantFacts(queryEmbedding, activeFacts, topKFacts);
@@ -140,46 +157,72 @@ export async function retrieveRelevantContext(
                 }).catch(console.error);
             }
 
-            const factLines = factResults.map(r => {
-                const imp = r.item.importance >= 8 ? '⚠️' : r.item.importance >= 5 ? '•' : '◦';
-                return `${imp} ${r.item.fact}`;
-            });
+            // Compute average confidence for facts section
+            const avgFactConfidence = factResults.reduce((sum, r) => sum + r.score, 0) / factResults.length;
 
-            const factsText = '🔍 Relevant Past Events:\n' + factLines.join('\n');
-            const tokens = countTokens(factsText);
-            
-            if (tokens <= remainingBudget) {
-                sections.push({
-                    priority: 2,
-                    content: factsText,
-                    tokens,
-                    label: `Facts (${factResults.length})`,
-                    type: 'fact',
+            // Apply minimum confidence threshold
+            if (avgFactConfidence >= minConfidence) {
+                const factLines = factResults.map(r => {
+                    const imp = r.item.importance >= 8 ? '⚠️' : r.item.importance >= 5 ? '•' : '◦';
+                    return `${imp} ${r.item.fact}`;
                 });
-                remainingBudget -= tokens;
+
+                const factsText = '🔍 Relevant Past Events:\n' + factLines.join('\n');
+                const tokens = countTokens(factsText);
+                
+                if (tokens <= remainingBudget) {
+                    sections.push({
+                        priority: 2,
+                        content: factsText,
+                        tokens,
+                        label: `Facts (${factResults.length})`,
+                        type: 'fact',
+                        confidence: avgFactConfidence,
+                    });
+                    remainingBudget -= tokens;
+                }
             }
         }
     }
 
     // 4. Retrieve relevant message chunks
     const chunks = await getVectorsByConversation(conversationId);
-    if (chunks.length > 0 && remainingBudget > 50) {
-        const chunkResults = findTopK(queryEmbedding, chunks, topKChunks, 0.2);
+
+    // Branch-aware filtering for chunks
+    let filteredChunks = chunks;
+    if (activeBranchMessageIds && activeBranchMessageIds.length > 0) {
+        const branchSet = new Set(activeBranchMessageIds);
+        filteredChunks = chunks.filter(c => {
+            if (c.branchPath && c.branchPath.length > 0) {
+                return c.branchPath.some(id => branchSet.has(id));
+            }
+            // Legacy chunks without branchPath are always included
+            return true;
+        });
+    }
+
+    if (filteredChunks.length > 0 && remainingBudget > 50) {
+        const chunkResults = findTopK(queryEmbedding, filteredChunks, topKChunks, 0.2);
         
         if (chunkResults.length > 0) {
-            const chunkTexts = chunkResults.map(r => r.item.text);
-            const chunksText = '📜 Related Past Scenes:\n' + chunkTexts.join('\n---\n');
-            const tokens = countTokens(chunksText);
-            
-            if (tokens <= remainingBudget) {
-                sections.push({
-                    priority: 3,
-                    content: chunksText,
-                    tokens,
-                    label: `Scenes (${chunkResults.length})`,
-                    type: 'memory',
-                });
-                remainingBudget -= tokens;
+            const avgChunkConfidence = chunkResults.reduce((sum, r) => sum + r.score, 0) / chunkResults.length;
+
+            if (avgChunkConfidence >= minConfidence) {
+                const chunkTexts = chunkResults.map(r => r.item.text);
+                const chunksText = '📜 Related Past Scenes:\n' + chunkTexts.join('\n---\n');
+                const tokens = countTokens(chunksText);
+                
+                if (tokens <= remainingBudget) {
+                    sections.push({
+                        priority: 3,
+                        content: chunksText,
+                        tokens,
+                        label: `Scenes (${chunkResults.length})`,
+                        type: 'memory',
+                        confidence: avgChunkConfidence,
+                    });
+                    remainingBudget -= tokens;
+                }
             }
         }
     }
@@ -321,7 +364,8 @@ export async function indexMessageChunk(
         location?: string;
         importance?: number;
         tags?: string[];
-    } = {}
+    } = {},
+    branchPath?: string[]
 ): Promise<void> {
     const embedding = await embedText(summaryText);
     
@@ -338,6 +382,7 @@ export async function indexMessageChunk(
             importance: metadata.importance || 5,
             tags: metadata.tags || [],
         },
+        branchPath,
         createdAt: Date.now(),
     };
     

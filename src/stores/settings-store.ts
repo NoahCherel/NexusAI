@@ -168,6 +168,8 @@ interface SettingsState {
     enableFactExtraction: boolean;
     enableHierarchicalSummaries: boolean;
     enableRAGRetrieval: boolean;
+    minRAGConfidence: number; // 0–1, minimum confidence threshold for RAG sections
+    customFactCategories: string[]; // User-defined fact categories (in addition to built-in ones)
 
     // Actions
     setApiKey: (config: ApiKeyConfig) => void;
@@ -194,6 +196,8 @@ interface SettingsState {
     setEnableFactExtraction: (enabled: boolean) => void;
     setEnableHierarchicalSummaries: (enabled: boolean) => void;
     setEnableRAGRetrieval: (enabled: boolean) => void;
+    setMinRAGConfidence: (value: number) => void;
+    setCustomFactCategories: (categories: string[]) => void;
 
     // Preset Actions
     addPreset: (preset: APIPreset) => void;
@@ -227,6 +231,8 @@ export const useSettingsStore = create<SettingsState>()(
             enableFactExtraction: true,
             enableHierarchicalSummaries: true,
             enableRAGRetrieval: true,
+            minRAGConfidence: 0,
+            customFactCategories: [],
 
             // Actions
             setApiKey: (config) =>
@@ -279,6 +285,8 @@ export const useSettingsStore = create<SettingsState>()(
             setEnableFactExtraction: (enableFactExtraction) => set({ enableFactExtraction }),
             setEnableHierarchicalSummaries: (enableHierarchicalSummaries) => set({ enableHierarchicalSummaries }),
             setEnableRAGRetrieval: (enableRAGRetrieval) => set({ enableRAGRetrieval }),
+            setMinRAGConfidence: (minRAGConfidence) => set({ minRAGConfidence: Math.max(0, Math.min(1, minRAGConfidence)) }),
+            setCustomFactCategories: (customFactCategories) => set({ customFactCategories }),
 
             // Preset Actions
             addPreset: (preset) =>

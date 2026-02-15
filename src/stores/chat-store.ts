@@ -29,6 +29,7 @@ interface ChatState {
     getActiveBranchMessages: (conversationId: string) => Message[];
     setStreaming: (streaming: boolean) => void;
     updateWorldState: (conversationId: string, worldState: Partial<WorldState>) => void;
+    updateConversationNotes: (conversationId: string, notes: string[]) => void;
     clearConversation: (conversationId: string) => void;
     navigateToSibling: (messageId: string, direction: 'prev' | 'next') => void;
     navigateToMessage: (messageId: string) => void;
@@ -338,6 +339,27 @@ export const useChatStore = create<ChatState>()((set, get) => ({
         });
 
         // Persist conversation update
+        if (conversationToUpdate) {
+            saveConversation(conversationToUpdate).catch(console.error);
+        }
+    },
+
+    updateConversationNotes: (conversationId, notes) => {
+        let conversationToUpdate: Conversation | undefined;
+        set((state) => {
+            const newConversations = state.conversations.map((c) => {
+                if (c.id === conversationId) {
+                    conversationToUpdate = {
+                        ...c,
+                        notes,
+                        updatedAt: new Date(),
+                    };
+                    return conversationToUpdate;
+                }
+                return c;
+            });
+            return { conversations: newConversations };
+        });
         if (conversationToUpdate) {
             saveConversation(conversationToUpdate).catch(console.error);
         }
