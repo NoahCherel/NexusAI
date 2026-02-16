@@ -66,6 +66,7 @@ RULES:
 
 /**
  * Check if a new L0 summary is needed based on message count.
+ * Uses actual message ranges from existing summaries rather than assuming fixed chunk sizes.
  * @param chunkSize - Dynamic chunk size (default: DEFAULT_CHUNK_SIZE)
  */
 export function shouldCreateL0Summary(
@@ -74,7 +75,10 @@ export function shouldCreateL0Summary(
     chunkSize: number = DEFAULT_CHUNK_SIZE
 ): boolean {
     const l0Summaries = existingSummaries.filter(s => s.level === 0);
-    const coveredMessages = l0Summaries.length * DEFAULT_CHUNK_SIZE; // Always use default for counting covered
+    // Use the actual highest message index covered by existing summaries
+    const coveredMessages = l0Summaries.length > 0
+        ? Math.max(...l0Summaries.map(s => s.messageRange[1]))
+        : 0;
     return messageCount - coveredMessages >= chunkSize;
 }
 
@@ -100,13 +104,17 @@ export function shouldCreateL2Summary(existingSummaries: MemorySummary[]): boole
 
 /**
  * Get messages that need to be summarized (not yet covered by L0 summaries).
+ * Uses actual message ranges from existing summaries rather than assuming fixed chunk sizes.
  */
 export function getUnsummarizedMessages(
     messages: Message[],
     existingSummaries: MemorySummary[]
 ): Message[] {
     const l0Summaries = existingSummaries.filter(s => s.level === 0);
-    const coveredCount = l0Summaries.length * DEFAULT_CHUNK_SIZE;
+    // Use the actual highest message index covered by existing summaries
+    const coveredCount = l0Summaries.length > 0
+        ? Math.max(...l0Summaries.map(s => s.messageRange[1]))
+        : 0;
     
     // Sort by creation time
     const sorted = [...messages].sort((a, b) => 

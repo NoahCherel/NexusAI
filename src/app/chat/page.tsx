@@ -103,6 +103,7 @@ export default function ChatPage() {
     const scrollRef = useRef<HTMLDivElement>(null);
     const abortControllerRef = useRef<AbortController | null>(null);
     const lastSummarizedCount = useRef(0); // Track last summarized message count
+    const isSummarizingRef = useRef(false); // Concurrency guard for summarization
     const { getActiveCharacter, removeCharacter, updateCharacter, addCharacter } = useCharacterStore();
     const {
         conversations,
@@ -285,6 +286,13 @@ export default function ChatPage() {
             if (!enableHierarchicalSummaries) return;
             if (!character || !activeConversationId || messages.length === 0 || !currentApiKey) return;
 
+            // Concurrency guard: prevent overlapping summary runs
+            if (isSummarizingRef.current) return;
+
+            // Skip if message count hasn't changed since last summarization
+            if (messages.length <= lastSummarizedCount.current) return;
+
+            isSummarizingRef.current = true;
             try {
                 const existingSummaries = await getSummariesByConversation(activeConversationId);
                 const activePersona = personas.find((p) => p.id === activePersonaId);
@@ -301,8 +309,11 @@ export default function ChatPage() {
                 if (shouldCreateL0Summary(messages.length, existingSummaries, adaptiveChunkSize)) {
                     const chunk = getNextChunkToSummarize(messages, existingSummaries, adaptiveChunkSize);
                     if (chunk) {
-                        const l0Index = existingSummaries.filter(s => s.level === 0).length;
-                        const startIdx = l0Index * DEFAULT_CHUNK_SIZE;
+                        const l0Summaries = existingSummaries.filter(s => s.level === 0);
+                        // Use actual coverage from existing summaries
+                        const startIdx = l0Summaries.length > 0
+                            ? Math.max(...l0Summaries.map(s => s.messageRange[1]))
+                            : 0;
                         const endIdx = startIdx + chunk.length;
 
                         console.log(`[RAG] Creating L0 summary for messages ${startIdx}-${endIdx} (adaptive chunk=${adaptiveChunkSize})`);
@@ -499,6 +510,8 @@ export default function ChatPage() {
                 }
             } catch (error) {
                 console.error('[RAG] Hierarchical summary error:', error);
+            } finally {
+                isSummarizingRef.current = false;
             }
         };
 

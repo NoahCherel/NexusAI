@@ -648,7 +648,7 @@ export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
                                                         <p className="text-xs flex-1 leading-relaxed">{fact.fact}</p>
                                                         <Button
                                                             variant="ghost" size="icon"
-                                                            className="h-6 w-6 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-destructive/10"
+                                                            className="h-6 w-6 shrink-0 opacity-50 hover:opacity-100 transition-opacity hover:bg-destructive/10"
                                                             onClick={() => handleDeleteFact(fact.id)}
                                                             disabled={deletingFactIds.has(fact.id)}
                                                         >
@@ -745,7 +745,7 @@ export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
                                                         </div>
                                                         <Button
                                                             variant="ghost" size="icon"
-                                                            className="h-6 w-6 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-destructive/10"
+                                                            className="h-6 w-6 shrink-0 opacity-50 hover:opacity-100 transition-opacity hover:bg-destructive/10"
                                                             onClick={() => handleDeleteSummary(summary.id)}
                                                         >
                                                             <Trash2 className="w-3 h-3 text-destructive" />
