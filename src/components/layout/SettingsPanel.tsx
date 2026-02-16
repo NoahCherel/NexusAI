@@ -276,7 +276,7 @@ export function SettingsPanel({ open, onOpenChange }: SettingsPanelProps) {
                                             <SelectTrigger className="w-full h-9">
                                                 <SelectValue placeholder="Auto (Free Models)" />
                                             </SelectTrigger>
-                                            <SelectContent className="max-h-[300px]">
+                                            <SelectContent>
                                                 <SelectItem value="__auto__">
                                                     🔄 Auto (Free Models)
                                                 </SelectItem>
