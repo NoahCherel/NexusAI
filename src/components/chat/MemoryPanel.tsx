@@ -27,7 +27,8 @@ import {
     DialogDescription,
     DialogFooter,
 } from '@/components/ui/dialog';
-import { getFactsByConversation, getSummariesByConversation, deleteFactsByConversation, saveFactsBatch } from '@/lib/db';
+import { deleteFactsByConversation, saveFactsBatch } from '@/lib/db';
+import { loadRagDataByConversation } from '@/lib/rag-data-loader';
 import type { WorldFact, MemorySummary } from '@/types/rag';
 import { useSettingsStore } from '@/stores/settings-store';
 import { decryptApiKey } from '@/lib/crypto';
@@ -68,12 +69,16 @@ export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
         if (!activeConversationId) return;
         setIsLoadingRag(true);
         try {
-            const [loadedFacts, loadedSummaries] = await Promise.all([
-                getFactsByConversation(activeConversationId),
-                getSummariesByConversation(activeConversationId),
-            ]);
+            const { facts: loadedFacts, summaries: loadedSummaries, errors } =
+                await loadRagDataByConversation(activeConversationId);
             setFacts(loadedFacts);
             setSummaries(loadedSummaries);
+            if (errors.facts) {
+                console.error('[MemoryPanel] Failed to load facts:', errors.facts);
+            }
+            if (errors.summaries) {
+                console.error('[MemoryPanel] Failed to load summaries:', errors.summaries);
+            }
         } catch (err) {
             console.error('[MemoryPanel] Failed to load RAG data:', err);
         } finally {
