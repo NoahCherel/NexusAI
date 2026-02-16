@@ -230,7 +230,7 @@ export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
     const handleReindex = async () => {
         if (!activeConversationId || !character || isReindexing) return;
         setIsReindexing(true);
-        setReindexProgress('Starting reindex...');
+        setReindexProgress('Starting full reindex...');
 
         try {
             const msgs = getActiveBranchMessages(activeConversationId);
@@ -257,8 +257,8 @@ export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
             const { indexMessageChunk } = await import('@/lib/ai/rag-service');
             const { createSummary, shouldCreateL1Summary, getL0SummariesForL1, shouldCreateL2Summary, getL1SummariesForL2 } = await import('@/lib/ai/hierarchical-summarizer');
             const { buildL0Prompt, buildL1Prompt, buildL2Prompt, SUMMARIZATION_PROMPT_L0, SUMMARIZATION_PROMPT_L1, SUMMARIZATION_PROMPT_L2, parseSummarizationResponse } = await import('@/lib/ai/hierarchical-summarizer');
-            const { buildFactExtractionPrompt, FACT_EXTRACTION_PROMPT, parseFactExtractionResponse, deduplicateFacts } = await import('@/lib/ai/fact-extractor');
-            const { saveFactsBatch, getSummariesByConversation: getSummaries, getFactsByConversation: getFacts } = await import('@/lib/db');
+            const { deduplicateFacts } = await import('@/lib/ai/fact-extractor');
+            const { saveFactsBatch, getSummariesByConversation: getSummaries, getFactsByConversation: getFacts, deleteSummariesByConversation, deleteVectorsByConversation } = await import('@/lib/db');
             const { getActivePersona } = await import('@/stores/settings-store').then(m => {
                 const state = m.useSettingsStore.getState();
                 return { getActivePersona: () => state.personas.find(p => p.id === state.activePersonaId) };
@@ -266,95 +266,101 @@ export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
 
             const activePersona = getActivePersona();
             const userName = activePersona?.name || 'You';
-            const existingSummaries = await getSummaries(activeConversationId);
-            const existingL0Count = existingSummaries.filter(s => s.level === 0).length;
-            const alreadyIndexedMessages = existingL0Count * 10;
 
-            // Only process un-indexed chunks
+            // Clear all existing summaries and vectors for a clean rebuild
+            setReindexProgress('Clearing old summaries and vectors...');
+            await deleteSummariesByConversation(activeConversationId);
+            await deleteVectorsByConversation(activeConversationId);
+
+            // Process all messages in chunks of 10
             const chunkSize = 10;
-            const totalToProcess = Math.floor((msgs.length - alreadyIndexedMessages) / chunkSize);
+            const totalToProcess = Math.floor(msgs.length / chunkSize);
 
             if (totalToProcess <= 0) {
-                setReindexProgress('All messages already indexed.');
-                // Still try to create L1/L2 if needed
-            } else {
-                setReindexProgress(`Processing ${totalToProcess} chunks of 10 messages...`);
+                setReindexProgress('Not enough messages for a summary chunk (need at least 10).');
+                await loadRagData();
+                setIsReindexing(false);
+                return;
+            }
 
-                for (let i = 0; i < totalToProcess; i++) {
-                    const startIdx = alreadyIndexedMessages + (i * chunkSize);
-                    const chunk = msgs.slice(startIdx, startIdx + chunkSize);
-                    if (chunk.length < chunkSize) break;
+            setReindexProgress(`Processing ${totalToProcess} chunks of 10 messages...`);
 
-                    setReindexProgress(`Summarizing chunk ${i + 1}/${totalToProcess}...`);
+            for (let i = 0; i < totalToProcess; i++) {
+                const startIdx = i * chunkSize;
+                const chunk = msgs.slice(startIdx, startIdx + chunkSize);
+                if (chunk.length < chunkSize) break;
 
-                    // Create L0 summary
-                    const prompt = buildL0Prompt(chunk, character.name, userName);
-                    const response = await fetch('/api/chat', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            messages: [{ role: 'user', content: prompt }],
-                            provider: 'openrouter',
-                            model: 'meta-llama/llama-3.3-70b-instruct:free',
-                            apiKey,
-                            systemPrompt: SUMMARIZATION_PROMPT_L0,
-                            temperature: 0.3,
-                            maxTokens: 2000,
-                        }),
-                    });
+                setReindexProgress(`Summarizing chunk ${i + 1}/${totalToProcess}...`);
 
-                    if (response.ok) {
-                        const reader = response.body?.getReader();
-                        const decoder = new TextDecoder();
-                        let text = '';
-                        if (reader) {
-                            while (true) {
-                                const { done, value } = await reader.read();
-                                if (done) break;
-                                text += decoder.decode(value, { stream: true });
-                            }
+                // Create L0 summary
+                const prompt = buildL0Prompt(chunk, character.name, userName);
+                const response = await fetch('/api/chat', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        messages: [{ role: 'user', content: prompt }],
+                        provider: 'openrouter',
+                        model: 'meta-llama/llama-3.3-70b-instruct:free',
+                        apiKey,
+                        systemPrompt: SUMMARIZATION_PROMPT_L0,
+                        temperature: 0.3,
+                        maxTokens: 2000,
+                    }),
+                });
+
+                if (response.ok) {
+                    const reader = response.body?.getReader();
+                    const decoder = new TextDecoder();
+                    let text = '';
+                    if (reader) {
+                        while (true) {
+                            const { done, value } = await reader.read();
+                            if (done) break;
+                            text += decoder.decode(value, { stream: true });
                         }
-                        const cleanText = text.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
-                        const parsed = parseSummarizationResponse(cleanText);
-                        if (parsed) {
-                            const embedding = await embedText(parsed.summary);
-                            await createSummary(activeConversationId, 0, parsed.summary, parsed.keyFacts, [startIdx, startIdx + chunk.length], [], embedding);
-                            await indexMessageChunk(chunk, activeConversationId, parsed.summary, {
-                                characters: [character.name],
-                                importance: 5,
-                            });
+                    }
+                    const cleanText = text.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+                    const parsed = parseSummarizationResponse(cleanText);
+                    if (parsed) {
+                        const embedding = await embedText(parsed.summary);
+                        await createSummary(activeConversationId, 0, parsed.summary, parsed.keyFacts, [startIdx, startIdx + chunk.length], [], embedding);
+                        await indexMessageChunk(chunk, activeConversationId, parsed.summary, {
+                            characters: [character.name],
+                            importance: 5,
+                        });
 
-                            // Extract facts from key facts
-                            if (parsed.keyFacts.length > 0) {
-                                const existingFacts = await getFacts(activeConversationId);
-                                const newFacts = parsed.keyFacts.map(kf => ({
-                                    conversationId: activeConversationId,
-                                    messageId: chunk[chunk.length - 1].id,
-                                    fact: kf,
-                                    category: 'event' as const,
-                                    importance: 5,
-                                    active: true,
-                                    timestamp: Date.now(),
-                                    relatedEntities: [] as string[],
-                                    lastAccessedAt: Date.now(),
-                                    accessCount: 0,
-                                }));
-                                const deduped = deduplicateFacts(newFacts, existingFacts);
-                                if (deduped.length > 0) {
-                                    const factsWithIds = await Promise.all(deduped.map(async f => ({
-                                        ...f,
-                                        id: crypto.randomUUID(),
-                                        embedding: await embedText(f.fact),
-                                    })));
-                                    await saveFactsBatch(factsWithIds);
-                                }
+                        // Extract facts from key facts
+                        if (parsed.keyFacts.length > 0) {
+                            const existingFacts = await getFacts(activeConversationId);
+                            const newFacts = parsed.keyFacts.map(kf => ({
+                                conversationId: activeConversationId,
+                                messageId: chunk[chunk.length - 1].id,
+                                fact: kf,
+                                category: 'event' as const,
+                                importance: 5,
+                                active: true,
+                                timestamp: Date.now(),
+                                relatedEntities: [] as string[],
+                                lastAccessedAt: Date.now(),
+                                accessCount: 0,
+                            }));
+                            const deduped = deduplicateFacts(newFacts, existingFacts);
+                            if (deduped.length > 0) {
+                                const factsWithIds = await Promise.all(deduped.map(async f => ({
+                                    ...f,
+                                    id: crypto.randomUUID(),
+                                    embedding: await embedText(f.fact),
+                                })));
+                                await saveFactsBatch(factsWithIds);
                             }
                         }
                     }
-
-                    // Small delay between chunks to avoid rate limiting
-                    await new Promise(r => setTimeout(r, 1000));
+                } else {
+                    console.warn(`[Reindex] Chunk ${i + 1} failed with status ${response.status}`);
                 }
+
+                // Small delay between chunks to avoid rate limiting
+                await new Promise(r => setTimeout(r, 1000));
             }
 
             // Try creating L1 summaries
