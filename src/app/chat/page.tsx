@@ -64,7 +64,8 @@ import {
     SUMMARIZATION_PROMPT_L2,
 } from '@/lib/ai/hierarchical-summarizer';
 import { FACT_EXTRACTION_PROMPT, parseFactExtractionResponse, buildFactExtractionPrompt, deduplicateFacts, buildFactExtractionSystemPrompt } from '@/lib/ai/fact-extractor';
-import { getAdaptiveChunkSize } from '@/lib/ai/message-quality';
+import { getAdaptiveChunkSize, scoreMessageQuality } from '@/lib/ai/message-quality';
+import { backgroundAICall } from '@/lib/ai/background-ai';
 import { deriveWorldStateUpdates, applyWorldStateUpdate } from '@/lib/ai/world-state-updater';
 import { saveFactsBatch, getFactsByConversation, getSummariesByConversation } from '@/lib/db';
 import type { ContextSection, WorldFact } from '@/types/rag';
@@ -321,35 +322,15 @@ export default function ChatPage() {
 
                         const prompt = buildL0Prompt(chunk, character.name, userName);
 
-                        const response = await fetch('/api/chat', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({
-                                messages: [{ role: 'user', content: prompt }],
-                                provider: 'openrouter',
-                                model: 'deepseek/deepseek-r1-0528:free',
-                                apiKey: currentApiKey,
-                                systemPrompt: SUMMARIZATION_PROMPT_L0,
-                                temperature: 0.3,
-                                maxTokens: 2000,
-                            }),
+                        const result = await backgroundAICall({
+                            systemPrompt: SUMMARIZATION_PROMPT_L0,
+                            userPrompt: prompt,
+                            apiKey: currentApiKey,
+                            temperature: 0.3,
                         });
 
-                        if (response.ok) {
-                            const reader = response.body?.getReader();
-                            const decoder = new TextDecoder();
-                            let text = '';
-                            if (reader) {
-                                while (true) {
-                                    const { done, value } = await reader.read();
-                                    if (done) break;
-                                    text += decoder.decode(value, { stream: true });
-                                }
-                                text += decoder.decode(); // Flush remaining bytes
-                            }
-
-                            const cleanText = text.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
-                            const parsed = parseSummarizationResponse(cleanText);
+                        if (result) {
+                            const parsed = parseSummarizationResponse(result.content);
 
                             if (parsed) {
                                 const embedding = await embedText(parsed.summary);
@@ -408,7 +389,6 @@ export default function ChatPage() {
                                 console.log('[RAG] L0 summary created:', summary.id);
                             }
                         }
-
                     }
                 }
 
@@ -420,35 +400,15 @@ export default function ChatPage() {
                         console.log('[RAG] Creating L1 summary from', l0s.length, 'L0 summaries');
                         const prompt = buildL1Prompt(l0s);
 
-                        const response = await fetch('/api/chat', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({
-                                messages: [{ role: 'user', content: prompt }],
-                                provider: 'openrouter',
-                                model: 'deepseek/deepseek-r1-0528:free',
-                                apiKey: currentApiKey,
-                                systemPrompt: SUMMARIZATION_PROMPT_L1,
-                                temperature: 0.3,
-                                maxTokens: 2000,
-                            }),
+                        const result = await backgroundAICall({
+                            systemPrompt: SUMMARIZATION_PROMPT_L1,
+                            userPrompt: prompt,
+                            apiKey: currentApiKey,
+                            temperature: 0.3,
                         });
 
-                        if (response.ok) {
-                            const reader = response.body?.getReader();
-                            const decoder = new TextDecoder();
-                            let text = '';
-                            if (reader) {
-                                while (true) {
-                                    const { done, value } = await reader.read();
-                                    if (done) break;
-                                    text += decoder.decode(value, { stream: true });
-                                }
-                                text += decoder.decode(); // Flush remaining bytes
-                            }
-
-                            const cleanText = text.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
-                            const parsed = parseSummarizationResponse(cleanText);
+                        if (result) {
+                            const parsed = parseSummarizationResponse(result.content);
                             if (parsed) {
                                 const range: [number, number] = [
                                     Math.min(...l0s.map(s => s.messageRange[0])),
@@ -460,6 +420,8 @@ export default function ChatPage() {
                             }
                         }
                     }
+                } else {
+                    console.log('[RAG] L1 not needed yet');
                 }
 
                 // Check L2 (arc summary from L1s)
@@ -470,35 +432,15 @@ export default function ChatPage() {
                         console.log('[RAG] Creating L2 arc summary from', l1s.length, 'L1 summaries');
                         const prompt = buildL2Prompt(l1s);
 
-                        const response = await fetch('/api/chat', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({
-                                messages: [{ role: 'user', content: prompt }],
-                                provider: 'openrouter',
-                                model: 'deepseek/deepseek-r1-0528:free',
-                                apiKey: currentApiKey,
-                                systemPrompt: SUMMARIZATION_PROMPT_L2,
-                                temperature: 0.3,
-                                maxTokens: 2000,
-                            }),
+                        const result = await backgroundAICall({
+                            systemPrompt: SUMMARIZATION_PROMPT_L2,
+                            userPrompt: prompt,
+                            apiKey: currentApiKey,
+                            temperature: 0.3,
                         });
 
-                        if (response.ok) {
-                            const reader = response.body?.getReader();
-                            const decoder = new TextDecoder();
-                            let text = '';
-                            if (reader) {
-                                while (true) {
-                                    const { done, value } = await reader.read();
-                                    if (done) break;
-                                    text += decoder.decode(value, { stream: true });
-                                }
-                                text += decoder.decode(); // Flush remaining bytes
-                            }
-
-                            const cleanText = text.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
-                            const parsed = parseSummarizationResponse(cleanText);
+                        if (result) {
+                            const parsed = parseSummarizationResponse(result.content);
                             if (parsed) {
                                 const range: [number, number] = [
                                     Math.min(...l1s.map(s => s.messageRange[0])),
@@ -780,122 +722,104 @@ export default function ChatPage() {
             });
 
             // Analyze state logic (Background)
+            // Only analyze one message per exchange to reduce API calls
             if (character) {
-                // If impersonating, analyze the NEW User message
                 if (options.isImpersonation) {
+                    // If impersonating, analyze the NEW User message
                     analyzeMessage(fullContent, activePersona?.name || 'User');
-                } else {
-                    // Normal flow
-                    const lastUserMsg = history[history.length - 1];
-                    if (lastUserMsg && lastUserMsg.role === 'user') {
-                        analyzeMessage(lastUserMsg.content, character.name);
-                    }
-                    if (fullContent) {
-                        analyzeMessage(fullContent, character.name);
-                    }
+                } else if (fullContent) {
+                    // Analyze the AI response (contains the most new world state info)
+                    analyzeMessage(fullContent, character.name);
                 }
 
                 // Lorebook extraction is now handled in handleSend on the previous message
 
                 // RAG: Background fact extraction from the AI response (skip on regeneration)
+                // Quality gate: skip extraction for trivial/short responses to save API calls
                 if (enableFactExtraction && activeConversationId && fullContent && !options.skipFactExtraction) {
-                    (async () => {
-                        try {
-                            const factPrompt = buildFactExtractionPrompt(
-                                fullContent,
-                                worldState,
-                                character.name,
-                                activePersona?.name || 'User'
-                            );
-
-                            const openRouterKey = await (async () => {
-                                const orConfig = apiKeys.find(k => k.provider === 'openrouter');
-                                if (!orConfig) return currentApiKey;
-                                return await decryptApiKey(orConfig.encryptedKey) || currentApiKey;
-                            })();
-
-                            const { customFactCategories } = useSettingsStore.getState();
-                            const factSystemPrompt = customFactCategories.length > 0
-                                ? buildFactExtractionSystemPrompt(customFactCategories)
-                                : FACT_EXTRACTION_PROMPT;
-
-                            const factResponse = await fetch('/api/chat', {
-                                method: 'POST',
-                                headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({
-                                    messages: [{ role: 'user', content: factPrompt }],
-                                    provider: 'openrouter',
-                                    model: 'meta-llama/llama-3.3-70b-instruct:free',
-                                    apiKey: openRouterKey,
-                                    systemPrompt: factSystemPrompt,
-                                    temperature: 0.2,
-                                    maxTokens: 2000,
-                                }),
-                            });
-
-                            if (factResponse.ok) {
-                                const reader = factResponse.body?.getReader();
-                                const decoder = new TextDecoder();
-                                let factText = '';
-                                if (reader) {
-                                    while (true) {
-                                        const { done, value } = await reader.read();
-                                        if (done) break;
-                                        factText += decoder.decode(value, { stream: true });
-                                    }
-                                }
-
-                                const cleanFactText = factText.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
-                                const extractedFacts = parseFactExtractionResponse(
-                                    cleanFactText,
-                                    activeConversationId,
-                                    targetId
+                    const responseQuality = scoreMessageQuality({ role: 'assistant', content: fullContent });
+                    if (responseQuality.score >= 4) {
+                        (async () => {
+                            try {
+                                const factPrompt = buildFactExtractionPrompt(
+                                    fullContent,
+                                    worldState,
+                                    character.name,
+                                    activePersona?.name || 'User'
                                 );
 
-                                if (extractedFacts.length > 0) {
-                                    const existingFacts = await getFactsByConversation(activeConversationId);
-                                    const deduped = deduplicateFacts(extractedFacts, existingFacts);
+                                const openRouterKey = await (async () => {
+                                    const orConfig = apiKeys.find(k => k.provider === 'openrouter');
+                                    if (!orConfig) return currentApiKey;
+                                    return await decryptApiKey(orConfig.encryptedKey) || currentApiKey;
+                                })();
 
-                                    if (deduped.length > 0) {
-                                        // Tag facts with active branch path for branch-aware retrieval
-                                        const branchPath = messages.map(m => m.id);
-                                        const factsWithIds: WorldFact[] = [];
-                                        for (const f of deduped) {
-                                            const emb = await embedText(f.fact);
-                                            factsWithIds.push({
-                                                ...f,
-                                                id: crypto.randomUUID(),
-                                                embedding: emb,
-                                                branchPath,
-                                            });
-                                        }
-                                        await saveFactsBatch(factsWithIds);
-                                        console.log(`[RAG] Extracted ${factsWithIds.length} facts from response`);
+                                const { customFactCategories } = useSettingsStore.getState();
+                                const factSystemPrompt = customFactCategories.length > 0
+                                    ? buildFactExtractionSystemPrompt(customFactCategories)
+                                    : FACT_EXTRACTION_PROMPT;
 
-                                        // Auto-update world state from extracted facts
-                                        try {
-                                            const activePersona = personas.find(p => p.id === activePersonaId);
-                                            const wsUpdates = deriveWorldStateUpdates(
-                                                factsWithIds,
-                                                worldState,
-                                                character.name,
-                                                activePersona?.name || 'You'
-                                            );
-                                            const wsChanges = applyWorldStateUpdate(worldState, wsUpdates);
-                                            if (wsChanges && activeConversationId) {
-                                                useChatStore.getState().updateWorldState(activeConversationId, wsChanges);
-                                                console.log('[RAG] Auto world state update:', wsChanges);
+                                const factResult = await backgroundAICall({
+                                    systemPrompt: factSystemPrompt,
+                                    userPrompt: factPrompt,
+                                    apiKey: openRouterKey || currentApiKey || '',
+                                    temperature: 0.2,
+                                });
+
+                                if (factResult) {
+                                    const extractedFacts = parseFactExtractionResponse(
+                                        factResult.content,
+                                        activeConversationId,
+                                        targetId
+                                    );
+
+                                    if (extractedFacts.length > 0) {
+                                        const existingFacts = await getFactsByConversation(activeConversationId);
+                                        const deduped = deduplicateFacts(extractedFacts, existingFacts);
+
+                                        if (deduped.length > 0) {
+                                            // Tag facts with active branch path for branch-aware retrieval
+                                            const branchPath = messages.map(m => m.id);
+                                            const factsWithIds: WorldFact[] = [];
+                                            for (const f of deduped) {
+                                                const emb = await embedText(f.fact);
+                                                factsWithIds.push({
+                                                    ...f,
+                                                    id: crypto.randomUUID(),
+                                                    embedding: emb,
+                                                    branchPath,
+                                                });
                                             }
-                                        } catch (wsErr) {
-                                            console.warn('[RAG] Auto world state update failed:', wsErr);
+                                            await saveFactsBatch(factsWithIds);
+                                            console.log(`[RAG] Extracted ${factsWithIds.length} facts from response`);
+
+                                            // Auto-update world state from extracted facts
+                                            try {
+                                                const activePersona = personas.find(p => p.id === activePersonaId);
+                                                const wsUpdates = deriveWorldStateUpdates(
+                                                    factsWithIds,
+                                                    worldState,
+                                                    character.name,
+                                                    activePersona?.name || 'You'
+                                                );
+                                                const wsChanges = applyWorldStateUpdate(worldState, wsUpdates);
+                                                if (wsChanges && activeConversationId) {
+                                                    useChatStore.getState().updateWorldState(activeConversationId, wsChanges);
+                                                    console.log('[RAG] Auto world state update:', wsChanges);
+                                                }
+                                            } catch (wsErr) {
+                                                console.warn('[RAG] Auto world state update failed:', wsErr);
+                                            }
                                         }
                                     }
                                 }
+                            } catch (err) {
+                                console.error('[RAG] Fact extraction failed:', err);
                             }
-                        } catch (err) {
-                            console.error('[RAG] Fact extraction failed:', err);
-                        }
-                    })();
+                        })();
+                    } else {
+                        console.log(`[RAG] Skipping fact extraction — response quality too low (${responseQuality.score}/10: ${responseQuality.label})`);
+                    }
                 }
             }
         } catch (error) {

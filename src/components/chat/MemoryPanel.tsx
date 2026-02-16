@@ -264,6 +264,7 @@ export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
             const { buildL0Prompt, buildL1Prompt, buildL2Prompt, SUMMARIZATION_PROMPT_L0, SUMMARIZATION_PROMPT_L1, SUMMARIZATION_PROMPT_L2, parseSummarizationResponse } = await import('@/lib/ai/hierarchical-summarizer');
             const { deduplicateFacts } = await import('@/lib/ai/fact-extractor');
             const { saveFactsBatch, getSummariesByConversation: getSummaries, getFactsByConversation: getFacts, deleteSummariesByConversation, deleteVectorsByConversation } = await import('@/lib/db');
+            const { backgroundAICall } = await import('@/lib/ai/background-ai');
             const { getActivePersona } = await import('@/stores/settings-store').then(m => {
                 const state = m.useSettingsStore.getState();
                 return { getActivePersona: () => state.personas.find(p => p.id === state.activePersonaId) };
@@ -297,36 +298,17 @@ export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
 
                 setReindexProgress(`Summarizing chunk ${i + 1}/${totalToProcess}...`);
 
-                // Create L0 summary
+                // Create L0 summary via backgroundAICall (handles 429 retries + model fallback)
                 const prompt = buildL0Prompt(chunk, character.name, userName);
-                const response = await fetch('/api/chat', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        messages: [{ role: 'user', content: prompt }],
-                        provider: 'openrouter',
-                        model: 'meta-llama/llama-3.3-70b-instruct:free',
-                        apiKey,
-                        systemPrompt: SUMMARIZATION_PROMPT_L0,
-                        temperature: 0.3,
-                        maxTokens: 2000,
-                    }),
+                const result = await backgroundAICall({
+                    systemPrompt: SUMMARIZATION_PROMPT_L0,
+                    userPrompt: prompt,
+                    apiKey,
+                    temperature: 0.3,
                 });
 
-                if (response.ok) {
-                    const reader = response.body?.getReader();
-                    const decoder = new TextDecoder();
-                    let text = '';
-                    if (reader) {
-                        while (true) {
-                            const { done, value } = await reader.read();
-                            if (done) break;
-                            text += decoder.decode(value, { stream: true });
-                        }
-                        text += decoder.decode(); // Flush remaining bytes
-                    }
-                    const cleanText = text.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
-                    const parsed = parseSummarizationResponse(cleanText);
+                if (result) {
+                    const parsed = parseSummarizationResponse(result.content);
                     if (parsed) {
                         const embedding = await embedText(parsed.summary);
                         await createSummary(activeConversationId, 0, parsed.summary, parsed.keyFacts, [startIdx, startIdx + chunk.length], [], embedding);
@@ -364,11 +346,8 @@ export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
                         console.warn(`[Reindex] Chunk ${i + 1}: failed to parse summary response`);
                     }
                 } else {
-                    console.warn(`[Reindex] Chunk ${i + 1} failed with status ${response.status}`);
+                    console.warn(`[Reindex] Chunk ${i + 1}: all models failed`);
                 }
-
-                // Small delay between chunks to avoid rate limiting
-                await new Promise(r => setTimeout(r, 1000));
             }
 
             // Create L1 summaries (loop to handle multiple batches)
@@ -379,42 +358,23 @@ export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
                 const l0s = getL0SummariesForL1(currentSummaries);
                 if (!l0s) break;
                 const l1Prompt = buildL1Prompt(l0s);
-                const l1Response = await fetch('/api/chat', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        messages: [{ role: 'user', content: l1Prompt }],
-                        provider: 'openrouter',
-                        model: 'meta-llama/llama-3.3-70b-instruct:free',
-                        apiKey,
-                        systemPrompt: SUMMARIZATION_PROMPT_L1,
-                        temperature: 0.3,
-                        maxTokens: 2000,
-                    }),
+                const l1Result = await backgroundAICall({
+                    systemPrompt: SUMMARIZATION_PROMPT_L1,
+                    userPrompt: l1Prompt,
+                    apiKey,
+                    temperature: 0.3,
                 });
-                if (l1Response.ok) {
-                    const reader = l1Response.body?.getReader();
-                    const decoder = new TextDecoder();
-                    let text = '';
-                    if (reader) {
-                        while (true) { const { done, value } = await reader.read(); if (done) break; text += decoder.decode(value, { stream: true }); }
-                        text += decoder.decode(); // Flush remaining bytes
-                    }
-                    const cleanText = text.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
-                    const parsed = parseSummarizationResponse(cleanText);
+                if (l1Result) {
+                    const parsed = parseSummarizationResponse(l1Result.content);
                     if (parsed) {
                         const range: [number, number] = [Math.min(...l0s.map(s => s.messageRange[0])), Math.max(...l0s.map(s => s.messageRange[1]))];
                         const embedding = await embedText(parsed.summary);
                         await createSummary(activeConversationId, 1, parsed.summary, parsed.keyFacts, range, l0s.map(s => s.id), embedding);
-                    } else {
-                        console.warn('[Reindex] L1 summary: failed to parse response');
                     }
                 } else {
-                    console.warn(`[Reindex] L1 summary failed with status ${l1Response.status}`);
                     break;
                 }
                 currentSummaries = await getSummaries(activeConversationId);
-                await new Promise(r => setTimeout(r, 1000));
             }
 
             // Create L2 summaries (loop to handle multiple batches)
@@ -423,42 +383,23 @@ export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
                 const l1s = getL1SummariesForL2(currentSummaries);
                 if (!l1s) break;
                 const l2Prompt = buildL2Prompt(l1s);
-                const l2Response = await fetch('/api/chat', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        messages: [{ role: 'user', content: l2Prompt }],
-                        provider: 'openrouter',
-                        model: 'meta-llama/llama-3.3-70b-instruct:free',
-                        apiKey,
-                        systemPrompt: SUMMARIZATION_PROMPT_L2,
-                        temperature: 0.3,
-                        maxTokens: 2000,
-                    }),
+                const l2Result = await backgroundAICall({
+                    systemPrompt: SUMMARIZATION_PROMPT_L2,
+                    userPrompt: l2Prompt,
+                    apiKey,
+                    temperature: 0.3,
                 });
-                if (l2Response.ok) {
-                    const reader = l2Response.body?.getReader();
-                    const decoder = new TextDecoder();
-                    let text = '';
-                    if (reader) {
-                        while (true) { const { done, value } = await reader.read(); if (done) break; text += decoder.decode(value, { stream: true }); }
-                        text += decoder.decode(); // Flush remaining bytes
-                    }
-                    const cleanText = text.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
-                    const parsed = parseSummarizationResponse(cleanText);
+                if (l2Result) {
+                    const parsed = parseSummarizationResponse(l2Result.content);
                     if (parsed) {
                         const range: [number, number] = [Math.min(...l1s.map(s => s.messageRange[0])), Math.max(...l1s.map(s => s.messageRange[1]))];
                         const embedding = await embedText(parsed.summary);
                         await createSummary(activeConversationId, 2, parsed.summary, parsed.keyFacts, range, l1s.map(s => s.id), embedding);
-                    } else {
-                        console.warn('[Reindex] L2 summary: failed to parse response');
                     }
                 } else {
-                    console.warn(`[Reindex] L2 summary failed with status ${l2Response.status}`);
                     break;
                 }
                 currentSummaries = await getSummaries(activeConversationId);
-                await new Promise(r => setTimeout(r, 1000));
             }
 
             setReindexProgress('Reindexing complete!');
