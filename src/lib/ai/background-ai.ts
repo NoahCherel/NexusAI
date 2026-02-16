@@ -1,6 +1,6 @@
 /**
  * Shared utility for background AI calls (summarization, fact extraction, etc.)
- * 
+ *
  * Features:
  * - Model fallback chain: tries multiple free models in order
  * - Exponential backoff on 429 rate limits
@@ -24,7 +24,7 @@ async function waitForSlot(): Promise<void> {
     const now = Date.now();
     const elapsed = now - lastRequestTime;
     if (elapsed < MIN_REQUEST_INTERVAL_MS) {
-        await new Promise(r => setTimeout(r, MIN_REQUEST_INTERVAL_MS - elapsed));
+        await new Promise((r) => setTimeout(r, MIN_REQUEST_INTERVAL_MS - elapsed));
     }
     lastRequestTime = Date.now();
 }
@@ -52,7 +52,9 @@ interface BackgroundAIResult {
  * Make a background AI call with model fallback and rate limit handling.
  * Returns cleaned text (thinking tags removed) or null on total failure.
  */
-export async function backgroundAICall(options: BackgroundAIOptions): Promise<BackgroundAIResult | null> {
+export async function backgroundAICall(
+    options: BackgroundAIOptions
+): Promise<BackgroundAIResult | null> {
     const {
         systemPrompt,
         userPrompt,
@@ -101,12 +103,16 @@ export async function backgroundAICall(options: BackgroundAIOptions): Promise<Ba
                     if (attempt < maxRetries) {
                         // Exponential backoff: 3s, 6s
                         const delay = 3000 * Math.pow(2, attempt);
-                        console.warn(`[BackgroundAI] 429 on ${model}, retrying in ${delay}ms (attempt ${attempt + 1}/${maxRetries})`);
-                        await new Promise(r => setTimeout(r, delay));
+                        console.warn(
+                            `[BackgroundAI] 429 on ${model}, retrying in ${delay}ms (attempt ${attempt + 1}/${maxRetries})`
+                        );
+                        await new Promise((r) => setTimeout(r, delay));
                         continue;
                     }
                     // Exhausted retries for this model, try next
-                    console.warn(`[BackgroundAI] 429 on ${model}, exhausted retries, trying next model`);
+                    console.warn(
+                        `[BackgroundAI] 429 on ${model}, exhausted retries, trying next model`
+                    );
                     break;
                 }
 
@@ -130,16 +136,16 @@ export async function backgroundAICall(options: BackgroundAIOptions): Promise<Ba
 async function readStreamFull(response: Response): Promise<string> {
     const reader = response.body?.getReader();
     if (!reader) return '';
-    
+
     const decoder = new TextDecoder();
     let text = '';
-    
+
     while (true) {
         const { done, value } = await reader.read();
         if (done) break;
         text += decoder.decode(value, { stream: true });
     }
     text += decoder.decode(); // Flush
-    
+
     return text;
 }

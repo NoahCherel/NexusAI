@@ -136,7 +136,7 @@ export const ChatBubble = memo(function ChatBubble({
             initial="hidden"
             animate="visible"
             exit="exit"
-            layout={isEditing ? false : "position"}
+            layout={isEditing ? false : 'position'}
             className="flex gap-3 group items-start py-4 border-b border-white/[0.03] last:border-0"
             onMouseEnter={() => setIsHovered(true)}
             onMouseLeave={() => setIsHovered(false)}
@@ -152,9 +152,7 @@ export const ChatBubble = memo(function ChatBubble({
             <div className="flex flex-col gap-1.5 flex-1 min-w-0">
                 {/* Name */}
                 <div className="flex items-center gap-2 px-1">
-                    {name && (
-                        <span className="text-sm font-bold text-foreground/90">{name}</span>
-                    )}
+                    {name && <span className="text-sm font-bold text-foreground/90">{name}</span>}
                     {/* Thought Button */}
                     {thought && showThoughts && (
                         <button
@@ -162,8 +160,9 @@ export const ChatBubble = memo(function ChatBubble({
                             onClick={() => setIsThoughtOpen(!isThoughtOpen)}
                         >
                             <ChevronDown
-                                className={`w-3 h-3 transition-transform duration-200 ${isThoughtOpen ? 'rotate-180' : ''
-                                    }`}
+                                className={`w-3 h-3 transition-transform duration-200 ${
+                                    isThoughtOpen ? 'rotate-180' : ''
+                                }`}
                             />
                             Thoughts
                         </button>
@@ -243,8 +242,9 @@ export const ChatBubble = memo(function ChatBubble({
                         variants={contentVariants}
                         initial="rest"
                         whileHover="hover"
-                        className={`text-sm sm:text-base leading-relaxed whitespace-pre-wrap break-words min-h-[1.5em] ${isUser ? 'text-foreground' : 'text-foreground/90 font-medium'
-                            }`}
+                        className={`text-sm sm:text-base leading-relaxed whitespace-pre-wrap break-words min-h-[1.5em] ${
+                            isUser ? 'text-foreground' : 'text-foreground/90 font-medium'
+                        }`}
                     >
                         {!content && !isUser ? (
                             <div className="flex gap-1 py-1">
@@ -260,8 +260,9 @@ export const ChatBubble = memo(function ChatBubble({
 
                 {/* Action buttons (always rendered to prevent layout shift, toggled via opacity) */}
                 <div
-                    className={`flex gap-1 mt-1 transition-opacity duration-200 ${!isEditing && isHovered ? 'opacity-100' : 'opacity-0'
-                        }`}
+                    className={`flex gap-1 mt-1 transition-opacity duration-200 ${
+                        !isEditing && isHovered ? 'opacity-100' : 'opacity-0'
+                    }`}
                     style={{ pointerEvents: !isEditing && isHovered ? 'auto' : 'none' }}
                 >
                     <ActionTooltip label="Edit">

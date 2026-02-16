@@ -1,13 +1,15 @@
 /**
  * Vector Embedding Service
- * 
+ *
  * Uses @xenova/transformers (all-MiniLM-L6-v2) for client-side embeddings.
  * Falls back to a TF-IDF/BM25 approach if the model can't be loaded.
  * Runs in the main thread (Web Workers are complex with Next.js).
  */
 
 // Dynamic import to avoid SSR issues
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- Xenova/transformers types are dynamic
 let pipeline: any = null;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- Xenova/transformers embedder instance
 let embedderInstance: any = null;
 let isLoading = false;
 let loadError: Error | null = null;
@@ -26,7 +28,7 @@ export async function initEmbedder(): Promise<boolean> {
     if (isLoading) {
         // Wait for current load
         while (isLoading) {
-            await new Promise(r => setTimeout(r, 100));
+            await new Promise((r) => setTimeout(r, 100));
         }
         return !!embedderInstance;
     }
@@ -113,7 +115,9 @@ export async function embedTexts(texts: string[]): Promise<number[][]> {
 export function cosineSimilarity(a: number[], b: number[]): number {
     if (a.length !== b.length) return 0;
 
-    let dot = 0, normA = 0, normB = 0;
+    let dot = 0,
+        normA = 0,
+        normB = 0;
     for (let i = 0; i < a.length; i++) {
         dot += a[i] * b[i];
         normA += a[i] * a[i];
@@ -135,12 +139,12 @@ export function findTopK<T extends { embedding?: number[] }>(
     minScore: number = 0.1
 ): Array<{ item: T; score: number }> {
     return items
-        .filter(item => item.embedding && item.embedding.length > 0)
-        .map(item => ({
+        .filter((item) => item.embedding && item.embedding.length > 0)
+        .map((item) => ({
             item,
             score: cosineSimilarity(query, item.embedding!),
         }))
-        .filter(r => r.score >= minScore)
+        .filter((r) => r.score >= minScore)
         .sort((a, b) => b.score - a.score)
         .slice(0, k);
 }
@@ -151,16 +155,99 @@ export function findTopK<T extends { embedding?: number[] }>(
 
 // Common English/French stop words
 const STOP_WORDS = new Set([
-    'the', 'a', 'an', 'is', 'are', 'was', 'were', 'be', 'been', 'being',
-    'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 'could',
-    'should', 'may', 'might', 'shall', 'can', 'to', 'of', 'in', 'for',
-    'on', 'with', 'at', 'by', 'from', 'as', 'into', 'through', 'during',
-    'before', 'after', 'above', 'below', 'and', 'but', 'or', 'not', 'no',
-    'this', 'that', 'these', 'those', 'it', 'its', 'he', 'she', 'they',
-    'we', 'you', 'i', 'me', 'my', 'your', 'his', 'her', 'their', 'our',
-    'le', 'la', 'les', 'un', 'une', 'des', 'du', 'de', 'et', 'ou',
-    'je', 'tu', 'il', 'elle', 'nous', 'vous', 'ils', 'elles', 'ce',
-    'qui', 'que', 'ne', 'pas', 'dans', 'sur', 'pour', 'avec', 'se',
+    'the',
+    'a',
+    'an',
+    'is',
+    'are',
+    'was',
+    'were',
+    'be',
+    'been',
+    'being',
+    'have',
+    'has',
+    'had',
+    'do',
+    'does',
+    'did',
+    'will',
+    'would',
+    'could',
+    'should',
+    'may',
+    'might',
+    'shall',
+    'can',
+    'to',
+    'of',
+    'in',
+    'for',
+    'on',
+    'with',
+    'at',
+    'by',
+    'from',
+    'as',
+    'into',
+    'through',
+    'during',
+    'before',
+    'after',
+    'above',
+    'below',
+    'and',
+    'but',
+    'or',
+    'not',
+    'no',
+    'this',
+    'that',
+    'these',
+    'those',
+    'it',
+    'its',
+    'he',
+    'she',
+    'they',
+    'we',
+    'you',
+    'i',
+    'me',
+    'my',
+    'your',
+    'his',
+    'her',
+    'their',
+    'our',
+    'le',
+    'la',
+    'les',
+    'un',
+    'une',
+    'des',
+    'du',
+    'de',
+    'et',
+    'ou',
+    'je',
+    'tu',
+    'il',
+    'elle',
+    'nous',
+    'vous',
+    'ils',
+    'elles',
+    'ce',
+    'qui',
+    'que',
+    'ne',
+    'pas',
+    'dans',
+    'sur',
+    'pour',
+    'avec',
+    'se',
 ]);
 
 /**
@@ -172,10 +259,11 @@ function tfidfEmbed(text: string): number[] {
     const vector = new Array(DIM).fill(0);
 
     // Tokenize and filter
-    const words = text.toLowerCase()
+    const words = text
+        .toLowerCase()
         .replace(/[^\w\s]/g, ' ')
         .split(/\s+/)
-        .filter(w => w.length > 2 && !STOP_WORDS.has(w));
+        .filter((w) => w.length > 2 && !STOP_WORDS.has(w));
 
     if (words.length === 0) return vector;
 
@@ -211,7 +299,7 @@ function simpleHash(str: string): number {
     let hash = 0;
     for (let i = 0; i < str.length; i++) {
         const char = str.charCodeAt(i);
-        hash = ((hash << 5) - hash) + char;
+        hash = (hash << 5) - hash + char;
         hash = hash & hash; // Convert to 32bit integer
     }
     return hash;

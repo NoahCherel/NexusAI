@@ -30,7 +30,10 @@ export function countTokensBatch(texts: string[]): number {
  * Truncate text to fit within a token budget.
  * Returns the truncated text and the actual token count.
  */
-export function truncateToTokenBudget(text: string, maxTokens: number): { text: string; tokens: number } {
+export function truncateToTokenBudget(
+    text: string,
+    maxTokens: number
+): { text: string; tokens: number } {
     const tokens = countTokens(text);
     if (tokens <= maxTokens) {
         return { text, tokens };

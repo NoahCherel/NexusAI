@@ -177,9 +177,7 @@ export const useLorebookStore = create<LorebookState>()((set, get) => ({
         const currentEntries = [...state.activeLorebook.entries];
         const existingEntryIndex = currentEntries.findIndex((existing) =>
             existing.keys.some((existingKey) =>
-                entry.keys.some(
-                    (newKey) => newKey.toLowerCase() === existingKey.toLowerCase()
-                )
+                entry.keys.some((newKey) => newKey.toLowerCase() === existingKey.toLowerCase())
             )
         );
 
@@ -260,9 +258,7 @@ export const useLorebookStore = create<LorebookState>()((set, get) => ({
             // Check if any existing entry shares a key with the new entry
             const existingEntryIndex = currentEntries.findIndex((existing) =>
                 existing.keys.some((existingKey) =>
-                    entry.keys.some(
-                        (newKey) => newKey.toLowerCase() === existingKey.toLowerCase()
-                    )
+                    entry.keys.some((newKey) => newKey.toLowerCase() === existingKey.toLowerCase())
                 )
             );
 
@@ -274,7 +270,8 @@ export const useLorebookStore = create<LorebookState>()((set, get) => ({
                 const existingEntry = currentEntries[existingEntryIndex];
 
                 // Append new content to the end
-                const appendedContent = existingEntry.content.trim() + '\n\n' + entry.content.trim();
+                const appendedContent =
+                    existingEntry.content.trim() + '\n\n' + entry.content.trim();
 
                 finalEntry = {
                     ...existingEntry,
@@ -398,7 +395,8 @@ export const useLorebookStore = create<LorebookState>()((set, get) => ({
         if (bestMatchIndex !== -1) {
             // Append to existing entry
             const existingEntry = currentEntries[bestMatchIndex];
-            const appendedContent = existingEntry.content.trim() + '\n\n' + suggestion.content.trim();
+            const appendedContent =
+                existingEntry.content.trim() + '\n\n' + suggestion.content.trim();
 
             finalEntry = {
                 ...existingEntry,

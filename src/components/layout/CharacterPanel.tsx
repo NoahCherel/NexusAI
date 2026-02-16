@@ -17,7 +17,7 @@ import {
     DropdownMenuItem,
     DropdownMenuTrigger,
     DropdownMenuSeparator,
-    DropdownMenuLabel
+    DropdownMenuLabel,
 } from '@/components/ui/dropdown-menu';
 import { useChatStore } from '@/stores/chat-store';
 import type { CharacterCard as CharacterCardType } from '@/types';
@@ -28,7 +28,8 @@ interface CharacterPanelProps {
 
 export function CharacterPanel({ trigger }: CharacterPanelProps) {
     const [isOpen, setIsOpen] = useState(false);
-    const { characters, activeCharacterId, setActiveCharacterId, removeCharacter } = useCharacterStore();
+    const { characters, activeCharacterId, setActiveCharacterId, removeCharacter } =
+        useCharacterStore();
     const [searchTerm, setSearchTerm] = useState('');
     const [isEditorOpen, setIsEditorOpen] = useState(false);
     const [editingCharacter, setEditingCharacter] = useState<CharacterCardType | null>(null);
@@ -80,8 +81,6 @@ export function CharacterPanel({ trigger }: CharacterPanelProps) {
         setIsOpen(false);
     };
 
-
-
     const handleExport = async (character: CharacterCardType) => {
         const charConvs = allConversations
             .filter((c) => c.characterId === character.id)
@@ -110,7 +109,7 @@ export function CharacterPanel({ trigger }: CharacterPanelProps) {
                 updatedAt: latestConv.updatedAt,
                 worldState: latestConv.worldState,
             },
-            messages: messages.map(m => ({
+            messages: messages.map((m) => ({
                 role: m.role,
                 content: m.content,
                 thought: m.thought,
@@ -120,7 +119,10 @@ export function CharacterPanel({ trigger }: CharacterPanelProps) {
             exportedAt: new Date().toISOString(),
         };
 
-        exportToJson(exportData, `Conversation_${character.name}_${new Date().toISOString().split('T')[0]}`);
+        exportToJson(
+            exportData,
+            `Conversation_${character.name}_${new Date().toISOString().split('T')[0]}`
+        );
     };
 
     const defaultTrigger = (
@@ -132,10 +134,11 @@ export function CharacterPanel({ trigger }: CharacterPanelProps) {
     return (
         <>
             <Sheet open={isOpen} onOpenChange={setIsOpen}>
-                <SheetTrigger asChild>
-                    {trigger || defaultTrigger}
-                </SheetTrigger>
-                <SheetContent side="left" className="w-[320px] sm:w-[380px] max-w-[90vw] p-0 flex flex-col overflow-x-hidden">
+                <SheetTrigger asChild>{trigger || defaultTrigger}</SheetTrigger>
+                <SheetContent
+                    side="left"
+                    className="w-[320px] sm:w-[380px] max-w-[90vw] p-0 flex flex-col overflow-x-hidden"
+                >
                     <SheetHeader className="p-4 pb-2 border-b border-border/40">
                         <SheetTitle className="flex items-center gap-2">
                             <div className="p-1.5 bg-primary/10 rounded-md">
@@ -194,7 +197,9 @@ export function CharacterPanel({ trigger }: CharacterPanelProps) {
                                     <DropdownMenuItem onClick={() => setSortOption('name')}>
                                         <SortAsc className="w-4 h-4 mr-2" />
                                         Name (A-Z)
-                                        {sortOption === 'name' && <Clock className="w-3 h-3 ml-auto opacity-0" />}
+                                        {sortOption === 'name' && (
+                                            <Clock className="w-3 h-3 ml-auto opacity-0" />
+                                        )}
                                     </DropdownMenuItem>
                                     <DropdownMenuItem onClick={() => setSortOption('recent')}>
                                         <Clock className="w-4 h-4 mr-2" />
@@ -215,7 +220,10 @@ export function CharacterPanel({ trigger }: CharacterPanelProps) {
                                 </div>
                             ) : (
                                 filteredCharacters.map((char) => (
-                                    <div key={char.id} className="w-full max-w-full overflow-hidden">
+                                    <div
+                                        key={char.id}
+                                        className="w-full max-w-full overflow-hidden"
+                                    >
                                         <CharacterCard
                                             character={char}
                                             isActive={char.id === activeCharacterId}

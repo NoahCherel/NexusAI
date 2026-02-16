@@ -1,6 +1,6 @@
 /**
  * Atomic Fact Extractor
- * 
+ *
  * Extracts structured facts from RPG messages for persistent memory.
  * Facts are atomic, searchable units of information about the game world.
  */
@@ -42,9 +42,20 @@ IMPORTANT: Only extract facts that represent NEW information or changes. Skip:
  * If customCategories are provided, they are appended to the base categories.
  */
 export function buildFactExtractionSystemPrompt(customCategories: string[] = []): string {
-    const baseCategories = ['event', 'relationship', 'item', 'location', 'lore', 'consequence', 'dialogue'];
-    const allCategories = [...baseCategories, ...customCategories.filter(c => !baseCategories.includes(c.toLowerCase()))];
-    
+    const baseCategories = [
+        'event',
+        'relationship',
+        'item',
+        'location',
+        'lore',
+        'consequence',
+        'dialogue',
+    ];
+    const allCategories = [
+        ...baseCategories,
+        ...customCategories.filter((c) => !baseCategories.includes(c.toLowerCase())),
+    ];
+
     return `You are a RPG chronicle keeper. Extract atomic facts from this roleplay exchange.
 
 RULES:
@@ -93,13 +104,13 @@ export function parseFactExtractionResponse(
         const now = Date.now();
 
         return parsed
-            .filter((f: any) => f.fact && f.category && f.importance)
-            .map((f: any) => ({
+            .filter((f: Record<string, unknown>) => f.fact && f.category && f.importance)
+            .map((f: Record<string, unknown>) => ({
                 conversationId,
                 messageId,
-                fact: f.fact,
-                category: validateCategory(f.category),
-                importance: Math.max(1, Math.min(10, f.importance)),
+                fact: String(f.fact),
+                category: validateCategory(String(f.category)),
+                importance: Math.max(1, Math.min(10, Number(f.importance))),
                 active: true,
                 timestamp: now,
                 relatedEntities: Array.isArray(f.entities) ? f.entities : [],
@@ -113,7 +124,15 @@ export function parseFactExtractionResponse(
 }
 
 function validateCategory(cat: string): FactCategory {
-    const builtIn: string[] = ['event', 'relationship', 'item', 'location', 'lore', 'consequence', 'dialogue'];
+    const builtIn: string[] = [
+        'event',
+        'relationship',
+        'item',
+        'location',
+        'lore',
+        'consequence',
+        'dialogue',
+    ];
     // Accept built-in categories and any non-empty custom category
     if (builtIn.includes(cat)) return cat as FactCategory;
     if (cat && cat.trim().length > 0) return cat.trim().toLowerCase();
@@ -132,7 +151,11 @@ export function buildFactExtractionPrompt(
     const context = `Current world state:
 - Location: ${worldState.location || 'Unknown'}
 - Inventory: ${worldState.inventory.join(', ') || 'Empty'}  
-- Key relationships: ${Object.entries(worldState.relationships).map(([n, v]) => `${n}: ${v}`).join(', ') || 'None'}
+- Key relationships: ${
+        Object.entries(worldState.relationships)
+            .map(([n, v]) => `${n}: ${v}`)
+            .join(', ') || 'None'
+    }
 
 Characters: ${characterName} (NPC), ${userName} (Player)
 
@@ -192,23 +215,24 @@ export function deduplicateFacts(
     newFacts: Omit<WorldFact, 'id' | 'embedding'>[],
     existingFacts: WorldFact[]
 ): Omit<WorldFact, 'id' | 'embedding'>[] {
-    return newFacts.filter(newFact => {
+    return newFacts.filter((newFact) => {
         const factLower = newFact.fact.toLowerCase();
-        return !existingFacts.some(existing => {
+        return !existingFacts.some((existing) => {
             // Exact or near-exact match
             if (existing.fact.toLowerCase() === factLower) return true;
 
             // Check if entities overlap significantly
-            const existingEntities = new Set(existing.relatedEntities.map(e => e.toLowerCase()));
-            const newEntities = newFact.relatedEntities.map(e => e.toLowerCase());
-            const overlap = newEntities.filter(e => existingEntities.has(e)).length;
+            const existingEntities = new Set(existing.relatedEntities.map((e) => e.toLowerCase()));
+            const newEntities = newFact.relatedEntities.map((e) => e.toLowerCase());
+            const overlap = newEntities.filter((e) => existingEntities.has(e)).length;
 
             // If same entities and similar category, consider duplicate
             if (overlap >= 2 && existing.category === newFact.category) {
                 // Check for word overlap
                 const existingWords = new Set(existing.fact.toLowerCase().split(/\s+/));
                 const newWords = factLower.split(/\s+/);
-                const wordOverlap = newWords.filter(w => existingWords.has(w)).length / newWords.length;
+                const wordOverlap =
+                    newWords.filter((w) => existingWords.has(w)).length / newWords.length;
                 if (wordOverlap > 0.6) return true;
             }
 
@@ -230,7 +254,7 @@ export function findRelatedFactClusters(
     facts: WorldFact[],
     similarityThreshold: number = 0.7
 ): WorldFact[][] {
-    const factsWithEmbeddings = facts.filter(f => f.embedding && f.embedding.length > 0);
+    const factsWithEmbeddings = facts.filter((f) => f.embedding && f.embedding.length > 0);
     if (factsWithEmbeddings.length < 2) return [];
 
     const visited = new Set<string>();
@@ -288,7 +312,7 @@ export function mergeFactCluster(cluster: WorldFact[]): Omit<WorldFact, 'id' | '
     // Merge entity lists (deduplicate)
     const allEntities = new Set<string>();
     for (const fact of cluster) {
-        fact.relatedEntities.forEach(e => allEntities.add(e));
+        fact.relatedEntities.forEach((e) => allEntities.add(e));
     }
 
     // Combine fact texts: use primary as base, append unique info from others
@@ -297,7 +321,7 @@ export function mergeFactCluster(cluster: WorldFact[]): Omit<WorldFact, 'id' | '
 
     for (const fact of sorted.slice(1)) {
         const words = fact.fact.toLowerCase().split(/\s+/);
-        const novelWords = words.filter(w => !primaryWords.has(w) && w.length > 3);
+        const novelWords = words.filter((w) => !primaryWords.has(w) && w.length > 3);
         const novelRatio = novelWords.length / words.length;
 
         // If the secondary fact has >20% novel words, it adds info worth preserving
@@ -317,11 +341,11 @@ export function mergeFactCluster(cluster: WorldFact[]): Omit<WorldFact, 'id' | '
         messageId: primary.messageId,
         fact: mergedFact,
         category: primary.category,
-        importance: Math.max(...cluster.map(f => f.importance)),
-        active: cluster.some(f => f.active), // Active if any are active
-        timestamp: Math.max(...cluster.map(f => f.timestamp)),
+        importance: Math.max(...cluster.map((f) => f.importance)),
+        active: cluster.some((f) => f.active), // Active if any are active
+        timestamp: Math.max(...cluster.map((f) => f.timestamp)),
         relatedEntities: Array.from(allEntities),
-        lastAccessedAt: Math.max(...cluster.map(f => f.lastAccessedAt)),
+        lastAccessedAt: Math.max(...cluster.map((f) => f.lastAccessedAt)),
         accessCount: cluster.reduce((sum, f) => sum + f.accessCount, 0),
         branchPath: primary.branchPath, // Inherit from primary
     };
@@ -352,7 +376,7 @@ export function mergeRelatedFacts(
         const merged = mergeFactCluster(cluster);
         mergedFacts.push(merged);
         // All original facts in the cluster are deleted
-        deletedIds.push(...cluster.map(f => f.id));
+        deletedIds.push(...cluster.map((f) => f.id));
     }
 
     return { mergedFacts, deletedIds, clusterCount: clusters.length };

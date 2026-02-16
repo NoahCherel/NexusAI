@@ -1,11 +1,11 @@
 /**
  * Hierarchical Summarization Service
- * 
+ *
  * Implements a 3-level pyramid of summaries:
  * - Level 0: Chunk summaries (every ~10 messages) — ~200 tokens each
  * - Level 1: Section summaries (every ~5 L0 summaries) — ~150 tokens each
  * - Level 2: Arc summaries (every ~3 L1 summaries) — ~100 tokens each
- * 
+ *
  * Each level compresses the level below, creating an efficient memory hierarchy.
  */
 
@@ -15,9 +15,9 @@ import { saveSummary, getSummariesByConversation } from '@/lib/db';
 import { countTokens } from '@/lib/tokenizer';
 
 // Configuration
-export const DEFAULT_CHUNK_SIZE = 10;  // Messages per L0 summary (default)
-const L1_THRESHOLD = 5;      // L0 summaries per L1 summary
-const L2_THRESHOLD = 3;      // L1 summaries per L2 summary
+export const DEFAULT_CHUNK_SIZE = 10; // Messages per L0 summary (default)
+const L1_THRESHOLD = 5; // L0 summaries per L1 summary
+const L2_THRESHOLD = 3; // L1 summaries per L2 summary
 
 export const SUMMARIZATION_PROMPT_L0 = `You are a RPG session chronicler. Summarize this chunk of roleplay messages into a concise narrative paragraph.
 
@@ -74,11 +74,10 @@ export function shouldCreateL0Summary(
     existingSummaries: MemorySummary[],
     chunkSize: number = DEFAULT_CHUNK_SIZE
 ): boolean {
-    const l0Summaries = existingSummaries.filter(s => s.level === 0);
+    const l0Summaries = existingSummaries.filter((s) => s.level === 0);
     // Use the actual highest message index covered by existing summaries
-    const coveredMessages = l0Summaries.length > 0
-        ? Math.max(...l0Summaries.map(s => s.messageRange[1]))
-        : 0;
+    const coveredMessages =
+        l0Summaries.length > 0 ? Math.max(...l0Summaries.map((s) => s.messageRange[1])) : 0;
     return messageCount - coveredMessages >= chunkSize;
 }
 
@@ -86,9 +85,9 @@ export function shouldCreateL0Summary(
  * Check if L1 summary is needed.
  */
 export function shouldCreateL1Summary(existingSummaries: MemorySummary[]): boolean {
-    const l0Summaries = existingSummaries.filter(s => s.level === 0);
-    const l1Summaries = existingSummaries.filter(s => s.level === 1);
-    const uncoveredL0 = l0Summaries.length - (l1Summaries.length * L1_THRESHOLD);
+    const l0Summaries = existingSummaries.filter((s) => s.level === 0);
+    const l1Summaries = existingSummaries.filter((s) => s.level === 1);
+    const uncoveredL0 = l0Summaries.length - l1Summaries.length * L1_THRESHOLD;
     return uncoveredL0 >= L1_THRESHOLD;
 }
 
@@ -96,9 +95,9 @@ export function shouldCreateL1Summary(existingSummaries: MemorySummary[]): boole
  * Check if L2 summary is needed.
  */
 export function shouldCreateL2Summary(existingSummaries: MemorySummary[]): boolean {
-    const l1Summaries = existingSummaries.filter(s => s.level === 1);
-    const l2Summaries = existingSummaries.filter(s => s.level === 2);
-    const uncoveredL1 = l1Summaries.length - (l2Summaries.length * L2_THRESHOLD);
+    const l1Summaries = existingSummaries.filter((s) => s.level === 1);
+    const l2Summaries = existingSummaries.filter((s) => s.level === 2);
+    const uncoveredL1 = l1Summaries.length - l2Summaries.length * L2_THRESHOLD;
     return uncoveredL1 >= L2_THRESHOLD;
 }
 
@@ -110,17 +109,16 @@ export function getUnsummarizedMessages(
     messages: Message[],
     existingSummaries: MemorySummary[]
 ): Message[] {
-    const l0Summaries = existingSummaries.filter(s => s.level === 0);
+    const l0Summaries = existingSummaries.filter((s) => s.level === 0);
     // Use the actual highest message index covered by existing summaries
-    const coveredCount = l0Summaries.length > 0
-        ? Math.max(...l0Summaries.map(s => s.messageRange[1]))
-        : 0;
-    
+    const coveredCount =
+        l0Summaries.length > 0 ? Math.max(...l0Summaries.map((s) => s.messageRange[1])) : 0;
+
     // Sort by creation time
-    const sorted = [...messages].sort((a, b) => 
-        new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+    const sorted = [...messages].sort(
+        (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
     );
-    
+
     return sorted.slice(coveredCount);
 }
 
@@ -143,14 +141,14 @@ export function getNextChunkToSummarize(
  */
 export function getL0SummariesForL1(existingSummaries: MemorySummary[]): MemorySummary[] | null {
     const l0s = existingSummaries
-        .filter(s => s.level === 0)
+        .filter((s) => s.level === 0)
         .sort((a, b) => a.messageRange[0] - b.messageRange[0]);
-    
-    const l1s = existingSummaries.filter(s => s.level === 1);
-    const alreadyCoveredL0Ids = new Set(l1s.flatMap(l1 => l1.childIds));
-    
-    const uncovered = l0s.filter(l0 => !alreadyCoveredL0Ids.has(l0.id));
-    
+
+    const l1s = existingSummaries.filter((s) => s.level === 1);
+    const alreadyCoveredL0Ids = new Set(l1s.flatMap((l1) => l1.childIds));
+
+    const uncovered = l0s.filter((l0) => !alreadyCoveredL0Ids.has(l0.id));
+
     if (uncovered.length < L1_THRESHOLD) return null;
     return uncovered.slice(0, L1_THRESHOLD);
 }
@@ -160,14 +158,14 @@ export function getL0SummariesForL1(existingSummaries: MemorySummary[]): MemoryS
  */
 export function getL1SummariesForL2(existingSummaries: MemorySummary[]): MemorySummary[] | null {
     const l1s = existingSummaries
-        .filter(s => s.level === 1)
+        .filter((s) => s.level === 1)
         .sort((a, b) => a.messageRange[0] - b.messageRange[0]);
-    
-    const l2s = existingSummaries.filter(s => s.level === 2);
-    const alreadyCoveredL1Ids = new Set(l2s.flatMap(l2 => l2.childIds));
-    
-    const uncovered = l1s.filter(l1 => !alreadyCoveredL1Ids.has(l1.id));
-    
+
+    const l2s = existingSummaries.filter((s) => s.level === 2);
+    const alreadyCoveredL1Ids = new Set(l2s.flatMap((l2) => l2.childIds));
+
+    const uncovered = l1s.filter((l1) => !alreadyCoveredL1Ids.has(l1.id));
+
     if (uncovered.length < L2_THRESHOLD) return null;
     return uncovered.slice(0, L2_THRESHOLD);
 }
@@ -175,7 +173,9 @@ export function getL1SummariesForL2(existingSummaries: MemorySummary[]): MemoryS
 /**
  * Parse the summarization response.
  */
-export function parseSummarizationResponse(text: string): { summary: string; keyFacts: string[] } | null {
+export function parseSummarizationResponse(
+    text: string
+): { summary: string; keyFacts: string[] } | null {
     try {
         // Try JSON parse first
         const jsonMatch = text.match(/\{[\s\S]*\}/);
@@ -204,11 +204,15 @@ export function parseSummarizationResponse(text: string): { summary: string; key
 /**
  * Build the prompt for L0 summarization.
  */
-export function buildL0Prompt(messages: Message[], characterName: string, userName: string): string {
+export function buildL0Prompt(
+    messages: Message[],
+    characterName: string,
+    userName: string
+): string {
     const formatted = messages
-        .map(m => `${m.role === 'user' ? userName : characterName}: ${m.content}`)
+        .map((m) => `${m.role === 'user' ? userName : characterName}: ${m.content}`)
         .join('\n\n');
-    
+
     return `Character: ${characterName}\nPlayer: ${userName}\n\n--- Messages ---\n${formatted}\n\n--- End Messages ---\n\nSummarize this chunk:`;
 }
 
@@ -217,9 +221,12 @@ export function buildL0Prompt(messages: Message[], characterName: string, userNa
  */
 export function buildL1Prompt(l0Summaries: MemorySummary[]): string {
     const formatted = l0Summaries
-        .map((s, i) => `Chapter ${i + 1} (messages ${s.messageRange[0]}-${s.messageRange[1]}):\n${s.content}`)
+        .map(
+            (s, i) =>
+                `Chapter ${i + 1} (messages ${s.messageRange[0]}-${s.messageRange[1]}):\n${s.content}`
+        )
         .join('\n\n');
-    
+
     return `--- Chapter Summaries ---\n${formatted}\n\n--- End ---\n\nCombine into a section summary:`;
 }
 
@@ -228,9 +235,12 @@ export function buildL1Prompt(l0Summaries: MemorySummary[]): string {
  */
 export function buildL2Prompt(l1Summaries: MemorySummary[]): string {
     const formatted = l1Summaries
-        .map((s, i) => `Section ${i + 1} (messages ${s.messageRange[0]}-${s.messageRange[1]}):\n${s.content}`)
+        .map(
+            (s, i) =>
+                `Section ${i + 1} (messages ${s.messageRange[0]}-${s.messageRange[1]}):\n${s.content}`
+        )
         .join('\n\n');
-    
+
     return `--- Section Summaries ---\n${formatted}\n\n--- End ---\n\nCombine into an arc summary:`;
 }
 
@@ -273,7 +283,9 @@ export async function createSummary(
 function deduplicateSummaries(summaries: MemorySummary[]): MemorySummary[] {
     const result: MemorySummary[] = [];
     for (const s of summaries) {
-        const isDup = result.some(existing => computeWordOverlap(existing.content, s.content) > 0.6);
+        const isDup = result.some(
+            (existing) => computeWordOverlap(existing.content, s.content) > 0.6
+        );
         if (!isDup) result.push(s);
     }
     return result;
@@ -287,82 +299,76 @@ export async function getBestContextSummary(
     if (summaries.length === 0) return '';
 
     // Try L2 first (most compressed)
-    const l2s = summaries
-        .filter(s => s.level === 2)
-        .sort((a, b) => b.createdAt - a.createdAt);
-    
+    const l2s = summaries.filter((s) => s.level === 2).sort((a, b) => b.createdAt - a.createdAt);
+
     if (l2s.length > 0) {
-        let result = '📖 Story Arc:\n' + l2s.map(s => s.content).join('\n');
-        
+        let result = '📖 Story Arc:\n' + l2s.map((s) => s.content).join('\n');
+
         // If budget allows, add recent L0 not covered by L2
         const coveredByL2 = new Set<string>();
         for (const l2 of l2s) {
             for (const l1Id of l2.childIds) {
-                const l1 = summaries.find(s => s.id === l1Id);
-                if (l1) l1.childIds.forEach(id => coveredByL2.add(id));
+                const l1 = summaries.find((s) => s.id === l1Id);
+                if (l1) l1.childIds.forEach((id) => coveredByL2.add(id));
             }
         }
-        
+
         const recentUncovered = summaries
-            .filter(s => s.level === 0 && !coveredByL2.has(s.id))
+            .filter((s) => s.level === 0 && !coveredByL2.has(s.id))
             .sort((a, b) => b.createdAt - a.createdAt);
-        
+
         if (recentUncovered.length > 0 && countTokens(result) < maxTokens - 100) {
             const dedupedRecent = deduplicateSummaries(recentUncovered);
-            result += '\n\n📝 Recent Events:\n' + dedupedRecent.map(s => s.content).join('\n');
+            result += '\n\n📝 Recent Events:\n' + dedupedRecent.map((s) => s.content).join('\n');
         }
-        
+
         return result;
     }
 
     // Try L1
-    const l1s = summaries
-        .filter(s => s.level === 1)
-        .sort((a, b) => b.createdAt - a.createdAt);
-    
+    const l1s = summaries.filter((s) => s.level === 1).sort((a, b) => b.createdAt - a.createdAt);
+
     if (l1s.length > 0) {
-        let result = '📖 Story So Far:\n' + l1s.map(s => s.content).join('\n');
-        
+        let result = '📖 Story So Far:\n' + l1s.map((s) => s.content).join('\n');
+
         // Add uncovered L0s
-        const coveredByL1 = new Set(l1s.flatMap(l1 => l1.childIds));
+        const coveredByL1 = new Set(l1s.flatMap((l1) => l1.childIds));
         const recentUncovered = summaries
-            .filter(s => s.level === 0 && !coveredByL1.has(s.id))
+            .filter((s) => s.level === 0 && !coveredByL1.has(s.id))
             .sort((a, b) => b.createdAt - a.createdAt)
             .slice(0, 3);
-        
+
         if (recentUncovered.length > 0 && countTokens(result) < maxTokens - 100) {
             const dedupedRecent = deduplicateSummaries(recentUncovered);
-            result += '\n\n📝 Recent:\n' + dedupedRecent.map(s => s.content).join('\n');
+            result += '\n\n📝 Recent:\n' + dedupedRecent.map((s) => s.content).join('\n');
         }
-        
+
         return result;
     }
 
     // Only L0 available — take most recent ones within budget, deduplicating similar content
-    const l0s = summaries
-        .filter(s => s.level === 0)
-        .sort((a, b) => b.createdAt - a.createdAt);
-    
+    const l0s = summaries.filter((s) => s.level === 0).sort((a, b) => b.createdAt - a.createdAt);
+
     let result = '📝 Recent Events:\n';
     let currentTokens = countTokens(result);
     const includedTexts: string[] = [];
-    
+
     for (const s of l0s) {
         const sTokens = countTokens(s.content);
         if (currentTokens + sTokens > maxTokens) break;
-        
+
         // Basic dedup: skip if too similar to an already-included summary
-        const isDuplicate = includedTexts.some(existing => {
+        const isDuplicate = includedTexts.some((existing) => {
             const overlap = computeWordOverlap(existing, s.content);
             return overlap > 0.6; // >60% word overlap means near-duplicate
         });
         if (isDuplicate) continue;
-        
+
         result += s.content + '\n';
         currentTokens += sTokens;
         includedTexts.push(s.content);
     }
-    
+
     return result;
 }
 
@@ -371,8 +377,18 @@ export async function getBestContextSummary(
  * Returns 0-1 where 1 = identical words.
  */
 function computeWordOverlap(a: string, b: string): number {
-    const wordsA = new Set(a.toLowerCase().split(/\s+/).filter(w => w.length > 3));
-    const wordsB = new Set(b.toLowerCase().split(/\s+/).filter(w => w.length > 3));
+    const wordsA = new Set(
+        a
+            .toLowerCase()
+            .split(/\s+/)
+            .filter((w) => w.length > 3)
+    );
+    const wordsB = new Set(
+        b
+            .toLowerCase()
+            .split(/\s+/)
+            .filter((w) => w.length > 3)
+    );
     if (wordsA.size === 0 || wordsB.size === 0) return 0;
     let intersection = 0;
     for (const w of wordsA) {
@@ -393,9 +409,15 @@ export async function getSummaryHierarchy(conversationId: string): Promise<{
 }> {
     const summaries = await getSummariesByConversation(conversationId);
     return {
-        l0: summaries.filter(s => s.level === 0).sort((a, b) => a.messageRange[0] - b.messageRange[0]),
-        l1: summaries.filter(s => s.level === 1).sort((a, b) => a.messageRange[0] - b.messageRange[0]),
-        l2: summaries.filter(s => s.level === 2).sort((a, b) => a.messageRange[0] - b.messageRange[0]),
+        l0: summaries
+            .filter((s) => s.level === 0)
+            .sort((a, b) => a.messageRange[0] - b.messageRange[0]),
+        l1: summaries
+            .filter((s) => s.level === 1)
+            .sort((a, b) => a.messageRange[0] - b.messageRange[0]),
+        l2: summaries
+            .filter((s) => s.level === 2)
+            .sort((a, b) => a.messageRange[0] - b.messageRange[0]),
         totalMessages: summaries.reduce((max, s) => Math.max(max, s.messageRange[1]), 0),
     };
 }

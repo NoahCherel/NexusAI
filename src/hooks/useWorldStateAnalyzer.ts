@@ -44,8 +44,11 @@ export function useWorldStateAnalyzer(): UseWorldStateAnalyzerReturn {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${apiKey}`,
-                        'HTTP-Referer': typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000',
+                        Authorization: `Bearer ${apiKey}`,
+                        'HTTP-Referer':
+                            typeof window !== 'undefined'
+                                ? window.location.origin
+                                : 'http://localhost:3000',
                         'X-Title': 'NexusAI',
                     },
                     body: JSON.stringify({
@@ -126,10 +129,10 @@ export function useWorldStateAnalyzer(): UseWorldStateAnalyzerReturn {
                 const models = settingsStore.backgroundModel
                     ? [settingsStore.backgroundModel]
                     : [
-                        'deepseek/deepseek-r1-0528:free', // Primary
-                        'meta-llama/llama-3.3-70b-instruct:free',
-                        'mistralai/mistral-small-3.1-24b-instruct:free',
-                    ];
+                          'deepseek/deepseek-r1-0528:free', // Primary
+                          'meta-llama/llama-3.3-70b-instruct:free',
+                          'mistralai/mistral-small-3.1-24b-instruct:free',
+                      ];
 
                 const resultData = await performAIRequest(
                     models,

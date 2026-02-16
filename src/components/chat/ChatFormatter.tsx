@@ -49,15 +49,20 @@ export const ChatFormatter = memo(function ChatFormatter({ content, isUser }: Ch
     );
 });
 
-const FormattedLine = memo(({ text, isUser }: { text: string; isUser?: boolean }) => {
+const FormattedLine = memo(function FormattedLine({
+    text,
+    isUser,
+}: {
+    text: string;
+    isUser?: boolean;
+}) {
     if (!text.trim()) return <div className="h-2" />; // Empty line spacing
 
     // Check for "Name:" prefix
     let prefixNode: React.ReactNode = null;
     let actualText = text;
 
-    // Default styling
-    let className = 'block mb-1';
+    const className = 'block mb-1';
 
     // Check for "Name:" pattern at start
     const nameMatch = text.match(/^([A-Za-z0-9 _'-]+):(\s+)/);
@@ -79,7 +84,13 @@ const FormattedLine = memo(({ text, isUser }: { text: string; isUser?: boolean }
     );
 });
 
-const FormattedText = memo(({ text, isUser }: { text: string; isUser?: boolean }) => {
+const FormattedText = memo(function FormattedText({
+    text,
+    isUser,
+}: {
+    text: string;
+    isUser?: boolean;
+}) {
     // Parser for inline styles: **bold** and *italics*
     // We scan the string and build nodes
 
@@ -92,7 +103,11 @@ const FormattedText = memo(({ text, isUser }: { text: string; isUser?: boolean }
         let currentText = '';
         const flushUserText = () => {
             if (currentText) {
-                nodes.push(<span key={keyIndex++} className="text-foreground">{currentText}</span>);
+                nodes.push(
+                    <span key={keyIndex++} className="text-foreground">
+                        {currentText}
+                    </span>
+                );
                 currentText = '';
             }
         };
@@ -144,7 +159,11 @@ const FormattedText = memo(({ text, isUser }: { text: string; isUser?: boolean }
     parts.forEach((part, idx) => {
         if (idx % 2 === 1) {
             // Quoted Text -> Dialogue
-            nodes.push(<span key={`quote-${keyIndex++}`} className="text-foreground">{part}</span>);
+            nodes.push(
+                <span key={`quote-${keyIndex++}`} className="text-foreground">
+                    {part}
+                </span>
+            );
         } else {
             // Unquoted -> Narration
             if (!part) return;

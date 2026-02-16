@@ -177,11 +177,11 @@ export function parseConsolidationResponse(text: string): LorebookConsolidationR
         const parsed = JSON.parse(jsonMatch[0]);
         return {
             consolidated: Array.isArray(parsed.consolidated)
-                ? parsed.consolidated.map((c: any) => ({
-                    originalIndices: c.originalindices || c.originalIndices || [],
-                    keywords: c.keywords || [],
-                    content: c.content || '',
-                }))
+                ? parsed.consolidated.map((c: Record<string, unknown>) => ({
+                      originalIndices: c.originalindices || c.originalIndices || [],
+                      keywords: c.keywords || [],
+                      content: c.content || '',
+                  }))
                 : [],
             unchanged: Array.isArray(parsed.unchanged) ? parsed.unchanged : [],
         };

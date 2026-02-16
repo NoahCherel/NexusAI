@@ -9,6 +9,8 @@ type OpenRouterMessage = OpenAI.Chat.Completions.ChatCompletionMessage & {
     reasoning_details?: unknown;
 };
 
+type OpenRouterRequestBody = Record<string, unknown>;
+
 export async function POST(req: NextRequest) {
     try {
         const {
@@ -68,7 +70,7 @@ export async function POST(req: NextRequest) {
 
         // Configure client based on provider
         let client: OpenAI;
-        let requestBody: any;
+        let requestBody: OpenRouterRequestBody;
 
         if (provider === 'openrouter') {
             client = new OpenAI({
@@ -90,7 +92,7 @@ export async function POST(req: NextRequest) {
                 frequency_penalty: frequencyPenalty,
                 presence_penalty: presencePenalty,
                 stop: stoppingStrings,
-            } as any;
+            } as OpenRouterRequestBody;
 
             // Add OpenRouter-specific parameters
             if (topK) requestBody.top_k = topK;
@@ -101,8 +103,12 @@ export async function POST(req: NextRequest) {
             if (enableReasoning) {
                 const isGeminiModel = effectiveModelId.toLowerCase().includes('gemini');
                 const isDeepSeekModel = effectiveModelId.toLowerCase().includes('deepseek');
-                const isAnthropicModel = effectiveModelId.toLowerCase().includes('claude') || effectiveModelId.toLowerCase().includes('anthropic');
-                const isOpenAIReasoning = effectiveModelId.toLowerCase().includes('o1') || effectiveModelId.toLowerCase().includes('o3');
+                const isAnthropicModel =
+                    effectiveModelId.toLowerCase().includes('claude') ||
+                    effectiveModelId.toLowerCase().includes('anthropic');
+                const isOpenAIReasoning =
+                    effectiveModelId.toLowerCase().includes('o1') ||
+                    effectiveModelId.toLowerCase().includes('o3');
 
                 if (isGeminiModel) {
                     // Gemini thinking models support max_tokens
@@ -132,7 +138,6 @@ export async function POST(req: NextRequest) {
                     };
                 }
             }
-
         } else if (provider === 'openai') {
             client = new OpenAI({ apiKey });
             requestBody = {
@@ -145,7 +150,6 @@ export async function POST(req: NextRequest) {
                 presence_penalty: presencePenalty,
                 stop: stoppingStrings,
             };
-
         } else if (provider === 'anthropic') {
             // Use OpenRouter for Anthropic to maintain consistency
             client = new OpenAI({
@@ -157,7 +161,9 @@ export async function POST(req: NextRequest) {
                 },
             });
             requestBody = {
-                model: effectiveModelId.startsWith('anthropic/') ? effectiveModelId : `anthropic/${effectiveModelId}`,
+                model: effectiveModelId.startsWith('anthropic/')
+                    ? effectiveModelId
+                    : `anthropic/${effectiveModelId}`,
                 messages: fullMessages,
                 temperature: temperature ?? 0.8,
                 max_tokens: maxTokens ?? 4096,
@@ -188,10 +194,12 @@ export async function POST(req: NextRequest) {
                         }
 
                         // Handle reasoning tokens from OpenRouter
-                        const extendedDelta = delta as any;
+                        const extendedDelta = delta as OpenRouterMessage;
                         if (extendedDelta?.reasoning) {
                             // Wrap reasoning in special tags for client-side parsing
-                            controller.enqueue(encoder.encode(`<think>${extendedDelta.reasoning}</think>`));
+                            controller.enqueue(
+                                encoder.encode(`<think>${extendedDelta.reasoning}</think>`)
+                            );
                         }
                         if (extendedDelta?.reasoning_details) {
                             // Handle reasoning_details array format
@@ -199,7 +207,9 @@ export async function POST(req: NextRequest) {
                             if (Array.isArray(details)) {
                                 for (const detail of details) {
                                     if (detail.type === 'reasoning.text' && detail.text) {
-                                        controller.enqueue(encoder.encode(`<think>${detail.text}</think>`));
+                                        controller.enqueue(
+                                            encoder.encode(`<think>${detail.text}</think>`)
+                                        );
                                     }
                                 }
                             }
@@ -221,10 +231,9 @@ export async function POST(req: NextRequest) {
             headers: {
                 'Content-Type': 'text/plain; charset=utf-8',
                 'Cache-Control': 'no-cache',
-                'Connection': 'keep-alive',
+                Connection: 'keep-alive',
             },
         });
-
     } catch (error) {
         console.error('Chat API error:', error);
         return new Response(

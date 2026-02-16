@@ -149,7 +149,7 @@ export function TreeVisualization({ isOpen, onClose }: TreeVisualizationProps) {
         visualRoots.forEach(traverse);
 
         return { nodes: finalNodes, edges: finalEdges, activePath };
-    }, [activeConversationId, allMessages, isOpen]);
+    }, [activeConversationId, allMessages, isOpen, X_SPACING, Y_SPACING]);
 
     // Pan/Zoom Handlers
     const handleWheel = useCallback(
@@ -198,7 +198,10 @@ export function TreeVisualization({ isOpen, onClose }: TreeVisualizationProps) {
         }
         if (e.touches.length === 1) {
             const target = e.target as Element;
-            const isBackground = target.tagName === 'svg' || target.tagName === 'g' || target.closest('g[data-panzoom]');
+            const isBackground =
+                target.tagName === 'svg' ||
+                target.tagName === 'g' ||
+                target.closest('g[data-panzoom]');
             if (isBackground) {
                 setIsDragging(true);
                 const touch = e.touches[0];
@@ -247,9 +250,12 @@ export function TreeVisualization({ isOpen, onClose }: TreeVisualizationProps) {
             const containerWidth = svgRef.current.clientWidth;
             const containerHeight = svgRef.current.clientHeight;
             // Find active leaf or fallback to first node
-            const activeNode = treeData!.nodes.find(n => treeData!.activePath.has(n.id) && n.children.length === 0) 
-                || treeData!.nodes.find(n => treeData!.activePath.has(n.id))
-                || treeData!.nodes[0];
+            const activeNode =
+                treeData!.nodes.find(
+                    (n) => treeData!.activePath.has(n.id) && n.children.length === 0
+                ) ||
+                treeData!.nodes.find((n) => treeData!.activePath.has(n.id)) ||
+                treeData!.nodes[0];
             const initialScale = isMobile ? 0.7 : 1;
             setView({
                 x: containerWidth / 2 - (activeNode.x + NODE_WIDTH / 2) * initialScale,
@@ -276,7 +282,9 @@ export function TreeVisualization({ isOpen, onClose }: TreeVisualizationProps) {
                             <GitBranch className="h-4 w-4 md:h-5 md:w-5 text-primary" />
                         </div>
                         <div>
-                            <h2 className="font-bold text-base md:text-lg leading-tight">Conversation Tree</h2>
+                            <h2 className="font-bold text-base md:text-lg leading-tight">
+                                Conversation Tree
+                            </h2>
                             <p className="text-[10px] md:text-xs text-muted-foreground">
                                 Flow chart of all dialogue branches
                             </p>
@@ -340,7 +348,10 @@ export function TreeVisualization({ isOpen, onClose }: TreeVisualizationProps) {
                         </div>
                     ) : (
                         <svg ref={svgRef} className="w-full h-full block">
-                            <g data-panzoom transform={`translate(${view.x},${view.y}) scale(${view.scale})`}>
+                            <g
+                                data-panzoom
+                                transform={`translate(${view.x},${view.y}) scale(${view.scale})`}
+                            >
                                 {/* Edges */}
                                 {treeData?.edges.map((edge, i) => {
                                     const startHeading = edge.active

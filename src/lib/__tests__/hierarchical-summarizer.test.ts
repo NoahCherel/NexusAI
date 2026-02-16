@@ -62,16 +62,12 @@ describe('shouldCreateL0Summary', () => {
 
 describe('shouldCreateL1Summary', () => {
     it('returns true when 5+ L0 summaries exist uncovered', () => {
-        const l0s = Array.from({ length: 5 }, (_, i) =>
-            mockSummary({ id: `l0-${i}`, level: 0 })
-        );
+        const l0s = Array.from({ length: 5 }, (_, i) => mockSummary({ id: `l0-${i}`, level: 0 }));
         expect(shouldCreateL1Summary(l0s)).toBe(true);
     });
 
     it('returns false when fewer than 5 L0 summaries', () => {
-        const l0s = Array.from({ length: 4 }, (_, i) =>
-            mockSummary({ id: `l0-${i}`, level: 0 })
-        );
+        const l0s = Array.from({ length: 4 }, (_, i) => mockSummary({ id: `l0-${i}`, level: 0 }));
         expect(shouldCreateL1Summary(l0s)).toBe(false);
     });
 });
@@ -127,13 +123,11 @@ describe('getL0SummariesForL1', () => {
     });
 
     it('returns null when not enough uncovered L0s', () => {
-        const l0s = Array.from({ length: 5 }, (_, i) =>
-            mockSummary({ id: `l0-${i}`, level: 0 })
-        );
+        const l0s = Array.from({ length: 5 }, (_, i) => mockSummary({ id: `l0-${i}`, level: 0 }));
         const l1 = mockSummary({
             id: 'l1-0',
             level: 1,
-            childIds: l0s.map(s => s.id),
+            childIds: l0s.map((s) => s.id),
         });
         const result = getL0SummariesForL1([...l0s, l1]);
         expect(result).toBeNull();
@@ -153,7 +147,8 @@ describe('getL1SummariesForL2', () => {
 
 describe('parseSummarizationResponse', () => {
     it('parses valid JSON response', () => {
-        const response = '{"summary": "The hero fought the dragon.", "keyFacts": ["Dragon defeated", "Hero injured"]}';
+        const response =
+            '{"summary": "The hero fought the dragon.", "keyFacts": ["Dragon defeated", "Hero injured"]}';
         const result = parseSummarizationResponse(response);
         expect(result).not.toBeNull();
         expect(result!.summary).toBe('The hero fought the dragon.');
@@ -180,7 +175,8 @@ describe('parseSummarizationResponse', () => {
     });
 
     it('handles JSON with extra text around it', () => {
-        const response = 'Here is the summary:\n{"summary": "Important events", "keyFacts": ["fact1"]}\nDone!';
+        const response =
+            'Here is the summary:\n{"summary": "Important events", "keyFacts": ["fact1"]}\nDone!';
         const result = parseSummarizationResponse(response);
         expect(result).not.toBeNull();
         expect(result!.summary).toBe('Important events');

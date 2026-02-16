@@ -106,7 +106,7 @@ export function MobileSidebar({ onCharacterSelect, onSettingsClick }: MobileSide
                 updatedAt: latestConv.updatedAt,
                 worldState: latestConv.worldState,
             },
-            messages: messages.map(m => ({
+            messages: messages.map((m) => ({
                 role: m.role,
                 content: m.content,
                 thought: m.thought,
@@ -116,7 +116,10 @@ export function MobileSidebar({ onCharacterSelect, onSettingsClick }: MobileSide
             exportedAt: new Date().toISOString(),
         };
 
-        exportToJson(exportData, `Conversation_${character.name}_${new Date().toISOString().split('T')[0]}`);
+        exportToJson(
+            exportData,
+            `Conversation_${character.name}_${new Date().toISOString().split('T')[0]}`
+        );
     };
 
     return (

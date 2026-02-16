@@ -63,7 +63,6 @@ About {{user}}: {{user_bio}}
 
 [System note: Stay in character at all times. Write naturally and engagingly. Do not speak for {{user}}.]`;
 
-
 // Built-in presets
 export const DEFAULT_PRESETS: Omit<APIPreset, 'id' | 'createdAt'>[] = [
     {

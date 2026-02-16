@@ -183,7 +183,9 @@ export function PersonaSelector() {
                                                 variant="ghost"
                                                 size="icon"
                                                 className="h-9 w-9 bg-destructive/10 text-destructive rounded-full"
-                                                onClick={() => handleDelete(persona.id, persona.name)}
+                                                onClick={() =>
+                                                    handleDelete(persona.id, persona.name)
+                                                }
                                             >
                                                 <Trash2 className="h-3.5 w-3.5" />
                                             </Button>
@@ -201,7 +203,9 @@ export function PersonaSelector() {
                                                 variant="ghost"
                                                 size="icon"
                                                 className="h-5 w-5 hover:text-destructive"
-                                                onClick={() => handleDelete(persona.id, persona.name)}
+                                                onClick={() =>
+                                                    handleDelete(persona.id, persona.name)
+                                                }
                                             >
                                                 <Trash2 className="h-2.5 w-2.5" />
                                             </Button>

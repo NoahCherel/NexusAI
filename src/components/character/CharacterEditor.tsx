@@ -176,7 +176,10 @@ export function CharacterEditor({ isOpen, onClose, character }: CharacterEditorP
                                 id="displayName"
                                 value={formData.displayName}
                                 onChange={(e) =>
-                                    setFormData((prev) => ({ ...prev, displayName: e.target.value }))
+                                    setFormData((prev) => ({
+                                        ...prev,
+                                        displayName: e.target.value,
+                                    }))
                                 }
                                 placeholder="UI label (e.g. 'Goku (Super)') - Only visible to you"
                                 className="bg-background/50"

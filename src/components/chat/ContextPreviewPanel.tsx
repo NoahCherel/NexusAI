@@ -2,7 +2,17 @@
 
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, ChevronDown, ChevronRight, Eye, Zap, Brain, BookOpen, MessageSquare, FileText } from 'lucide-react';
+import {
+    X,
+    ChevronDown,
+    ChevronRight,
+    Eye,
+    Zap,
+    Brain,
+    BookOpen,
+    MessageSquare,
+    FileText,
+} from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import type { ContextSection } from '@/types/rag';
 
@@ -52,7 +62,7 @@ export function ContextPreviewPanel({
     const [expandedSections, setExpandedSections] = useState<Set<number>>(new Set());
 
     const toggleSection = (idx: number) => {
-        setExpandedSections(prev => {
+        setExpandedSections((prev) => {
             const next = new Set(prev);
             if (next.has(idx)) next.delete(idx);
             else next.add(idx);
@@ -65,7 +75,8 @@ export function ContextPreviewPanel({
     const inputTokens = contextUsed - maxOutputTokens;
 
     // Color coding for usage bar
-    const usageColor = usagePercent > 95 ? 'bg-red-500' : usagePercent > 80 ? 'bg-yellow-500' : 'bg-green-500';
+    const usageColor =
+        usagePercent > 95 ? 'bg-red-500' : usagePercent > 80 ? 'bg-yellow-500' : 'bg-green-500';
 
     return (
         <AnimatePresence>
@@ -83,7 +94,7 @@ export function ContextPreviewPanel({
                         exit={{ scale: 0.95, opacity: 0 }}
                         transition={{ type: 'spring', stiffness: 300, damping: 30 }}
                         className="bg-background border border-white/10 rounded-xl w-full max-w-3xl max-h-[85vh] flex flex-col overflow-hidden shadow-2xl"
-                        onClick={e => e.stopPropagation()}
+                        onClick={(e) => e.stopPropagation()}
                     >
                         {/* Header */}
                         <div className="p-4 border-b border-white/10 flex items-center justify-between shrink-0">
@@ -94,7 +105,12 @@ export function ContextPreviewPanel({
                                     {sections.length} sections
                                 </span>
                             </div>
-                            <Button variant="ghost" size="icon" onClick={onClose} className="h-8 w-8">
+                            <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={onClose}
+                                className="h-8 w-8"
+                            >
                                 <X className="h-4 w-4" />
                             </Button>
                         </div>
@@ -104,9 +120,17 @@ export function ContextPreviewPanel({
                             <div className="flex items-center justify-between text-sm">
                                 <span className="text-muted-foreground">Token Budget</span>
                                 <span className="font-mono">
-                                    <span className="text-foreground">{inputTokens.toLocaleString()}</span>
-                                    <span className="text-muted-foreground"> + {maxOutputTokens.toLocaleString()} output</span>
-                                    <span className="text-muted-foreground"> / {maxTokens.toLocaleString()}</span>
+                                    <span className="text-foreground">
+                                        {inputTokens.toLocaleString()}
+                                    </span>
+                                    <span className="text-muted-foreground">
+                                        {' '}
+                                        + {maxOutputTokens.toLocaleString()} output
+                                    </span>
+                                    <span className="text-muted-foreground">
+                                        {' '}
+                                        / {maxTokens.toLocaleString()}
+                                    </span>
                                 </span>
                             </div>
                             <div className="h-2 bg-white/5 rounded-full overflow-hidden">
@@ -132,7 +156,9 @@ export function ContextPreviewPanel({
                         {warnings.length > 0 && (
                             <div className="px-4 py-2 border-b border-white/5 shrink-0">
                                 {warnings.map((w, i) => (
-                                    <p key={i} className="text-xs text-yellow-400">{w}</p>
+                                    <p key={i} className="text-xs text-yellow-400">
+                                        {w}
+                                    </p>
                                 ))}
                             </div>
                         )}
@@ -141,8 +167,11 @@ export function ContextPreviewPanel({
                         <div className="flex-1 overflow-y-auto p-4 space-y-2">
                             {sections.map((section, idx) => {
                                 const isExpanded = expandedSections.has(idx);
-                                const colorClass = sectionColors[section.type] || 'border-white/10 bg-white/5';
-                                const icon = sectionIcons[section.type] || <FileText className="h-4 w-4" />;
+                                const colorClass =
+                                    sectionColors[section.type] || 'border-white/10 bg-white/5';
+                                const icon = sectionIcons[section.type] || (
+                                    <FileText className="h-4 w-4" />
+                                );
 
                                 return (
                                     <div
@@ -159,7 +188,9 @@ export function ContextPreviewPanel({
                                                 <ChevronRight className="h-3 w-3 text-muted-foreground shrink-0" />
                                             )}
                                             {icon}
-                                            <span className="text-sm font-medium flex-1">{section.label}</span>
+                                            <span className="text-sm font-medium flex-1">
+                                                {section.label}
+                                            </span>
                                             <span className="text-xs font-mono text-muted-foreground">
                                                 {section.tokens.toLocaleString()} tokens
                                             </span>
@@ -188,9 +219,7 @@ export function ContextPreviewPanel({
 
                         {/* Footer */}
                         <div className="p-3 border-t border-white/10 flex items-center justify-between text-xs text-muted-foreground shrink-0">
-                            <span>
-                                Token counts use cl100k_base tokenizer (GPT-4 compatible)
-                            </span>
+                            <span>Token counts use cl100k_base tokenizer (GPT-4 compatible)</span>
                             <Button variant="outline" size="sm" onClick={onClose}>
                                 Close
                             </Button>

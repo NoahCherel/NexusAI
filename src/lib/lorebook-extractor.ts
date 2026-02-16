@@ -91,8 +91,7 @@ Output format (JSON array only):
         // The API returns a streaming text response, consume it as text
         const text = await response.text();
 
-        // Clean up the response first
-        let cleanContent = text
+        const cleanContent = text
             .replace(/<think>[\s\S]*?<\/think>/gi, '')
             .replace(/<reasoning>[\s\S]*?<\/reasoning>/gi, '')
             .replace(/```json\n?/g, '')
@@ -134,7 +133,7 @@ Output format (JSON array only):
                     content: e.content,
                     enabled: true,
                     priority: e.priority || 10,
-                    category: e.category as any,
+                    category: e.category as LorebookEntry['category'],
                 })) as unknown as LorebookEntry[];
         } catch {
             console.error('Failed to parse lorebook extraction response:', cleanContent);

@@ -82,7 +82,7 @@ export function Sidebar({ isCollapsed, onToggle }: SidebarProps) {
                 updatedAt: latestConv.updatedAt,
                 worldState: latestConv.worldState,
             },
-            messages: messages.map(m => ({
+            messages: messages.map((m) => ({
                 role: m.role,
                 content: m.content,
                 thought: m.thought,
@@ -92,7 +92,10 @@ export function Sidebar({ isCollapsed, onToggle }: SidebarProps) {
             exportedAt: new Date().toISOString(),
         };
 
-        exportToJson(exportData, `Conversation_${character.name}_${new Date().toISOString().split('T')[0]}`);
+        exportToJson(
+            exportData,
+            `Conversation_${character.name}_${new Date().toISOString().split('T')[0]}`
+        );
     };
 
     return (
@@ -201,25 +204,28 @@ export function Sidebar({ isCollapsed, onToggle }: SidebarProps) {
                         >
                             {filteredCharacters.length === 0
                                 ? !isCollapsed && (
-                                    <div className="text-center py-12 px-4">
-                                        <p className="text-muted-foreground text-sm">
-                                            No characters found
-                                        </p>
-                                    </div>
-                                )
+                                      <div className="text-center py-12 px-4">
+                                          <p className="text-muted-foreground text-sm">
+                                              No characters found
+                                          </p>
+                                      </div>
+                                  )
                                 : filteredCharacters.map((char) => (
-                                    <div key={char.id} className="w-full max-w-full overflow-hidden">
-                                        <CharacterCard
-                                            character={char}
-                                            isActive={char.id === activeCharacterId}
-                                            onClick={() => setActiveCharacterId(char.id)}
-                                            onEdit={() => handleEdit(char)}
-                                            onDelete={() => removeCharacter(char.id)}
-                                            onExport={() => handleExport(char)}
-                                            isCollapsed={isCollapsed}
-                                        />
-                                    </div>
-                                ))}
+                                      <div
+                                          key={char.id}
+                                          className="w-full max-w-full overflow-hidden"
+                                      >
+                                          <CharacterCard
+                                              character={char}
+                                              isActive={char.id === activeCharacterId}
+                                              onClick={() => setActiveCharacterId(char.id)}
+                                              onEdit={() => handleEdit(char)}
+                                              onDelete={() => removeCharacter(char.id)}
+                                              onExport={() => handleExport(char)}
+                                              isCollapsed={isCollapsed}
+                                          />
+                                      </div>
+                                  ))}
                         </div>
                     </ScrollArea>
                 </div>

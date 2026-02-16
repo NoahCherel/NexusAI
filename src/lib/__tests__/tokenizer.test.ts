@@ -22,7 +22,9 @@ describe('countTokens', () => {
 
     it('counts more tokens for longer text', () => {
         const short = countTokens('Hello');
-        const long = countTokens('Hello, this is a much longer sentence with many more words to count.');
+        const long = countTokens(
+            'Hello, this is a much longer sentence with many more words to count.'
+        );
         expect(long).toBeGreaterThan(short);
     });
 

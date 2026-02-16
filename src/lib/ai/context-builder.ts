@@ -29,7 +29,7 @@ export function getActiveLorebookEntries(
 
     // 1. Get text to scan
     const messagesToScan = messages.slice(-scanDepth);
-    let scanText = messagesToScan.map((m) => m.content.toLowerCase()).join('\n');
+    const scanText = messagesToScan.map((m) => m.content.toLowerCase()).join('\n');
 
     const matchedEntries = new Set<LorebookEntry>();
     let currentTokenCount = 0;
@@ -167,10 +167,14 @@ export function resolveSystemPromptTemplate(
     let recentCharacterNames: string[] | undefined;
     if (recentMessages && recentMessages.length > 0) {
         const last4 = recentMessages.slice(-4);
-        const combinedText = last4.map(m => m.content).join(' ').toLowerCase();
+        const combinedText = last4
+            .map((m) => m.content)
+            .join(' ')
+            .toLowerCase();
         // Get all relationship names and filter to those mentioned
-        recentCharacterNames = Object.keys(worldState.relationships)
-            .filter(name => combinedText.includes(name.toLowerCase()));
+        recentCharacterNames = Object.keys(worldState.relationships).filter((name) =>
+            combinedText.includes(name.toLowerCase())
+        );
     }
 
     const replacements: Record<string, string> = {
@@ -208,7 +212,7 @@ export function resolveSystemPromptTemplate(
 /**
  * Builds the final system prompt.
  * Joins Pre-History + Template + Post-History.
- * 
+ *
  * @param excludePostHistory - If true, post-history is not appended (caller handles it manually, e.g. appending to last message)
  */
 export function buildSystemPrompt(
@@ -240,7 +244,7 @@ export function buildSystemPrompt(
     const parts = [
         options.preHistory,
         resolvedBody,
-        options.excludePostHistory ? null : options.postHistory
+        options.excludePostHistory ? null : options.postHistory,
     ].filter(Boolean);
 
     let prompt = parts.join('\n\n');
@@ -310,48 +314,49 @@ export function buildRAGEnhancedPayload(
     // 1. Calculate fixed costs
     const systemTokens = countTokens(systemPrompt);
     const postHistoryTokens = postHistoryInstructions ? countTokens(postHistoryInstructions) : 0;
-    
+
     // 2. Inject RAG sections into system prompt
     let enhancedSystemPrompt = systemPrompt;
     let ragTokens = 0;
-    
+
     // Sort RAG sections by priority (lower = higher priority)
     const sortedRAG = [...ragSections].sort((a, b) => a.priority - b.priority);
-    
+
     for (const section of sortedRAG) {
         enhancedSystemPrompt += '\n\n' + section.content;
         ragTokens += section.tokens;
     }
-    
+
     const enhancedSystemTokens = systemTokens + ragTokens;
-    
+
     // 3. Calculate available budget for history
-    const availableForHistory = maxContextTokens - enhancedSystemTokens - maxOutputTokens - postHistoryTokens;
-    
+    const availableForHistory =
+        maxContextTokens - enhancedSystemTokens - maxOutputTokens - postHistoryTokens;
+
     // 4. Fill history from newest to oldest
     const messagesPayload: { role: string; content: string }[] = [];
     let historyTokens = 0;
     const reversedHistory = [...history].reverse();
-    
+
     for (const msg of reversedHistory) {
         const msgTokens = countTokens(msg.content);
         if (historyTokens + msgTokens > availableForHistory) break;
         messagesPayload.unshift({ role: msg.role, content: msg.content });
         historyTokens += msgTokens;
     }
-    
+
     const includedMessageCount = messagesPayload.length;
     const droppedMessageCount = history.length - includedMessageCount;
-    
+
     // 5. Assemble final payload
     // System message first
     messagesPayload.unshift({ role: 'system', content: enhancedSystemPrompt });
-    
+
     // Post-history instructions
     if (postHistoryInstructions) {
         messagesPayload.push({ role: 'system', content: postHistoryInstructions });
     }
-    
+
     // Assistant prefill
     if (assistantPrefill) {
         const supportsPrefill = activeProvider === 'anthropic' || activeProvider === 'openrouter';
@@ -359,7 +364,7 @@ export function buildRAGEnhancedPayload(
             messagesPayload.push({ role: 'assistant', content: assistantPrefill });
         }
     }
-    
+
     return {
         messagesPayload,
         includedMessageCount,

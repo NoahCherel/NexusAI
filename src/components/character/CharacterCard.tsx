@@ -104,14 +104,22 @@ export function CharacterCard({
                         >
                             {(character.displayName?.length || 0) > 16
                                 ? character.displayName!.slice(0, 16) + '...'
-                                : character.displayName || (character.name.length > 16 ? character.name.slice(0, 16) + '...' : character.name)}
+                                : character.displayName ||
+                                  (character.name.length > 16
+                                      ? character.name.slice(0, 16) + '...'
+                                      : character.name)}
                         </h3>
                     </div>
 
                     <p className="text-[11px] text-muted-foreground line-clamp-2 leading-relaxed opacity-80 break-words overflow-hidden min-w-0">
-                        {(character.description || character.personality || 'No description').length > 16
-                            ? (character.description || character.personality || 'No description').slice(0, 16) + '...'
-                            : (character.description || character.personality || 'No description')}
+                        {(character.description || character.personality || 'No description')
+                            .length > 16
+                            ? (
+                                  character.description ||
+                                  character.personality ||
+                                  'No description'
+                              ).slice(0, 16) + '...'
+                            : character.description || character.personality || 'No description'}
                     </p>
 
                     {/* Tags */}

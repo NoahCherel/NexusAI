@@ -1,7 +1,19 @@
 'use client';
 
 import { motion } from 'framer-motion';
-import { Package, MapPin, Heart, ChevronUp, Edit2, X, Check, Trash2, Plus, RotateCw, Loader2 } from 'lucide-react';
+import {
+    Package,
+    MapPin,
+    Heart,
+    ChevronUp,
+    Edit2,
+    X,
+    Check,
+    Trash2,
+    Plus,
+    RotateCw,
+    Loader2,
+} from 'lucide-react';
 import { useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -134,8 +146,9 @@ export function WorldStatePanel({
                         </Button>
                     )}
                     <ChevronUp
-                        className={`w-4 h-4 text-muted-foreground transition-transform duration-300 ${isCollapsed ? 'rotate-180' : ''
-                            }`}
+                        className={`w-4 h-4 text-muted-foreground transition-transform duration-300 ${
+                            isCollapsed ? 'rotate-180' : ''
+                        }`}
                     />
                 </div>
             </div>
@@ -279,78 +292,84 @@ export function WorldStatePanel({
 
                         <ScrollArea className="max-h-[250px]">
                             <div className="pr-2 space-y-3">
-                            {relationshipEntries.map(([name, level]) => {
-                                const percent = Math.max(0, Math.min(100, (level + 100) / 2));
-                                let color = 'bg-gray-500';
-                                if (level >= 30) color = 'bg-green-500';
-                                else if (level >= 10) color = 'bg-emerald-500';
-                                else if (level <= -30) color = 'bg-red-600';
-                                else if (level <= -10) color = 'bg-orange-500';
+                                {relationshipEntries.map(([name, level]) => {
+                                    const percent = Math.max(0, Math.min(100, (level + 100) / 2));
+                                    let color = 'bg-gray-500';
+                                    if (level >= 30) color = 'bg-green-500';
+                                    else if (level >= 10) color = 'bg-emerald-500';
+                                    else if (level <= -30) color = 'bg-red-600';
+                                    else if (level <= -10) color = 'bg-orange-500';
 
-                                return (
-                                    <div
-                                        key={name}
-                                        className="space-y-2 group bg-background/20 p-2.5 rounded-lg border border-border/20"
-                                    >
-                                        <div className="flex items-center justify-between text-xs font-semibold gap-2">
-                                            <span className="flex items-center gap-1 truncate min-w-0">
-                                                <span className="truncate">{name}</span>
-                                                <button
-                                                    onClick={() => handleRemoveRelation(name)}
-                                                    className="p-1 hover:bg-destructive/10 rounded opacity-100 lg:opacity-0 lg:group-hover:opacity-100 transition-opacity shrink-0"
-                                                >
-                                                    <Trash2 className="w-3 h-3 text-destructive" />
-                                                </button>
-                                            </span>
+                                    return (
+                                        <div
+                                            key={name}
+                                            className="space-y-2 group bg-background/20 p-2.5 rounded-lg border border-border/20"
+                                        >
+                                            <div className="flex items-center justify-between text-xs font-semibold gap-2">
+                                                <span className="flex items-center gap-1 truncate min-w-0">
+                                                    <span className="truncate">{name}</span>
+                                                    <button
+                                                        onClick={() => handleRemoveRelation(name)}
+                                                        className="p-1 hover:bg-destructive/10 rounded opacity-100 lg:opacity-0 lg:group-hover:opacity-100 transition-opacity shrink-0"
+                                                    >
+                                                        <Trash2 className="w-3 h-3 text-destructive" />
+                                                    </button>
+                                                </span>
 
-                                            <div className="flex items-center gap-0.5 shrink-0">
-                                                <button
-                                                    onClick={() =>
-                                                        handleUpdateRelationValue(name, level - 5)
-                                                    }
-                                                    className="w-7 h-7 flex items-center justify-center bg-muted/40 hover:bg-muted rounded text-sm font-bold touch-manipulation"
-                                                >
-                                                    -
-                                                </button>
-                                                <input
-                                                    type="number"
-                                                    value={level}
-                                                    onChange={(e) =>
-                                                        handleUpdateRelationValue(
-                                                            name,
-                                                            parseInt(e.target.value) || 0
-                                                        )
-                                                    }
-                                                    className={`w-10 text-center bg-transparent border-none outline-none text-[11px] ${level < 0 ? 'text-red-400' : 'text-green-500'} font-bold`}
-                                                    min={-100}
-                                                    max={100}
+                                                <div className="flex items-center gap-0.5 shrink-0">
+                                                    <button
+                                                        onClick={() =>
+                                                            handleUpdateRelationValue(
+                                                                name,
+                                                                level - 5
+                                                            )
+                                                        }
+                                                        className="w-7 h-7 flex items-center justify-center bg-muted/40 hover:bg-muted rounded text-sm font-bold touch-manipulation"
+                                                    >
+                                                        -
+                                                    </button>
+                                                    <input
+                                                        type="number"
+                                                        value={level}
+                                                        onChange={(e) =>
+                                                            handleUpdateRelationValue(
+                                                                name,
+                                                                parseInt(e.target.value) || 0
+                                                            )
+                                                        }
+                                                        className={`w-10 text-center bg-transparent border-none outline-none text-[11px] ${level < 0 ? 'text-red-400' : 'text-green-500'} font-bold`}
+                                                        min={-100}
+                                                        max={100}
+                                                    />
+                                                    <button
+                                                        onClick={() =>
+                                                            handleUpdateRelationValue(
+                                                                name,
+                                                                level + 5
+                                                            )
+                                                        }
+                                                        className="w-7 h-7 flex items-center justify-center bg-muted/40 hover:bg-muted rounded text-sm font-bold touch-manipulation"
+                                                    >
+                                                        +
+                                                    </button>
+                                                </div>
+                                            </div>
+                                            <div className="h-1.5 bg-muted/40 rounded-full overflow-hidden relative">
+                                                <div className="absolute left-1/2 top-0 bottom-0 w-[1px] bg-foreground/10 z-10" />
+                                                <motion.div
+                                                    initial={{ width: '50%' }}
+                                                    animate={{ width: `${percent}%` }}
+                                                    className={`h-full rounded-full ${color}`}
                                                 />
-                                                <button
-                                                    onClick={() =>
-                                                        handleUpdateRelationValue(name, level + 5)
-                                                    }
-                                                    className="w-7 h-7 flex items-center justify-center bg-muted/40 hover:bg-muted rounded text-sm font-bold touch-manipulation"
-                                                >
-                                                    +
-                                                </button>
                                             </div>
                                         </div>
-                                        <div className="h-1.5 bg-muted/40 rounded-full overflow-hidden relative">
-                                            <div className="absolute left-1/2 top-0 bottom-0 w-[1px] bg-foreground/10 z-10" />
-                                            <motion.div
-                                                initial={{ width: '50%' }}
-                                                animate={{ width: `${percent}%` }}
-                                                className={`h-full rounded-full ${color}`}
-                                            />
-                                        </div>
+                                    );
+                                })}
+                                {relationshipEntries.length === 0 && !isAddingRelation && (
+                                    <div className="text-center py-6 text-xs text-muted-foreground italic border border-dashed rounded-lg border-border/40">
+                                        No tracked relationships
                                     </div>
-                                );
-                            })}
-                            {relationshipEntries.length === 0 && !isAddingRelation && (
-                                <div className="text-center py-6 text-xs text-muted-foreground italic border border-dashed rounded-lg border-border/40">
-                                    No tracked relationships
-                                </div>
-                            )}
+                                )}
                             </div>
                         </ScrollArea>
 

@@ -28,7 +28,6 @@ export interface CustomModel {
 // Default models available out of the box
 // Default models available out of the box
 export const DEFAULT_MODELS: CustomModel[] = [
-
     {
         id: 'llama-3.3-70b',
         name: 'Llama 3.3 70B (Free)',
@@ -289,9 +288,11 @@ export const useSettingsStore = create<SettingsState>()(
             setLorebookAutoExtract: (lorebookAutoExtract) => set({ lorebookAutoExtract }),
             setBackgroundModel: (backgroundModel) => set({ backgroundModel }),
             setEnableFactExtraction: (enableFactExtraction) => set({ enableFactExtraction }),
-            setEnableHierarchicalSummaries: (enableHierarchicalSummaries) => set({ enableHierarchicalSummaries }),
+            setEnableHierarchicalSummaries: (enableHierarchicalSummaries) =>
+                set({ enableHierarchicalSummaries }),
             setEnableRAGRetrieval: (enableRAGRetrieval) => set({ enableRAGRetrieval }),
-            setMinRAGConfidence: (minRAGConfidence) => set({ minRAGConfidence: Math.max(0, Math.min(1, minRAGConfidence)) }),
+            setMinRAGConfidence: (minRAGConfidence) =>
+                set({ minRAGConfidence: Math.max(0, Math.min(1, minRAGConfidence)) }),
             setCustomFactCategories: (customFactCategories) => set({ customFactCategories }),
 
             // Preset Actions

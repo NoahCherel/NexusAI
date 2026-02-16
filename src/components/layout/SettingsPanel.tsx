@@ -16,13 +16,7 @@ import { DEFAULT_MODELS } from '@/stores/settings-store';
 import { encryptApiKey, validateApiKey } from '@/lib/crypto';
 import { type Provider } from '@/lib/ai';
 import { PresetEditor } from '@/components/settings/PresetEditor';
-import {
-    Select,
-    SelectContent,
-    SelectItem,
-    SelectTrigger,
-    SelectValue,
-} from '@/components/ui/select';
+import { Select, SelectContent, SelectItem, SelectTrigger } from '@/components/ui/select';
 
 interface SettingsPanelProps {
     open: boolean;
@@ -243,13 +237,17 @@ export function SettingsPanel({ open, onOpenChange }: SettingsPanelProps) {
                                                 Auto-Extract Lorebook
                                             </p>
                                             <p className="text-xs text-muted-foreground mt-1">
-                                                Automatically analyze chat to suggest new lorebook entries or append to existing ones (Suggestions Queue)
+                                                Automatically analyze chat to suggest new lorebook
+                                                entries or append to existing ones (Suggestions
+                                                Queue)
                                             </p>
                                         </div>
                                         <Button
                                             variant={lorebookAutoExtract ? 'default' : 'secondary'}
                                             size="sm"
-                                            onClick={() => setLorebookAutoExtract(!lorebookAutoExtract)}
+                                            onClick={() =>
+                                                setLorebookAutoExtract(!lorebookAutoExtract)
+                                            }
                                             className="w-16"
                                         >
                                             {lorebookAutoExtract ? 'On' : 'Off'}
@@ -266,32 +264,53 @@ export function SettingsPanel({ open, onOpenChange }: SettingsPanelProps) {
                                                 Background AI Model
                                             </p>
                                             <p className="text-xs text-muted-foreground mt-1">
-                                                Model used for summaries, fact extraction, world state analysis, and lorebook suggestions. &quot;Auto (Free)&quot; rotates between free models with fallback.
+                                                Model used for summaries, fact extraction, world
+                                                state analysis, and lorebook suggestions. &quot;Auto
+                                                (Free)&quot; rotates between free models with
+                                                fallback.
                                             </p>
                                         </div>
                                         <Select
                                             value={backgroundModel ?? '__auto__'}
-                                            onValueChange={(v) => setBackgroundModel(v === '__auto__' ? null : v)}
+                                            onValueChange={(v) =>
+                                                setBackgroundModel(v === '__auto__' ? null : v)
+                                            }
                                         >
                                             <SelectTrigger className="w-full h-9">
-                                                <SelectValue placeholder="Auto (Free Models)" />
+                                                <span className="block truncate">
+                                                    {backgroundModel
+                                                        ? (allModels.find(
+                                                              (m) => m.modelId === backgroundModel
+                                                          )?.name ?? backgroundModel)
+                                                        : 'Auto (Free Models)'}
+                                                </span>
                                             </SelectTrigger>
                                             <SelectContent>
                                                 <SelectItem value="__auto__">
-                                                    🔄 Auto (Free Models)
+                                                    Auto (Free Models)
                                                 </SelectItem>
-                                                {allModels.filter(m => m.isFree).map((model) => (
-                                                    <SelectItem key={model.modelId} value={model.modelId}>
-                                                        ✨ {model.name}
-                                                    </SelectItem>
-                                                ))}
-                                                {allModels.filter(m => !m.isFree).length > 0 && (
+                                                {allModels
+                                                    .filter((m) => m.isFree)
+                                                    .map((model) => (
+                                                        <SelectItem
+                                                            key={model.modelId}
+                                                            value={model.modelId}
+                                                        >
+                                                            {model.name}
+                                                        </SelectItem>
+                                                    ))}
+                                                {allModels.filter((m) => !m.isFree).length > 0 && (
                                                     <>
-                                                        {allModels.filter(m => !m.isFree).map((model) => (
-                                                            <SelectItem key={model.modelId} value={model.modelId}>
-                                                                ⚡ {model.name}
-                                                            </SelectItem>
-                                                        ))}
+                                                        {allModels
+                                                            .filter((m) => !m.isFree)
+                                                            .map((model) => (
+                                                                <SelectItem
+                                                                    key={model.modelId}
+                                                                    value={model.modelId}
+                                                                >
+                                                                    {model.name}
+                                                                </SelectItem>
+                                                            ))}
                                                     </>
                                                 )}
                                             </SelectContent>

@@ -2,7 +2,20 @@
 
 import { useRef, useEffect, useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Settings2, Sparkles, GitBranch, Brain, MoreVertical, Edit, Trash2, Download, Upload, Users, Eye, ChevronUp } from 'lucide-react';
+import {
+    Settings2,
+    Sparkles,
+    GitBranch,
+    Brain,
+    MoreVertical,
+    Edit,
+    Trash2,
+    Download,
+    Upload,
+    Users,
+    Eye,
+    ChevronUp,
+} from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
     DropdownMenu,
@@ -26,7 +39,11 @@ import { useNotificationStore } from '@/components/ui/api-notification';
 import { useWorldStateAnalyzer } from '@/hooks';
 import { decryptApiKey } from '@/lib/crypto';
 import { parseStreamingChunk, normalizeCoT } from '@/lib/ai/cot-middleware';
-import { buildSystemPrompt, getActiveLorebookEntries, buildRAGEnhancedPayload } from '@/lib/ai/context-builder';
+import {
+    buildSystemPrompt,
+    getActiveLorebookEntries,
+    buildRAGEnhancedPayload,
+} from '@/lib/ai/context-builder';
 import { LorebookEditor } from '@/components/lorebook';
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import {
@@ -43,7 +60,12 @@ import { LandingPage } from '@/components/chat/LandingPage';
 import { useAppInitialization } from '@/hooks/useAppInitialization';
 import { extractLorebookEntries } from '@/lib/lorebook-extractor';
 import { APINotificationToast } from '@/components/ui/api-notification';
-import { retrieveRelevantContext, hybridLorebookSearch, indexMessageChunk, buildContextPreview } from '@/lib/ai/rag-service';
+import {
+    retrieveRelevantContext,
+    hybridLorebookSearch,
+    indexMessageChunk,
+    buildContextPreview,
+} from '@/lib/ai/rag-service';
 import { embedText } from '@/lib/ai/embedding-service';
 import { countTokens } from '@/lib/tokenizer';
 import {
@@ -63,7 +85,13 @@ import {
     SUMMARIZATION_PROMPT_L1,
     SUMMARIZATION_PROMPT_L2,
 } from '@/lib/ai/hierarchical-summarizer';
-import { FACT_EXTRACTION_PROMPT, parseFactExtractionResponse, buildFactExtractionPrompt, deduplicateFacts, buildFactExtractionSystemPrompt } from '@/lib/ai/fact-extractor';
+import {
+    FACT_EXTRACTION_PROMPT,
+    parseFactExtractionResponse,
+    buildFactExtractionPrompt,
+    deduplicateFacts,
+    buildFactExtractionSystemPrompt,
+} from '@/lib/ai/fact-extractor';
 import { getAdaptiveChunkSize, scoreMessageQuality } from '@/lib/ai/message-quality';
 import { backgroundAICall } from '@/lib/ai/background-ai';
 import { deriveWorldStateUpdates, applyWorldStateUpdate } from '@/lib/ai/world-state-updater';
@@ -105,7 +133,8 @@ export default function ChatPage() {
     const abortControllerRef = useRef<AbortController | null>(null);
     const lastSummarizedCount = useRef(0); // Track last summarized message count
     const isSummarizingRef = useRef(false); // Concurrency guard for summarization
-    const { getActiveCharacter, removeCharacter, updateCharacter, addCharacter } = useCharacterStore();
+    const { getActiveCharacter, removeCharacter, updateCharacter, addCharacter } =
+        useCharacterStore();
     const {
         conversations,
         activeConversationId,
@@ -285,7 +314,8 @@ export default function ChatPage() {
         const { enableHierarchicalSummaries, backgroundModel } = useSettingsStore.getState();
         const runHierarchicalSummary = async () => {
             if (!enableHierarchicalSummaries) return;
-            if (!character || !activeConversationId || messages.length === 0 || !currentApiKey) return;
+            if (!character || !activeConversationId || messages.length === 0 || !currentApiKey)
+                return;
 
             // Concurrency guard: prevent overlapping summary runs
             if (isSummarizingRef.current) return;
@@ -302,22 +332,29 @@ export default function ChatPage() {
                 // Adaptive chunk size based on message quality/density
                 const recentMsgs = messages.slice(-15);
                 const adaptiveChunkSize = getAdaptiveChunkSize(
-                    recentMsgs.map(m => ({ role: m.role, content: m.content })),
+                    recentMsgs.map((m) => ({ role: m.role, content: m.content })),
                     DEFAULT_CHUNK_SIZE
                 );
 
                 // Check L0 (chunk summary with adaptive frequency)
                 if (shouldCreateL0Summary(messages.length, existingSummaries, adaptiveChunkSize)) {
-                    const chunk = getNextChunkToSummarize(messages, existingSummaries, adaptiveChunkSize);
+                    const chunk = getNextChunkToSummarize(
+                        messages,
+                        existingSummaries,
+                        adaptiveChunkSize
+                    );
                     if (chunk) {
-                        const l0Summaries = existingSummaries.filter(s => s.level === 0);
+                        const l0Summaries = existingSummaries.filter((s) => s.level === 0);
                         // Use actual coverage from existing summaries
-                        const startIdx = l0Summaries.length > 0
-                            ? Math.max(...l0Summaries.map(s => s.messageRange[1]))
-                            : 0;
+                        const startIdx =
+                            l0Summaries.length > 0
+                                ? Math.max(...l0Summaries.map((s) => s.messageRange[1]))
+                                : 0;
                         const endIdx = startIdx + chunk.length;
 
-                        console.log(`[RAG] Creating L0 summary for messages ${startIdx}-${endIdx} (adaptive chunk=${adaptiveChunkSize})`);
+                        console.log(
+                            `[RAG] Creating L0 summary for messages ${startIdx}-${endIdx} (adaptive chunk=${adaptiveChunkSize})`
+                        );
                         lastSummarizedCount.current = messages.length;
 
                         const prompt = buildL0Prompt(chunk, character.name, userName);
@@ -346,32 +383,40 @@ export default function ChatPage() {
                                 );
 
                                 // Also index as a vector chunk for retrieval (with branch path)
-                                const branchPath = messages.map(m => m.id);
-                                await indexMessageChunk(chunk, activeConversationId, parsed.summary, {
-                                    characters: [character.name],
-                                    location: worldState.location,
-                                    importance: 5,
-                                }, branchPath);
+                                const branchPath = messages.map((m) => m.id);
+                                await indexMessageChunk(
+                                    chunk,
+                                    activeConversationId,
+                                    parsed.summary,
+                                    {
+                                        characters: [character.name],
+                                        location: worldState.location,
+                                        importance: 5,
+                                    },
+                                    branchPath
+                                );
 
                                 // Extract facts from key facts
                                 if (parsed.keyFacts.length > 0) {
-                                    const existingFacts = await getFactsByConversation(activeConversationId);
-                                    const newFacts: Omit<WorldFact, 'id' | 'embedding'>[] = parsed.keyFacts.map(kf => ({
-                                        conversationId: activeConversationId,
-                                        messageId: chunk[chunk.length - 1].id,
-                                        fact: kf,
-                                        category: 'event' as const,
-                                        importance: 5,
-                                        active: true,
-                                        timestamp: Date.now(),
-                                        relatedEntities: [],
-                                        lastAccessedAt: Date.now(),
-                                        accessCount: 0,
-                                    }));
+                                    const existingFacts =
+                                        await getFactsByConversation(activeConversationId);
+                                    const newFacts: Omit<WorldFact, 'id' | 'embedding'>[] =
+                                        parsed.keyFacts.map((kf) => ({
+                                            conversationId: activeConversationId,
+                                            messageId: chunk[chunk.length - 1].id,
+                                            fact: kf,
+                                            category: 'event' as const,
+                                            importance: 5,
+                                            active: true,
+                                            timestamp: Date.now(),
+                                            relatedEntities: [],
+                                            lastAccessedAt: Date.now(),
+                                            accessCount: 0,
+                                        }));
 
                                     const deduped = deduplicateFacts(newFacts, existingFacts);
                                     if (deduped.length > 0) {
-                                        const factsWithIds: WorldFact[] = deduped.map(f => ({
+                                        const factsWithIds: WorldFact[] = deduped.map((f) => ({
                                             ...f,
                                             id: crypto.randomUUID(),
                                             embedding: [],
@@ -413,11 +458,19 @@ export default function ChatPage() {
                             const parsed = parseSummarizationResponse(result.content);
                             if (parsed) {
                                 const range: [number, number] = [
-                                    Math.min(...l0s.map(s => s.messageRange[0])),
-                                    Math.max(...l0s.map(s => s.messageRange[1])),
+                                    Math.min(...l0s.map((s) => s.messageRange[0])),
+                                    Math.max(...l0s.map((s) => s.messageRange[1])),
                                 ];
                                 const embedding = await embedText(parsed.summary);
-                                await createSummary(activeConversationId, 1, parsed.summary, parsed.keyFacts, range, l0s.map(s => s.id), embedding);
+                                await createSummary(
+                                    activeConversationId,
+                                    1,
+                                    parsed.summary,
+                                    parsed.keyFacts,
+                                    range,
+                                    l0s.map((s) => s.id),
+                                    embedding
+                                );
                                 console.log('[RAG] L1 summary created');
                             }
                         }
@@ -431,7 +484,11 @@ export default function ChatPage() {
                 if (shouldCreateL2Summary(finalSummaries)) {
                     const l1s = getL1SummariesForL2(finalSummaries);
                     if (l1s) {
-                        console.log('[RAG] Creating L2 arc summary from', l1s.length, 'L1 summaries');
+                        console.log(
+                            '[RAG] Creating L2 arc summary from',
+                            l1s.length,
+                            'L1 summaries'
+                        );
                         const prompt = buildL2Prompt(l1s);
 
                         const result = await backgroundAICall({
@@ -446,11 +503,19 @@ export default function ChatPage() {
                             const parsed = parseSummarizationResponse(result.content);
                             if (parsed) {
                                 const range: [number, number] = [
-                                    Math.min(...l1s.map(s => s.messageRange[0])),
-                                    Math.max(...l1s.map(s => s.messageRange[1])),
+                                    Math.min(...l1s.map((s) => s.messageRange[0])),
+                                    Math.max(...l1s.map((s) => s.messageRange[1])),
                                 ];
                                 const embedding = await embedText(parsed.summary);
-                                await createSummary(activeConversationId, 2, parsed.summary, parsed.keyFacts, range, l1s.map(s => s.id), embedding);
+                                await createSummary(
+                                    activeConversationId,
+                                    2,
+                                    parsed.summary,
+                                    parsed.keyFacts,
+                                    range,
+                                    l1s.map((s) => s.id),
+                                    embedding
+                                );
                                 console.log('[RAG] L2 arc summary created');
                             }
                         }
@@ -464,7 +529,16 @@ export default function ChatPage() {
         };
 
         runHierarchicalSummary();
-    }, [messages, character, activeConversationId, currentApiKey, updateCharacter, personas, activePersonaId, worldState.location]);
+    }, [
+        messages,
+        character,
+        activeConversationId,
+        currentApiKey,
+        updateCharacter,
+        personas,
+        activePersonaId,
+        worldState.location,
+    ]);
 
     const triggerAiReponse = async (
         history: CAMessage[],
@@ -489,10 +563,10 @@ export default function ChatPage() {
         // 1. Calculate Active Lorebook Entries (hybrid: keyword + semantic)
         const useLorebooks = activePreset?.useLorebooks ?? true;
         const lorebookTokenBudget = activePreset?.lorebookTokenBudget ?? 2000;
-        
+
         let activeEntries;
         const lastUserMsg = history[history.length - 1]?.content || '';
-        
+
         if (useLorebooks && activeLorebook?.entries && activeLorebook.entries.length > 0) {
             try {
                 const queryEmbedding = await embedText(lastUserMsg);
@@ -535,27 +609,27 @@ export default function ChatPage() {
         } else {
             activeEntries = useLorebooks
                 ? getActiveLorebookEntries(
-                    history.map((m) => ({
-                        ...m,
-                        conversationId: '',
-                        parentId: null,
-                        isActiveBranch: true,
-                        createdAt: new Date(),
-                    })) as unknown as CAMessage[],
-                    activeLorebook || undefined,
-                    {
-                        scanDepth: activePreset?.lorebookScanDepth,
-                        tokenBudget: lorebookTokenBudget,
-                        recursive: activePreset?.lorebookRecursiveScanning,
-                        matchWholeWords: activePreset?.matchWholeWords,
-                    }
-                )
+                      history.map((m) => ({
+                          ...m,
+                          conversationId: '',
+                          parentId: null,
+                          isActiveBranch: true,
+                          createdAt: new Date(),
+                      })) as unknown as CAMessage[],
+                      activeLorebook || undefined,
+                      {
+                          scanDepth: activePreset?.lorebookScanDepth,
+                          tokenBudget: lorebookTokenBudget,
+                          recursive: activePreset?.lorebookRecursiveScanning,
+                          matchWholeWords: activePreset?.matchWholeWords,
+                      }
+                  )
                 : [];
         }
 
         // 2. Build Enhanced System Prompt
         // Combine conversation-scoped notes with character-level memory
-        const currentConv = conversations.find(c => c.id === activeConversationId);
+        const currentConv = conversations.find((c) => c.id === activeConversationId);
         const combinedMemory = [...(currentConv?.notes || []), ...(character.longTermMemory || [])];
         let systemPrompt = buildSystemPrompt(character, worldState, activeEntries, {
             template: activePreset?.systemPromptTemplate,
@@ -582,11 +656,14 @@ export default function ChatPage() {
         }
 
         // 3. RAG: Retrieve relevant context
-        const { enableRAGRetrieval, enableFactExtraction, minRAGConfidence } = useSettingsStore.getState();
+        const { enableRAGRetrieval, enableFactExtraction, minRAGConfidence } =
+            useSettingsStore.getState();
         const maxContextTokens = activePreset?.maxContextTokens ?? 16384;
         const maxOutputTokens = activePreset?.maxOutputTokens ?? 2048;
         const systemTokens = countTokens(systemPrompt);
-        const proportionalBudget = Math.floor((maxContextTokens - systemTokens - maxOutputTokens) * 0.25);
+        const proportionalBudget = Math.floor(
+            (maxContextTokens - systemTokens - maxOutputTokens) * 0.25
+        );
         const minimumBudget = Math.floor(maxContextTokens * 0.15);
         const ragBudget = Math.max(proportionalBudget, minimumBudget);
 
@@ -594,12 +671,16 @@ export default function ChatPage() {
         if (enableRAGRetrieval && activeConversationId && ragBudget > 50) {
             try {
                 // Pass active branch message IDs for branch-aware filtering
-                const activeBranchIds = messages.map(m => m.id);
+                const activeBranchIds = messages.map((m) => m.id);
                 ragSections = await retrieveRelevantContext(
                     lastUserMsg,
                     activeConversationId,
                     ragBudget,
-                    { worldState, activeBranchMessageIds: activeBranchIds, minConfidence: minRAGConfidence }
+                    {
+                        worldState,
+                        activeBranchMessageIds: activeBranchIds,
+                        minConfidence: minRAGConfidence,
+                    }
                 );
             } catch (err) {
                 console.warn('[RAG] Context retrieval failed:', err);
@@ -607,21 +688,19 @@ export default function ChatPage() {
         }
 
         // 4. Build RAG-enhanced payload with proper token budgeting
-        const {
-            messagesPayload,
-            includedMessageCount,
-            droppedMessageCount,
-            tokenBreakdown,
-        } = buildRAGEnhancedPayload(systemPrompt, ragSections, history as CAMessage[], {
-            maxContextTokens,
-            maxOutputTokens,
-            postHistoryInstructions: activePreset?.postHistoryInstructions,
-            assistantPrefill: options.prefill,
-            activeProvider,
-        });
+        const { messagesPayload, includedMessageCount, droppedMessageCount, tokenBreakdown } =
+            buildRAGEnhancedPayload(systemPrompt, ragSections, history as CAMessage[], {
+                maxContextTokens,
+                maxOutputTokens,
+                postHistoryInstructions: activePreset?.postHistoryInstructions,
+                assistantPrefill: options.prefill,
+                activeProvider,
+            });
 
         if (droppedMessageCount > 0) {
-            console.log(`[RAG] Context: ${includedMessageCount} msgs included, ${droppedMessageCount} truncated. Tokens: sys=${tokenBreakdown.system} rag=${tokenBreakdown.rag} hist=${tokenBreakdown.history} total=${tokenBreakdown.total}`);
+            console.log(
+                `[RAG] Context: ${includedMessageCount} msgs included, ${droppedMessageCount} truncated. Tokens: sys=${tokenBreakdown.system} rag=${tokenBreakdown.rag} hist=${tokenBreakdown.history} total=${tokenBreakdown.total}`
+            );
         }
 
         // 5. Prepare Target Message (Assistant or User)
@@ -675,7 +754,9 @@ export default function ChatPage() {
 
             if (!response.ok) {
                 const errorData = await response.json().catch(() => ({}));
-                throw new Error(errorData.error || `API Error: ${response.status} ${response.statusText}`);
+                throw new Error(
+                    errorData.error || `API Error: ${response.status} ${response.statusText}`
+                );
             }
 
             const reader = response.body?.getReader();
@@ -687,7 +768,7 @@ export default function ChatPage() {
             // If it WAS sent (Anthropic), the stream typically continues AFTER it.
             // If it WAS sent, we don't want to duplicate it.
             // Safest: Always maintain `fullContent` state.
-            let fullContent = initialContent;
+            fullContent = initialContent;
             let assistantThought = '';
 
             while (true) {
@@ -739,8 +820,16 @@ export default function ChatPage() {
 
                 // RAG: Background fact extraction from the AI response (skip on regeneration)
                 // Quality gate: skip extraction for trivial/short responses to save API calls
-                if (enableFactExtraction && activeConversationId && fullContent && !options.skipFactExtraction) {
-                    const responseQuality = scoreMessageQuality({ role: 'assistant', content: fullContent });
+                if (
+                    enableFactExtraction &&
+                    activeConversationId &&
+                    fullContent &&
+                    !options.skipFactExtraction
+                ) {
+                    const responseQuality = scoreMessageQuality({
+                        role: 'assistant',
+                        content: fullContent,
+                    });
                     if (responseQuality.score >= 4) {
                         (async () => {
                             try {
@@ -752,15 +841,22 @@ export default function ChatPage() {
                                 );
 
                                 const openRouterKey = await (async () => {
-                                    const orConfig = apiKeys.find(k => k.provider === 'openrouter');
+                                    const orConfig = apiKeys.find(
+                                        (k) => k.provider === 'openrouter'
+                                    );
                                     if (!orConfig) return currentApiKey;
-                                    return await decryptApiKey(orConfig.encryptedKey) || currentApiKey;
+                                    return (
+                                        (await decryptApiKey(orConfig.encryptedKey)) ||
+                                        currentApiKey
+                                    );
                                 })();
 
-                                const { customFactCategories, backgroundModel: bgModel } = useSettingsStore.getState();
-                                const factSystemPrompt = customFactCategories.length > 0
-                                    ? buildFactExtractionSystemPrompt(customFactCategories)
-                                    : FACT_EXTRACTION_PROMPT;
+                                const { customFactCategories, backgroundModel: bgModel } =
+                                    useSettingsStore.getState();
+                                const factSystemPrompt =
+                                    customFactCategories.length > 0
+                                        ? buildFactExtractionSystemPrompt(customFactCategories)
+                                        : FACT_EXTRACTION_PROMPT;
 
                                 const factResult = await backgroundAICall({
                                     systemPrompt: factSystemPrompt,
@@ -778,12 +874,16 @@ export default function ChatPage() {
                                     );
 
                                     if (extractedFacts.length > 0) {
-                                        const existingFacts = await getFactsByConversation(activeConversationId);
-                                        const deduped = deduplicateFacts(extractedFacts, existingFacts);
+                                        const existingFacts =
+                                            await getFactsByConversation(activeConversationId);
+                                        const deduped = deduplicateFacts(
+                                            extractedFacts,
+                                            existingFacts
+                                        );
 
                                         if (deduped.length > 0) {
                                             // Tag facts with active branch path for branch-aware retrieval
-                                            const branchPath = messages.map(m => m.id);
+                                            const branchPath = messages.map((m) => m.id);
                                             const factsWithIds: WorldFact[] = [];
                                             for (const f of deduped) {
                                                 const emb = await embedText(f.fact);
@@ -795,24 +895,42 @@ export default function ChatPage() {
                                                 });
                                             }
                                             await saveFactsBatch(factsWithIds);
-                                            console.log(`[RAG] Extracted ${factsWithIds.length} facts from response`);
+                                            console.log(
+                                                `[RAG] Extracted ${factsWithIds.length} facts from response`
+                                            );
 
                                             // Auto-update world state from extracted facts
                                             try {
-                                                const activePersona = personas.find(p => p.id === activePersonaId);
+                                                const activePersona = personas.find(
+                                                    (p) => p.id === activePersonaId
+                                                );
                                                 const wsUpdates = deriveWorldStateUpdates(
                                                     factsWithIds,
                                                     worldState,
                                                     character.name,
                                                     activePersona?.name || 'You'
                                                 );
-                                                const wsChanges = applyWorldStateUpdate(worldState, wsUpdates);
+                                                const wsChanges = applyWorldStateUpdate(
+                                                    worldState,
+                                                    wsUpdates
+                                                );
                                                 if (wsChanges && activeConversationId) {
-                                                    useChatStore.getState().updateWorldState(activeConversationId, wsChanges);
-                                                    console.log('[RAG] Auto world state update:', wsChanges);
+                                                    useChatStore
+                                                        .getState()
+                                                        .updateWorldState(
+                                                            activeConversationId,
+                                                            wsChanges
+                                                        );
+                                                    console.log(
+                                                        '[RAG] Auto world state update:',
+                                                        wsChanges
+                                                    );
                                                 }
                                             } catch (wsErr) {
-                                                console.warn('[RAG] Auto world state update failed:', wsErr);
+                                                console.warn(
+                                                    '[RAG] Auto world state update failed:',
+                                                    wsErr
+                                                );
                                             }
                                         }
                                     }
@@ -822,7 +940,9 @@ export default function ChatPage() {
                             }
                         })();
                     } else {
-                        console.log(`[RAG] Skipping fact extraction — response quality too low (${responseQuality.score}/10: ${responseQuality.label})`);
+                        console.log(
+                            `[RAG] Skipping fact extraction — response quality too low (${responseQuality.score}/10: ${responseQuality.label})`
+                        );
                     }
                 }
             }
@@ -880,7 +1000,7 @@ export default function ChatPage() {
         // This ensures only the active regeneration branch gets extracted
         const { lorebookAutoExtract } = useSettingsStore.getState();
         if (lorebookAutoExtract && activeLorebook && messages.length > 0) {
-            const lastAssistantMsg = [...messages].reverse().find(m => m.role === 'assistant');
+            const lastAssistantMsg = [...messages].reverse().find((m) => m.role === 'assistant');
             if (lastAssistantMsg?.content) {
                 const existingKeys = activeLorebook.entries.flatMap((e) => e.keys);
                 extractLorebookEntries(lastAssistantMsg.content, existingKeys)
@@ -935,19 +1055,19 @@ export default function ChatPage() {
         const draftText = draftMessageRef.current?.trim() || '';
         const simulatedMessages = draftText
             ? [
-                ...messages,
-                {
-                    id: 'draft-preview',
-                    conversationId: activeConversationId,
-                    parentId: messages[messages.length - 1]?.id || null,
-                    role: 'user' as const,
-                    content: draftText,
-                    isActiveBranch: true,
-                    createdAt: new Date(),
-                    messageOrder: messages.length + 1,
-                    regenerationIndex: 0,
-                },
-            ]
+                  ...messages,
+                  {
+                      id: 'draft-preview',
+                      conversationId: activeConversationId,
+                      parentId: messages[messages.length - 1]?.id || null,
+                      role: 'user' as const,
+                      content: draftText,
+                      isActiveBranch: true,
+                      createdAt: new Date(),
+                      messageOrder: messages.length + 1,
+                      regenerationIndex: 0,
+                  },
+              ]
             : messages;
 
         // Build system prompt
@@ -955,24 +1075,24 @@ export default function ChatPage() {
         const lorebookTokenBudget = activePreset?.lorebookTokenBudget ?? 2000;
         const activeEntries = useLorebooks
             ? getActiveLorebookEntries(
-                simulatedMessages.map((m) => ({
-                    ...m,
-                    conversationId: '',
-                    parentId: null,
-                    isActiveBranch: true,
-                    createdAt: new Date(),
-                })) as unknown as CAMessage[],
-                activeLorebook || undefined,
-                {
-                    scanDepth: activePreset?.lorebookScanDepth,
-                    tokenBudget: lorebookTokenBudget,
-                    recursive: activePreset?.lorebookRecursiveScanning,
-                    matchWholeWords: activePreset?.matchWholeWords,
-                }
-            )
+                  simulatedMessages.map((m) => ({
+                      ...m,
+                      conversationId: '',
+                      parentId: null,
+                      isActiveBranch: true,
+                      createdAt: new Date(),
+                  })) as unknown as CAMessage[],
+                  activeLorebook || undefined,
+                  {
+                      scanDepth: activePreset?.lorebookScanDepth,
+                      tokenBudget: lorebookTokenBudget,
+                      recursive: activePreset?.lorebookRecursiveScanning,
+                      matchWholeWords: activePreset?.matchWholeWords,
+                  }
+              )
             : [];
 
-        const conv = conversations.find(c => c.id === activeConversationId);
+        const conv = conversations.find((c) => c.id === activeConversationId);
         const combinedMem = [...(conv?.notes || []), ...(character.longTermMemory || [])];
         const systemPrompt = buildSystemPrompt(character, worldState, activeEntries, {
             template: activePreset?.systemPromptTemplate,
@@ -989,7 +1109,9 @@ export default function ChatPage() {
 
         // Get RAG sections
         const systemTokens = countTokens(systemPrompt);
-        const proportionalBudget = Math.floor((maxContextTokens - systemTokens - maxOutputTokens) * 0.25);
+        const proportionalBudget = Math.floor(
+            (maxContextTokens - systemTokens - maxOutputTokens) * 0.25
+        );
         const minimumBudget = Math.floor(maxContextTokens * 0.15);
         const ragBudget = Math.max(proportionalBudget, minimumBudget);
         const lastMsg = simulatedMessages[simulatedMessages.length - 1]?.content || '';
@@ -999,7 +1121,7 @@ export default function ChatPage() {
             const { minRAGConfidence: previewMinConf } = useSettingsStore.getState();
             ragSections = await retrieveRelevantContext(lastMsg, activeConversationId, ragBudget, {
                 worldState,
-                activeBranchMessageIds: simulatedMessages.map(m => m.id),
+                activeBranchMessageIds: simulatedMessages.map((m) => m.id),
                 minConfidence: previewMinConf,
             });
         } catch (err) {
@@ -1007,24 +1129,20 @@ export default function ChatPage() {
         }
 
         // Build payload
-        const {
-            messagesPayload,
-            includedMessageCount,
-            droppedMessageCount,
-            tokenBreakdown,
-        } = buildRAGEnhancedPayload(systemPrompt, ragSections, simulatedMessages as CAMessage[], {
-            maxContextTokens,
-            maxOutputTokens,
-            postHistoryInstructions: activePreset?.postHistoryInstructions,
-            activeProvider,
-        });
+        const { messagesPayload, includedMessageCount, droppedMessageCount, tokenBreakdown } =
+            buildRAGEnhancedPayload(systemPrompt, ragSections, simulatedMessages as CAMessage[], {
+                maxContextTokens,
+                maxOutputTokens,
+                postHistoryInstructions: activePreset?.postHistoryInstructions,
+                activeProvider,
+            });
 
         // Build preview sections
         // Pass original systemPrompt (without RAG) so preview shows sections separately without duplication
         const previewData = await buildContextPreview(
             systemPrompt,
             ragSections,
-            messagesPayload.filter(m => m.role !== 'system'),
+            messagesPayload.filter((m) => m.role !== 'system'),
             activePreset?.postHistoryInstructions,
             maxContextTokens,
             maxOutputTokens,
@@ -1038,7 +1156,11 @@ export default function ChatPage() {
             droppedMessages: droppedMessageCount,
             warnings: [
                 ...previewData.warnings,
-                ...(draftText ? [`Draft message included: "${draftText.slice(0, 80)}${draftText.length > 80 ? '...' : ''}"`] : []),
+                ...(draftText
+                    ? [
+                          `Draft message included: "${draftText.slice(0, 80)}${draftText.length > 80 ? '...' : ''}"`,
+                      ]
+                    : []),
             ],
         });
         setIsContextPreviewOpen(true);
@@ -1059,24 +1181,24 @@ export default function ChatPage() {
             const useLorebooks = activePreset?.useLorebooks ?? true;
             const activeEntries = useLorebooks
                 ? getActiveLorebookEntries(
-                    messages.map((m) => ({
-                        ...m,
-                        conversationId: '',
-                        parentId: null,
-                        isActiveBranch: true,
-                        createdAt: new Date(),
-                    })) as unknown as CAMessage[],
-                    activeLorebook || undefined,
-                    {
-                        scanDepth: activePreset?.lorebookScanDepth,
-                        tokenBudget: activePreset?.lorebookTokenBudget,
-                        recursive: activePreset?.lorebookRecursiveScanning,
-                        matchWholeWords: activePreset?.matchWholeWords,
-                    }
-                )
+                      messages.map((m) => ({
+                          ...m,
+                          conversationId: '',
+                          parentId: null,
+                          isActiveBranch: true,
+                          createdAt: new Date(),
+                      })) as unknown as CAMessage[],
+                      activeLorebook || undefined,
+                      {
+                          scanDepth: activePreset?.lorebookScanDepth,
+                          tokenBudget: activePreset?.lorebookTokenBudget,
+                          recursive: activePreset?.lorebookRecursiveScanning,
+                          matchWholeWords: activePreset?.matchWholeWords,
+                      }
+                  )
                 : [];
 
-            const impConv = conversations.find(c => c.id === activeConversationId);
+            const impConv = conversations.find((c) => c.id === activeConversationId);
             const impMem = [...(impConv?.notes || []), ...(character.longTermMemory || [])];
             let systemPrompt = buildSystemPrompt(character, worldState, activeEntries, {
                 template: activePreset?.systemPromptTemplate,
@@ -1103,7 +1225,10 @@ export default function ChatPage() {
 
             // Inject Post-History as a separate System Message
             if (activePreset?.postHistoryInstructions) {
-                messagesPayload.push({ role: 'system', content: activePreset.postHistoryInstructions });
+                messagesPayload.push({
+                    role: 'system',
+                    content: activePreset.postHistoryInstructions,
+                });
             }
 
             // Insert System Message at the beginning
@@ -1228,9 +1353,10 @@ export default function ChatPage() {
         const charConvs = conversations.filter((c) => c.characterId === character.id);
         const convCount = charConvs.length;
 
-        const message = convCount > 0
-            ? `Are you sure you want to delete ${character.name}?\n\nThis will also delete ${convCount} conversation${convCount > 1 ? 's' : ''} associated with this character.`
-            : `Are you sure you want to delete ${character.name}?`;
+        const message =
+            convCount > 0
+                ? `Are you sure you want to delete ${character.name}?\n\nThis will also delete ${convCount} conversation${convCount > 1 ? 's' : ''} associated with this character.`
+                : `Are you sure you want to delete ${character.name}?`;
 
         if (confirm(message)) {
             // Delete all conversations for this character first
@@ -1279,7 +1405,7 @@ export default function ChatPage() {
                 updatedAt: latestConv.updatedAt,
                 worldState: latestConv.worldState,
             },
-            messages: messages.map(m => ({
+            messages: messages.map((m) => ({
                 role: m.role,
                 content: m.content,
                 thought: m.thought,
@@ -1290,7 +1416,10 @@ export default function ChatPage() {
         };
 
         const { exportToJson } = await import('@/lib/export-utils');
-        exportToJson(exportData, `Conversation_${character.name}_${new Date().toISOString().split('T')[0]}`);
+        exportToJson(
+            exportData,
+            `Conversation_${character.name}_${new Date().toISOString().split('T')[0]}`
+        );
     };
 
     const handleImportConversation = async () => {
@@ -1314,16 +1443,20 @@ export default function ChatPage() {
 
                 // Check if character already exists by name
                 const { useCharacterStore } = await import('@/stores');
-                const existingChar = useCharacterStore.getState().characters.find(
-                    (c) => c.name === data.character.name
-                );
+                const existingChar = useCharacterStore
+                    .getState()
+                    .characters.find((c) => c.name === data.character.name);
 
                 let characterId: string;
 
                 if (existingChar) {
                     // Use existing character
                     characterId = existingChar.id;
-                    if (confirm(`Character "${data.character.name}" already exists. Import conversation for this character?`)) {
+                    if (
+                        confirm(
+                            `Character "${data.character.name}" already exists. Import conversation for this character?`
+                        )
+                    ) {
                         // Continue with import
                     } else {
                         return;
@@ -1379,10 +1512,14 @@ export default function ChatPage() {
                 // Switch to the imported conversation
                 setActiveConversation(convId);
 
-                alert(`Successfully imported conversation "${data.conversation.title}" with ${data.messages.length} messages!`);
+                alert(
+                    `Successfully imported conversation "${data.conversation.title}" with ${data.messages.length} messages!`
+                );
             } catch (error) {
                 console.error('Import error:', error);
-                alert(`Failed to import conversation: ${error instanceof Error ? error.message : 'Unknown error'}`);
+                alert(
+                    `Failed to import conversation: ${error instanceof Error ? error.message : 'Unknown error'}`
+                );
             }
         };
 
@@ -1422,7 +1559,11 @@ export default function ChatPage() {
                                         {/* Character Panel Button */}
                                         <CharacterPanel
                                             trigger={
-                                                <Button variant="ghost" size="icon" className="shrink-0 h-8 w-8">
+                                                <Button
+                                                    variant="ghost"
+                                                    size="icon"
+                                                    className="shrink-0 h-8 w-8"
+                                                >
                                                     <Users className="h-4 w-4" />
                                                 </Button>
                                             }
@@ -1469,7 +1610,9 @@ export default function ChatPage() {
                                                     <Edit className="h-4 w-4 mr-2" />
                                                     Edit Character
                                                 </DropdownMenuItem>
-                                                <DropdownMenuItem onClick={handleImportConversation}>
+                                                <DropdownMenuItem
+                                                    onClick={handleImportConversation}
+                                                >
                                                     <Upload className="h-4 w-4 mr-2" />
                                                     Import Conversation
                                                 </DropdownMenuItem>
@@ -1517,56 +1660,69 @@ export default function ChatPage() {
                                                     <Button
                                                         variant="outline"
                                                         size="sm"
-                                                        onClick={() => setDisplayLimit(prev => prev + MESSAGE_PAGE_SIZE)}
+                                                        onClick={() =>
+                                                            setDisplayLimit(
+                                                                (prev) => prev + MESSAGE_PAGE_SIZE
+                                                            )
+                                                        }
                                                         className="gap-2 text-xs text-muted-foreground hover:text-foreground"
                                                     >
                                                         <ChevronUp className="h-3.5 w-3.5" />
-                                                        Load {Math.min(MESSAGE_PAGE_SIZE, hiddenMessageCount)} more messages ({hiddenMessageCount} hidden)
+                                                        Load{' '}
+                                                        {Math.min(
+                                                            MESSAGE_PAGE_SIZE,
+                                                            hiddenMessageCount
+                                                        )}{' '}
+                                                        more messages ({hiddenMessageCount} hidden)
                                                     </Button>
                                                 </div>
                                             )}
                                             {displayedMessages.map((msg) => {
-                                            const siblingsInfo = getMessageSiblingsInfo(msg.id);
-                                            // Replace {{user}} with persona name for display
-                                            const displayContent = msg.content.replace(
-                                                /{{user}}/gi,
-                                                personas.find((p) => p.id === activePersonaId)
-                                                    ?.name || 'You'
-                                            );
+                                                const siblingsInfo = getMessageSiblingsInfo(msg.id);
+                                                // Replace {{user}} with persona name for display
+                                                const displayContent = msg.content.replace(
+                                                    /{{user}}/gi,
+                                                    personas.find((p) => p.id === activePersonaId)
+                                                        ?.name || 'You'
+                                                );
 
-                                            return (
-                                                <ChatBubble
-                                                    key={msg.id}
-                                                    id={msg.id}
-                                                    role={msg.role as 'user' | 'assistant'}
-                                                    content={displayContent}
-                                                    thought={msg.thought}
-                                                    avatar={
-                                                        msg.role === 'user'
-                                                            ? personas.find(
-                                                                (p) => p.id === activePersonaId
-                                                            )?.avatar
-                                                            : character.avatar
-                                                    }
-                                                    name={
-                                                        msg.role === 'user'
-                                                            ? personas.find(
-                                                                (p) => p.id === activePersonaId
-                                                            )?.name || 'You'
-                                                            : character.name
-                                                    }
-                                                    showThoughts={showThoughts}
-                                                    onEdit={handleEditMessage}
-                                                    onRegenerate={handleRegenerate}
-                                                    onContinue={handleContinue}
-                                                    onBranch={handleBranch}
-                                                    onDelete={handleDeleteMessage}
-                                                    currentBranchIndex={siblingsInfo.currentIndex}
-                                                    totalBranches={siblingsInfo.total}
-                                                    onNavigateBranch={navigateToSibling}
-                                                />
-                                            );
-                                        })}
+                                                return (
+                                                    <ChatBubble
+                                                        key={msg.id}
+                                                        id={msg.id}
+                                                        role={msg.role as 'user' | 'assistant'}
+                                                        content={displayContent}
+                                                        thought={msg.thought}
+                                                        avatar={
+                                                            msg.role === 'user'
+                                                                ? personas.find(
+                                                                      (p) =>
+                                                                          p.id === activePersonaId
+                                                                  )?.avatar
+                                                                : character.avatar
+                                                        }
+                                                        name={
+                                                            msg.role === 'user'
+                                                                ? personas.find(
+                                                                      (p) =>
+                                                                          p.id === activePersonaId
+                                                                  )?.name || 'You'
+                                                                : character.name
+                                                        }
+                                                        showThoughts={showThoughts}
+                                                        onEdit={handleEditMessage}
+                                                        onRegenerate={handleRegenerate}
+                                                        onContinue={handleContinue}
+                                                        onBranch={handleBranch}
+                                                        onDelete={handleDeleteMessage}
+                                                        currentBranchIndex={
+                                                            siblingsInfo.currentIndex
+                                                        }
+                                                        totalBranches={siblingsInfo.total}
+                                                        onNavigateBranch={navigateToSibling}
+                                                    />
+                                                );
+                                            })}
                                         </>
                                     )}
 
@@ -1578,10 +1734,11 @@ export default function ChatPage() {
                         {/* Input Area - Floating in immersive mode */}
                         <motion.div
                             layout
-                            className={`z-20 ${immersiveMode
-                                ? 'absolute bottom-4 left-4 right-4 rounded-2xl glass-heavy shadow-2xl'
-                                : 'p-4 border-t border-white/5 glass-heavy'
-                                }`}
+                            className={`z-20 ${
+                                immersiveMode
+                                    ? 'absolute bottom-4 left-4 right-4 rounded-2xl glass-heavy shadow-2xl'
+                                    : 'p-4 border-t border-white/5 glass-heavy'
+                            }`}
                         >
                             <div
                                 className={`mx-auto w-full space-y-2 ${immersiveMode ? 'p-4 max-w-3xl' : 'max-w-4xl'}`}
@@ -1654,7 +1811,9 @@ export default function ChatPage() {
                                     isLoading={isLoading}
                                     disabled={!currentApiKey}
                                     onImpersonate={handleImpersonate}
-                                    onDraftChange={(draft) => { draftMessageRef.current = draft; }}
+                                    onDraftChange={(draft) => {
+                                        draftMessageRef.current = draft;
+                                    }}
                                     placeholder={
                                         !currentApiKey
                                             ? 'Missing API Key...'
@@ -1741,7 +1900,7 @@ export default function ChatPage() {
                                     i.replace(
                                         /{{user}}/gi,
                                         personas.find((p) => p.id === activePersonaId)?.name ||
-                                        'You'
+                                            'You'
                                     )
                                 )}
                                 location={worldState.location.replace(
@@ -1750,7 +1909,9 @@ export default function ChatPage() {
                                 )}
                                 relationships={worldState.relationships}
                                 isCollapsed={false}
-                                onForceAnalyze={() => { handleForceAnalysis(); }}
+                                onForceAnalyze={() => {
+                                    handleForceAnalysis();
+                                }}
                                 isAnalyzing={isAnalyzing}
                             />
                         </div>
@@ -1781,7 +1942,9 @@ export default function ChatPage() {
                             )}
                             relationships={worldState.relationships}
                             isCollapsed={false}
-                            onForceAnalyze={() => { handleForceAnalysis(); }}
+                            onForceAnalyze={() => {
+                                handleForceAnalysis();
+                            }}
                             isAnalyzing={isAnalyzing}
                         />
                     </div>

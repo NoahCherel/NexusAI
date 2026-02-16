@@ -88,7 +88,7 @@ describe('findTopK', () => {
             { id: 'a', embedding: [1, 0, 0] },
             { id: 'b', embedding: undefined },
             { id: 'c' },
-        ] as any[];
+        ] as { id: string; embedding?: number[] }[];
         const result = findTopK(query, items, 5);
         expect(result.length).toBe(1);
     });

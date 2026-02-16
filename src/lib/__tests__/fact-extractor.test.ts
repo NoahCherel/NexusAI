@@ -39,7 +39,8 @@ describe('parseFactExtractionResponse', () => {
     });
 
     it('handles response with markdown fences', () => {
-        const response = '```json\n[{"fact":"test","category":"event","importance":5,"entities":[],"tags":[]}]\n```';
+        const response =
+            '```json\n[{"fact":"test","category":"event","importance":5,"entities":[],"tags":[]}]\n```';
         const result = parseFactExtractionResponse(response, 'c', 'm');
         expect(result).toHaveLength(1);
         expect(result[0].fact).toBe('test');
@@ -89,7 +90,9 @@ describe('heuristicImportance', () => {
     });
 
     it('gives medium score for action keywords', () => {
-        expect(heuristicImportance('He steals the treasure from the chest')).toBeGreaterThanOrEqual(5);
+        expect(heuristicImportance('He steals the treasure from the chest')).toBeGreaterThanOrEqual(
+            5
+        );
         expect(heuristicImportance('They attacked the fortress walls')).toBeGreaterThanOrEqual(5);
     });
 
@@ -129,52 +132,58 @@ describe('deduplicateFacts', () => {
     ];
 
     it('removes exact duplicates', () => {
-        const newFacts = [{
-            conversationId: 'c1',
-            messageId: 'm2',
-            fact: 'The warrior found a magical sword',
-            category: 'item' as const,
-            importance: 7,
-            active: true,
-            timestamp: Date.now(),
-            relatedEntities: ['Warrior', 'Magical Sword'],
-            lastAccessedAt: Date.now(),
-            accessCount: 0,
-        }];
+        const newFacts = [
+            {
+                conversationId: 'c1',
+                messageId: 'm2',
+                fact: 'The warrior found a magical sword',
+                category: 'item' as const,
+                importance: 7,
+                active: true,
+                timestamp: Date.now(),
+                relatedEntities: ['Warrior', 'Magical Sword'],
+                lastAccessedAt: Date.now(),
+                accessCount: 0,
+            },
+        ];
         const result = deduplicateFacts(newFacts, existingFacts);
         expect(result).toHaveLength(0);
     });
 
     it('keeps genuinely new facts', () => {
-        const newFacts = [{
-            conversationId: 'c1',
-            messageId: 'm2',
-            fact: 'The mage cast a protective barrier',
-            category: 'event' as const,
-            importance: 6,
-            active: true,
-            timestamp: Date.now(),
-            relatedEntities: ['Mage'],
-            lastAccessedAt: Date.now(),
-            accessCount: 0,
-        }];
+        const newFacts = [
+            {
+                conversationId: 'c1',
+                messageId: 'm2',
+                fact: 'The mage cast a protective barrier',
+                category: 'event' as const,
+                importance: 6,
+                active: true,
+                timestamp: Date.now(),
+                relatedEntities: ['Mage'],
+                lastAccessedAt: Date.now(),
+                accessCount: 0,
+            },
+        ];
         const result = deduplicateFacts(newFacts, existingFacts);
         expect(result).toHaveLength(1);
     });
 
     it('handles empty existing facts', () => {
-        const newFacts = [{
-            conversationId: 'c1',
-            messageId: 'm1',
-            fact: 'Something happened',
-            category: 'event' as const,
-            importance: 5,
-            active: true,
-            timestamp: Date.now(),
-            relatedEntities: [],
-            lastAccessedAt: Date.now(),
-            accessCount: 0,
-        }];
+        const newFacts = [
+            {
+                conversationId: 'c1',
+                messageId: 'm1',
+                fact: 'Something happened',
+                category: 'event' as const,
+                importance: 5,
+                active: true,
+                timestamp: Date.now(),
+                relatedEntities: [],
+                lastAccessedAt: Date.now(),
+                accessCount: 0,
+            },
+        ];
         const result = deduplicateFacts(newFacts, []);
         expect(result).toHaveLength(1);
     });

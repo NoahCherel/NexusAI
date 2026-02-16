@@ -402,7 +402,7 @@ export function PresetEditor() {
 
                             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                                 <div className="md:col-span-2 space-y-2">
-                                    <Label>Prompt Note (Author's Note)</Label>
+                                    <Label>Prompt Note (Author&apos;s Note)</Label>
                                     <Textarea
                                         value={activePreset.promptNote || ''}
                                         onChange={(e) => update({ promptNote: e.target.value })}
@@ -797,7 +797,9 @@ export function PresetEditor() {
                                     <Button
                                         size="sm"
                                         variant={enableFactExtraction ? 'default' : 'secondary'}
-                                        onClick={() => setEnableFactExtraction(!enableFactExtraction)}
+                                        onClick={() =>
+                                            setEnableFactExtraction(!enableFactExtraction)
+                                        }
                                     >
                                         {enableFactExtraction ? 'On' : 'Off'}
                                     </Button>
@@ -805,15 +807,23 @@ export function PresetEditor() {
 
                                 <div className="flex items-center justify-between p-2 border rounded">
                                     <div>
-                                        <p className="text-sm font-medium">Hierarchical Summaries</p>
+                                        <p className="text-sm font-medium">
+                                            Hierarchical Summaries
+                                        </p>
                                         <p className="text-xs text-muted-foreground">
                                             Auto-create L0/L1/L2 story summaries
                                         </p>
                                     </div>
                                     <Button
                                         size="sm"
-                                        variant={enableHierarchicalSummaries ? 'default' : 'secondary'}
-                                        onClick={() => setEnableHierarchicalSummaries(!enableHierarchicalSummaries)}
+                                        variant={
+                                            enableHierarchicalSummaries ? 'default' : 'secondary'
+                                        }
+                                        onClick={() =>
+                                            setEnableHierarchicalSummaries(
+                                                !enableHierarchicalSummaries
+                                            )
+                                        }
                                     >
                                         {enableHierarchicalSummaries ? 'On' : 'Off'}
                                     </Button>

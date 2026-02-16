@@ -220,7 +220,6 @@
 
 /* Message Loading Animation */
 @keyframes pulse-soft {
-
     0%,
     100% {
         opacity: 0.4;

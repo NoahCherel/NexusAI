@@ -37,15 +37,15 @@ LLMs have a finite context window (8k–128k tokens). For roleplay conversations
 
 ### Key Technologies
 
-| Component | Technology |
-|---|---|
-| Framework | Next.js 16.1.1 (App Router, Turbopack) |
-| State Management | Zustand 5.0.9 |
-| Database | IndexedDB via `idb` 8.0.3 |
-| Tokenizer | `gpt-tokenizer` (cl100k_base encoding) |
-| Embeddings | `@xenova/transformers` (all-MiniLM-L6-v2, 384d) |
-| AI APIs | OpenRouter, OpenAI, Anthropic |
-| Tests | Vitest 4.0.18 (56 tests) |
+| Component        | Technology                                      |
+| ---------------- | ----------------------------------------------- |
+| Framework        | Next.js 16.1.1 (App Router, Turbopack)          |
+| State Management | Zustand 5.0.9                                   |
+| Database         | IndexedDB via `idb` 8.0.3                       |
+| Tokenizer        | `gpt-tokenizer` (cl100k_base encoding)          |
+| Embeddings       | `@xenova/transformers` (all-MiniLM-L6-v2, 384d) |
+| AI APIs          | OpenRouter, OpenAI, Anthropic                   |
+| Tests            | Vitest 4.0.18 (56 tests)                        |
 
 ---
 
@@ -122,16 +122,16 @@ User types message
 
 ### Database: `nexusai-db` (v5)
 
-| Store | keyPath | Indexes | Purpose |
-|---|---|---|---|
-| `characters` | `id` | `by-name` | Character cards (name, personality, avatar, etc.) |
-| `conversations` | `id` | `by-character` | Conversation metadata + world state |
-| `messages` | `id` | `by-conversation` | Individual messages with branching support |
-| `lorebookHistory` | `id` | `by-character`, `by-timestamp` | Lorebook snapshots |
-| `settings` | `key` | — | Persistent settings |
-| `vectors` | `id` | `by-conversation` | Embedded message chunks for semantic search |
-| `summaries` | `id` | `by-conversation`, `by-level` | Hierarchical summaries (L0/L1/L2) |
-| `facts` | `id` | `by-conversation`, `by-category`, `by-importance` | Extracted world facts |
+| Store             | keyPath | Indexes                                           | Purpose                                           |
+| ----------------- | ------- | ------------------------------------------------- | ------------------------------------------------- |
+| `characters`      | `id`    | `by-name`                                         | Character cards (name, personality, avatar, etc.) |
+| `conversations`   | `id`    | `by-character`                                    | Conversation metadata + world state               |
+| `messages`        | `id`    | `by-conversation`                                 | Individual messages with branching support        |
+| `lorebookHistory` | `id`    | `by-character`, `by-timestamp`                    | Lorebook snapshots                                |
+| `settings`        | `key`   | —                                                 | Persistent settings                               |
+| `vectors`         | `id`    | `by-conversation`                                 | Embedded message chunks for semantic search       |
+| `summaries`       | `id`    | `by-conversation`, `by-level`                     | Hierarchical summaries (L0/L1/L2)                 |
+| `facts`           | `id`    | `by-conversation`, `by-category`, `by-importance` | Extracted world facts                             |
 
 ### Schema Migrations
 
@@ -148,12 +148,12 @@ interface VectorEntry {
     conversationId: string;
     messageIds: string[];
     text: string;
-    embedding: number[];          // 384-d vector
+    embedding: number[]; // 384-d vector
     metadata: {
         timestamp: number;
         characters: string[];
         location: string;
-        importance: number;       // 1–10
+        importance: number; // 1–10
         tags: string[];
     };
 }
@@ -162,12 +162,12 @@ interface VectorEntry {
 interface MemorySummary {
     id: string;
     conversationId: string;
-    level: 0 | 1 | 2;            // L0=chunk, L1=section, L2=arc
+    level: 0 | 1 | 2; // L0=chunk, L1=section, L2=arc
     messageRange: [number, number];
     content: string;
     keyFacts: string[];
     embedding?: number[];
-    childIds: string[];           // L1 → L0 children, L2 → L1 children
+    childIds: string[]; // L1 → L0 children, L2 → L1 children
     createdAt: number;
 }
 
@@ -178,7 +178,7 @@ interface WorldFact {
     messageId: string;
     fact: string;
     category: 'event' | 'relationship' | 'item' | 'location' | 'lore' | 'consequence' | 'dialogue';
-    importance: number;           // 1–10
+    importance: number; // 1–10
     active: boolean;
     timestamp: number;
     embedding?: number[];
@@ -208,13 +208,13 @@ interface WorldFact {
 
 ### Key Functions
 
-| Function | Description |
-|---|---|
-| `initEmbedder()` | Lazy-loads the ML pipeline, returns `boolean` |
-| `embedText(text)` | Single text → `number[]` |
-| `embedTexts(texts)` | Batch embedding (sequential to avoid OOM) |
-| `cosineSimilarity(a, b)` | Cosine similarity between two vectors |
-| `findTopK(query, items, k, minScore)` | Top-K cosine search over any collection |
+| Function                              | Description                                   |
+| ------------------------------------- | --------------------------------------------- |
+| `initEmbedder()`                      | Lazy-loads the ML pipeline, returns `boolean` |
+| `embedText(text)`                     | Single text → `number[]`                      |
+| `embedTexts(texts)`                   | Batch embedding (sequential to avoid OOM)     |
+| `cosineSimilarity(a, b)`              | Cosine similarity between two vectors         |
+| `findTopK(query, items, k, minScore)` | Top-K cosine search over any collection       |
 
 ### Status: `'idle' | 'loading' | 'ready' | 'fallback'`
 
@@ -230,10 +230,10 @@ interface WorldFact {
 
 ### Functions
 
-| Function | Description |
-|---|---|
-| `countTokens(text)` | Exact token count |
-| `countTokensBatch(texts)` | Sum of individual counts |
+| Function                                 | Description                                     |
+| ---------------------------------------- | ----------------------------------------------- |
+| `countTokens(text)`                      | Exact token count                               |
+| `countTokensBatch(texts)`                | Sum of individual counts                        |
 | `truncateToTokenBudget(text, maxTokens)` | Binary search for longest prefix fitting budget |
 
 ---
@@ -268,11 +268,11 @@ The summarization system creates a pyramid of summaries at three levels of abstr
 
 ### Trigger Rules
 
-| Level | Trigger Condition | Covers |
-|---|---|---|
-| **L0** (chunk) | Every **10 messages** | ~10 consecutive messages |
-| **L1** (section) | Every **5 L0** summaries | ~50 messages |
-| **L2** (arc) | Every **3 L1** summaries | ~150 messages |
+| Level            | Trigger Condition        | Covers                   |
+| ---------------- | ------------------------ | ------------------------ |
+| **L0** (chunk)   | Every **10 messages**    | ~10 consecutive messages |
+| **L1** (section) | Every **5 L0** summaries | ~50 messages             |
+| **L2** (arc)     | Every **3 L1** summaries | ~150 messages            |
 
 ### Processing
 
@@ -294,15 +294,15 @@ The summarization system creates a pyramid of summaries at three levels of abstr
 
 ### Categories
 
-| Category | Description | Color (UI) |
-|---|---|---|
-| `event` | Story events, actions taken | Blue |
-| `relationship` | Character relationships, bonds | Pink |
-| `item` | Objects, inventory, artifacts | Amber |
-| `location` | Places, settings, geography | Green |
-| `lore` | World rules, lore, backstory | Purple |
-| `consequence` | Results of actions, promises | Red |
-| `dialogue` | Important spoken statements | Cyan |
+| Category       | Description                    | Color (UI) |
+| -------------- | ------------------------------ | ---------- |
+| `event`        | Story events, actions taken    | Blue       |
+| `relationship` | Character relationships, bonds | Pink       |
+| `item`         | Objects, inventory, artifacts  | Amber      |
+| `location`     | Places, settings, geography    | Green      |
+| `lore`         | World rules, lore, backstory   | Purple     |
+| `consequence`  | Results of actions, promises   | Red        |
+| `dialogue`     | Important spoken statements    | Cyan       |
 
 ### Extraction Flow
 
@@ -333,6 +333,7 @@ AI Response → Fact Extraction Prompt → LLM (llama-3.3-70b-instruct:free)
 ### Importance Scoring
 
 Built-in `heuristicImportance()` fallback using keyword patterns:
+
 - **High** (≥7): kill, die, betray, secret, wedding, pregnant, war...
 - **Medium** (≥5): attack, fight, steal, find, discover, escape...
 - **Low** (≥2): say, ask, smile, walk, look...
@@ -380,11 +381,13 @@ combinedScore = 0.5 × cosineSimilarity
 ### Temporal Decay
 
 Exponential decay with importance-based half-life:
+
 - Importance ≥ 8 → half-life = 720 hours (30 days)
 - Importance ≥ 5 → half-life = 168 hours (7 days)
 - Otherwise → half-life = 48 hours (2 days)
 
 **Boosts**:
+
 - Recency: 1.5× if accessed within 1 hour
 - Frequency: `1 + min(accessCount × 0.1, 0.5)`
 
@@ -407,17 +410,17 @@ Combines keyword matching and semantic search for lorebook entries:
 
 Variables resolved at runtime:
 
-| Placeholder | Source |
-|---|---|
-| `{{character_name}}` / `{{char}}` | Character name |
-| `{{character_description}}` | Character description |
-| `{{character_personality}}` | Personality traits |
-| `{{scenario}}` | Scene/scenario |
-| `{{world_state}}` | Location + relationships + inventory |
-| `{{lorebook}}` | Active lorebook entries |
-| `{{memory}}` / `{{long_term_memory}}` | User's manual notes |
-| `{{user}}` | User persona name |
-| `{{user_bio}}` / `{{user_description}}` | User bio |
+| Placeholder                             | Source                               |
+| --------------------------------------- | ------------------------------------ |
+| `{{character_name}}` / `{{char}}`       | Character name                       |
+| `{{character_description}}`             | Character description                |
+| `{{character_personality}}`             | Personality traits                   |
+| `{{scenario}}`                          | Scene/scenario                       |
+| `{{world_state}}`                       | Location + relationships + inventory |
+| `{{lorebook}}`                          | Active lorebook entries              |
+| `{{memory}}` / `{{long_term_memory}}`   | User's manual notes                  |
+| `{{user}}`                              | User persona name                    |
+| `{{user_bio}}` / `{{user_description}}` | User bio                             |
 
 ### `buildRAGEnhancedPayload` — Token Budget Flow
 
@@ -480,20 +483,20 @@ Combines keyword + semantic embedding similarity for more accurate lorebook acti
 
 ### RAG/Memory Settings (all default: `true`)
 
-| Setting | Description | Location |
-|---|---|---|
-| `enableRAGRetrieval` | Use RAG to inject summaries/facts/vectors into context | Advanced tab |
-| `enableFactExtraction` | Extract facts from AI responses | Advanced tab |
-| `enableHierarchicalSummaries` | Auto-create L0/L1/L2 summaries | Advanced tab |
-| `lorebookAutoExtract` | Suggest new lorebook entries from messages | Advanced tab |
+| Setting                       | Description                                            | Location     |
+| ----------------------------- | ------------------------------------------------------ | ------------ |
+| `enableRAGRetrieval`          | Use RAG to inject summaries/facts/vectors into context | Advanced tab |
+| `enableFactExtraction`        | Extract facts from AI responses                        | Advanced tab |
+| `enableHierarchicalSummaries` | Auto-create L0/L1/L2 summaries                         | Advanced tab |
+| `lorebookAutoExtract`         | Suggest new lorebook entries from messages             | Advanced tab |
 
 ### Other Relevant Settings
 
-| Setting | Default | Description |
-|---|---|---|
-| `showWorldState` | `true` | Show world state panel in chat |
-| `showThoughts` | `true` | Show CoT reasoning thoughts |
-| `immersiveMode` | `false` | Fullscreen chat mode |
+| Setting           | Default | Description                                         |
+| ----------------- | ------- | --------------------------------------------------- |
+| `showWorldState`  | `true`  | Show world state panel in chat                      |
+| `showThoughts`    | `true`  | Show CoT reasoning thoughts                         |
+| `immersiveMode`   | `false` | Fullscreen chat mode                                |
 | `enableReasoning` | `false` | Enable Chain-of-Thought for models like DeepSeek R1 |
 
 ---
@@ -551,10 +554,10 @@ Supports **draft preview**: includes the message being typed before sending.
 
 ### 3 Tabs
 
-| Tab | Content |
-|---|---|
-| **Notes** | User's manual memory entries. Add, edit, delete. AI Summary generation. |
-| **Facts** | Auto-extracted facts. View by category and importance. Delete individual or clear all. |
+| Tab           | Content                                                                                                |
+| ------------- | ------------------------------------------------------------------------------------------------------ |
+| **Notes**     | User's manual memory entries. Add, edit, delete. AI Summary generation.                                |
+| **Facts**     | Auto-extracted facts. View by category and importance. Delete individual or clear all.                 |
 | **Summaries** | Hierarchical summaries (L0/L1/L2). Sorted by level (highest first). Delete individual. Reindex button. |
 
 ---
@@ -573,11 +576,11 @@ The 15% minimum is a **reservation**, not a forced allocation. If RAG retrieval 
 
 ### Example: 16384-token context
 
-| Scenario | System | RAG Budget | Actual RAG Used | History Gets |
-|---|---|---|---|---|
-| Short conversation | 2000 | max(3084, 2457) = 3084 | 1500 | 10836 |
-| Long conversation (200+ msgs) | 5000 | max(1596, 2457) = 2457 | 800 | 8126 |
-| Very long + big system prompt | 8000 | max(334, 2457) = 2457 | 2000 | 3927 |
+| Scenario                      | System | RAG Budget             | Actual RAG Used | History Gets |
+| ----------------------------- | ------ | ---------------------- | --------------- | ------------ |
+| Short conversation            | 2000   | max(3084, 2457) = 3084 | 1500            | 10836        |
+| Long conversation (200+ msgs) | 5000   | max(1596, 2457) = 2457 | 800             | 8126         |
+| Very long + big system prompt | 8000   | max(334, 2457) = 2457  | 2000            | 3927         |
 
 ---
 
@@ -646,48 +649,48 @@ User sends message
 
 ### Core AI Services
 
-| File | Purpose |
-|---|---|
-| `src/lib/ai/context-builder.ts` | System prompt construction, lorebook matching, RAG payload builder |
-| `src/lib/ai/rag-service.ts` | RAG retrieval, hybrid lorebook search, vector search, context preview |
-| `src/lib/ai/hierarchical-summarizer.ts` | L0/L1/L2 summary pyramid, deduplication |
-| `src/lib/ai/fact-extractor.ts` | Fact extraction, parsing, deduplication, importance scoring |
-| `src/lib/ai/embedding-service.ts` | MiniLM embeddings, caching, cosine similarity |
-| `src/lib/ai/providers.ts` | AI provider configuration |
-| `src/lib/tokenizer.ts` | Token counting (cl100k_base) |
-| `src/lib/lorebook-extractor.ts` | Automatic lorebook entry extraction |
-| `src/lib/memory-summarizer.ts` | Manual memory summary generation |
-| `src/lib/db.ts` | IndexedDB schema, CRUD operations |
+| File                                    | Purpose                                                               |
+| --------------------------------------- | --------------------------------------------------------------------- |
+| `src/lib/ai/context-builder.ts`         | System prompt construction, lorebook matching, RAG payload builder    |
+| `src/lib/ai/rag-service.ts`             | RAG retrieval, hybrid lorebook search, vector search, context preview |
+| `src/lib/ai/hierarchical-summarizer.ts` | L0/L1/L2 summary pyramid, deduplication                               |
+| `src/lib/ai/fact-extractor.ts`          | Fact extraction, parsing, deduplication, importance scoring           |
+| `src/lib/ai/embedding-service.ts`       | MiniLM embeddings, caching, cosine similarity                         |
+| `src/lib/ai/providers.ts`               | AI provider configuration                                             |
+| `src/lib/tokenizer.ts`                  | Token counting (cl100k_base)                                          |
+| `src/lib/lorebook-extractor.ts`         | Automatic lorebook entry extraction                                   |
+| `src/lib/memory-summarizer.ts`          | Manual memory summary generation                                      |
+| `src/lib/db.ts`                         | IndexedDB schema, CRUD operations                                     |
 
 ### Components
 
-| File | Purpose |
-|---|---|
-| `src/app/chat/page.tsx` | Main chat page, integration hub for all systems |
-| `src/components/chat/MemoryPanel.tsx` | Memory panel UI (Notes/Facts/Summaries + Reindex) |
-| `src/components/chat/ChatBubble.tsx` | Message rendering with edit/regenerate/continue/branch |
-| `src/components/chat/WorldStatePanel.tsx` | World state display (location, relationships, inventory) |
-| `src/components/chat/TreeVisualization.tsx` | Message branch tree visualization |
-| `src/components/lorebook/LorebookEditor.tsx` | Lorebook editor with suggestions |
-| `src/components/settings/PresetEditor.tsx` | Settings/presets with RAG toggles |
+| File                                         | Purpose                                                  |
+| -------------------------------------------- | -------------------------------------------------------- |
+| `src/app/chat/page.tsx`                      | Main chat page, integration hub for all systems          |
+| `src/components/chat/MemoryPanel.tsx`        | Memory panel UI (Notes/Facts/Summaries + Reindex)        |
+| `src/components/chat/ChatBubble.tsx`         | Message rendering with edit/regenerate/continue/branch   |
+| `src/components/chat/WorldStatePanel.tsx`    | World state display (location, relationships, inventory) |
+| `src/components/chat/TreeVisualization.tsx`  | Message branch tree visualization                        |
+| `src/components/lorebook/LorebookEditor.tsx` | Lorebook editor with suggestions                         |
+| `src/components/settings/PresetEditor.tsx`   | Settings/presets with RAG toggles                        |
 
 ### Stores
 
-| File | Purpose |
-|---|---|
-| `src/stores/settings-store.ts` | All settings including RAG toggles |
-| `src/stores/chat-store.ts` | Conversations, messages, branching |
-| `src/stores/character-store.ts` | Character cards, long-term memory |
-| `src/stores/lorebook-store.ts` | Lorebook entries, suggestions queue |
+| File                            | Purpose                             |
+| ------------------------------- | ----------------------------------- |
+| `src/stores/settings-store.ts`  | All settings including RAG toggles  |
+| `src/stores/chat-store.ts`      | Conversations, messages, branching  |
+| `src/stores/character-store.ts` | Character cards, long-term memory   |
+| `src/stores/lorebook-store.ts`  | Lorebook entries, suggestions queue |
 
 ### Types
 
-| File | Purpose |
-|---|---|
-| `src/types/rag.ts` | VectorEntry, MemorySummary, WorldFact, ContextSection, etc. |
-| `src/types/preset.ts` | APIPreset fields, default presets, system prompt template |
-| `src/types/character.ts` | CharacterCard type |
-| `src/types/chat.ts` | Message, Conversation, WorldState types |
+| File                     | Purpose                                                     |
+| ------------------------ | ----------------------------------------------------------- |
+| `src/types/rag.ts`       | VectorEntry, MemorySummary, WorldFact, ContextSection, etc. |
+| `src/types/preset.ts`    | APIPreset fields, default presets, system prompt template   |
+| `src/types/character.ts` | CharacterCard type                                          |
+| `src/types/chat.ts`      | Message, Conversation, WorldState types                     |
 
 ---
 

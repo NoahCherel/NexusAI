@@ -16,19 +16,19 @@
 import type { Message } from '@/types/chat';
 
 export interface QualityScore {
-    score: number;          // 0–10
+    score: number; // 0–10
     label: 'skip' | 'low' | 'medium' | 'high' | 'critical';
     reason: string;
     wordCount: number;
-    actionDensity: number;  // narrative actions per sentence
+    actionDensity: number; // narrative actions per sentence
 }
 
 // OOC patterns that indicate non-RP content
 const OOC_PATTERNS = [
-    /^\s*\(\(.*\)\)\s*$/,                    // ((double parens wrapping entire msg))
-    /^\s*\[ooc\b/i,                          // [OOC: ...]
-    /^\s*ooc\s*:/i,                          // OOC: ...
-    /^\s*\/\/\s/,                            // // comment style
+    /^\s*\(\(.*\)\)\s*$/, // ((double parens wrapping entire msg))
+    /^\s*\[ooc\b/i, // [OOC: ...]
+    /^\s*ooc\s*:/i, // OOC: ...
+    /^\s*\/\/\s/, // // comment style
 ];
 
 // Trivial response patterns
@@ -61,10 +61,10 @@ const HIGH_IMPORTANCE_PATTERNS = [
 
 // RP formatting indicators (asterisks for actions, quotes for dialogue)
 const RP_FORMAT_PATTERNS = [
-    /\*[^*]+\*/,                 // *action text*
-    /\".+\"/,                    // "dialogue"
-    /«.+»/,                      // «french dialogue»
-    /\u201C.+\u201D/,           // "smart quotes"
+    /\*[^*]+\*/, // *action text*
+    /\".+\"/, // "dialogue"
+    /«.+»/, // «french dialogue»
+    /\u201C.+\u201D/, // "smart quotes"
 ];
 
 /**
@@ -72,7 +72,7 @@ const RP_FORMAT_PATTERNS = [
  */
 export function scoreMessageQuality(message: Pick<Message, 'role' | 'content'>): QualityScore {
     const content = message.content.trim();
-    const wordCount = content.split(/\s+/).filter(w => w.length > 0).length;
+    const wordCount = content.split(/\s+/).filter((w) => w.length > 0).length;
 
     // Empty or near-empty
     if (wordCount === 0) {
@@ -89,15 +89,27 @@ export function scoreMessageQuality(message: Pick<Message, 'role' | 'content'>):
     // Check trivial
     for (const pattern of TRIVIAL_PATTERNS) {
         if (pattern.test(content)) {
-            return { score: 1, label: 'skip', reason: 'Trivial response', wordCount, actionDensity: 0 };
+            return {
+                score: 1,
+                label: 'skip',
+                reason: 'Trivial response',
+                wordCount,
+                actionDensity: 0,
+            };
         }
     }
 
     // Very short messages with no RP formatting
     if (wordCount < 5) {
-        const hasRPFormat = RP_FORMAT_PATTERNS.some(p => p.test(content));
+        const hasRPFormat = RP_FORMAT_PATTERNS.some((p) => p.test(content));
         if (!hasRPFormat) {
-            return { score: 2, label: 'skip', reason: 'Too short, no RP content', wordCount, actionDensity: 0 };
+            return {
+                score: 2,
+                label: 'skip',
+                reason: 'Too short, no RP content',
+                wordCount,
+                actionDensity: 0,
+            };
         }
     }
 
@@ -113,11 +125,11 @@ export function scoreMessageQuality(message: Pick<Message, 'role' | 'content'>):
     if (wordCount >= 500) score += 0.5;
 
     // RP formatting bonus
-    const rpFormatCount = RP_FORMAT_PATTERNS.filter(p => p.test(content)).length;
+    const rpFormatCount = RP_FORMAT_PATTERNS.filter((p) => p.test(content)).length;
     score += Math.min(rpFormatCount * 0.3, 0.9);
 
     // Action density: count action matches and normalize by sentence count
-    const sentences = content.split(/[.!?]+/).filter(s => s.trim().length > 3);
+    const sentences = content.split(/[.!?]+/).filter((s) => s.trim().length > 3);
     const sentenceCount = Math.max(sentences.length, 1);
     let actionCount = 0;
     for (const pattern of ACTION_PATTERNS) {
@@ -140,11 +152,22 @@ export function scoreMessageQuality(message: Pick<Message, 'role' | 'content'>):
     // Determine label
     let label: QualityScore['label'];
     let reason: string;
-    if (score <= 2) { label = 'skip'; reason = 'Below quality threshold'; }
-    else if (score <= 4) { label = 'low'; reason = 'Light content'; }
-    else if (score <= 6) { label = 'medium'; reason = 'Standard RP exchange'; }
-    else if (score <= 8) { label = 'high'; reason = 'Dense narrative content'; }
-    else { label = 'critical'; reason = 'Major story event'; }
+    if (score <= 2) {
+        label = 'skip';
+        reason = 'Below quality threshold';
+    } else if (score <= 4) {
+        label = 'low';
+        reason = 'Light content';
+    } else if (score <= 6) {
+        label = 'medium';
+        reason = 'Standard RP exchange';
+    } else if (score <= 8) {
+        label = 'high';
+        reason = 'Dense narrative content';
+    } else {
+        label = 'critical';
+        reason = 'Major story event';
+    }
 
     return { score, label, reason, wordCount, actionDensity };
 }
@@ -157,21 +180,22 @@ export function scoreMessageChunk(messages: Pick<Message, 'role' | 'content'>[])
     averageScore: number;
     maxScore: number;
     totalWords: number;
-    qualityMessages: number;   // Messages with score >= 3
-    skipMessages: number;      // Messages with score < 3
+    qualityMessages: number; // Messages with score >= 3
+    skipMessages: number; // Messages with score < 3
     scores: QualityScore[];
-    shouldSummarize: boolean;  // Whether this chunk is worth an API call
+    shouldSummarize: boolean; // Whether this chunk is worth an API call
 } {
-    const scores = messages.map(m => scoreMessageQuality(m));
-    const qualityMessages = scores.filter(s => s.score >= 3).length;
-    const skipMessages = scores.filter(s => s.score < 3).length;
+    const scores = messages.map((m) => scoreMessageQuality(m));
+    const qualityMessages = scores.filter((s) => s.score >= 3).length;
+    const skipMessages = scores.filter((s) => s.score < 3).length;
     const totalWords = scores.reduce((sum, s) => sum + s.wordCount, 0);
 
-    const qualityScores = scores.filter(s => s.score >= 3);
-    const averageScore = qualityScores.length > 0
-        ? qualityScores.reduce((sum, s) => sum + s.score, 0) / qualityScores.length
-        : 0;
-    const maxScore = Math.max(...scores.map(s => s.score), 0);
+    const qualityScores = scores.filter((s) => s.score >= 3);
+    const averageScore =
+        qualityScores.length > 0
+            ? qualityScores.reduce((sum, s) => sum + s.score, 0) / qualityScores.length
+            : 0;
+    const maxScore = Math.max(...scores.map((s) => s.score), 0);
 
     // Skip summarization if:
     // - Less than 30% of messages are quality (above skip threshold)
@@ -180,15 +204,26 @@ export function scoreMessageChunk(messages: Pick<Message, 'role' | 'content'>[])
     const qualityRatio = qualityMessages / Math.max(messages.length, 1);
     const shouldSummarize = qualityRatio >= 0.3 && totalWords >= 50 && averageScore >= 3;
 
-    return { averageScore, maxScore, totalWords, qualityMessages, skipMessages, scores, shouldSummarize };
+    return {
+        averageScore,
+        maxScore,
+        totalWords,
+        qualityMessages,
+        skipMessages,
+        scores,
+        shouldSummarize,
+    };
 }
 
 /**
  * Filter messages to only quality ones (for feeding to summarizer).
  * Removes trivial OOC/reaction messages to reduce noise.
  */
-export function filterQualityMessages<T extends Pick<Message, 'role' | 'content'>>(messages: T[], minScore: number = 3): T[] {
-    return messages.filter(m => scoreMessageQuality(m).score >= minScore);
+export function filterQualityMessages<T extends Pick<Message, 'role' | 'content'>>(
+    messages: T[],
+    minScore: number = 3
+): T[] {
+    return messages.filter((m) => scoreMessageQuality(m).score >= minScore);
 }
 
 /**
@@ -198,12 +233,15 @@ export function filterQualityMessages<T extends Pick<Message, 'role' | 'content'
  *
  * Returns a chunk size between 6 and 15 (default is 10).
  */
-export function getAdaptiveChunkSize(recentMessages: Pick<Message, 'role' | 'content'>[], baseChunkSize: number = 10): number {
+export function getAdaptiveChunkSize(
+    recentMessages: Pick<Message, 'role' | 'content'>[],
+    baseChunkSize: number = 10
+): number {
     if (recentMessages.length < 3) return baseChunkSize;
 
     // Score the recent messages
-    const scores = recentMessages.map(m => scoreMessageQuality(m));
-    const qualityScores = scores.filter(s => s.score >= 3);
+    const scores = recentMessages.map((m) => scoreMessageQuality(m));
+    const qualityScores = scores.filter((s) => s.score >= 3);
 
     if (qualityScores.length === 0) return Math.min(baseChunkSize + 5, 15); // Low content → bigger chunk
 
@@ -216,13 +254,13 @@ export function getAdaptiveChunkSize(recentMessages: Pick<Message, 'role' | 'con
     let chunkSize = baseChunkSize;
 
     if (avgScore >= 7 && avgWords >= 100) {
-        chunkSize = 6;   // Critical content: summarize more often
+        chunkSize = 6; // Critical content: summarize more often
     } else if (avgScore >= 6 && avgWords >= 60) {
-        chunkSize = 8;   // High content density
+        chunkSize = 8; // High content density
     } else if (avgScore <= 4 || avgWords <= 20) {
-        chunkSize = 13;  // Light content: summarize less often
+        chunkSize = 13; // Light content: summarize less often
     } else if (avgScore <= 3) {
-        chunkSize = 15;  // Very light: maximum chunk size
+        chunkSize = 15; // Very light: maximum chunk size
     }
 
     return chunkSize;

@@ -1,7 +1,6 @@
 'use client';
 
 import * as React from 'react';
-import type { PopoverProps } from '@radix-ui/react-popover';
 import { Check, ChevronDown } from 'lucide-react';
 
 import { cn } from '@/lib/utils';
@@ -15,7 +14,8 @@ interface SelectContextValue {
     open: boolean;
     setOpen: (open: boolean) => void;
     placeholder?: string;
-    labelMap: Map<string, React.ReactNode>;
+    registerLabel: (value: string, label: React.ReactNode) => void;
+    getLabel: (value: string) => React.ReactNode | undefined;
 }
 
 const SelectContext = React.createContext<SelectContextValue | undefined>(undefined);
@@ -37,11 +37,20 @@ interface SelectProps {
 
 const Select = ({ value, onValueChange, children }: SelectProps) => {
     const [open, setOpen] = React.useState(false);
-    // We need a map to store labels for values to display in the trigger
-    const labelMap = React.useRef(new Map<string, React.ReactNode>()).current;
+    const labelMapRef = React.useRef(new Map<string, React.ReactNode>());
+
+    const registerLabel = React.useCallback((itemValue: string, label: React.ReactNode) => {
+        labelMapRef.current.set(itemValue, label);
+    }, []);
+
+    const getLabel = React.useCallback((itemValue: string) => {
+        return labelMapRef.current.get(itemValue);
+    }, []);
 
     return (
-        <SelectContext.Provider value={{ value, onValueChange, open, setOpen, labelMap }}>
+        <SelectContext.Provider
+            value={{ value, onValueChange, open, setOpen, registerLabel, getLabel }}
+        >
             <Popover open={open} onOpenChange={setOpen}>
                 {children}
             </Popover>
@@ -75,8 +84,8 @@ const SelectValue = React.forwardRef<
     HTMLSpanElement,
     React.HTMLAttributes<HTMLSpanElement> & { placeholder?: string }
 >(({ className, placeholder, ...props }, ref) => {
-    const { value, labelMap } = useSelect();
-    const displayValue = labelMap.get(value) || placeholder || value;
+    const { value, getLabel } = useSelect();
+    const displayValue = getLabel(value) || placeholder || value;
 
     return (
         <span ref={ref} className={cn('block truncate', className)} {...props}>
@@ -92,7 +101,13 @@ const SelectContent = React.forwardRef<
 >(({ className, children, ...props }, ref) => {
     return (
         <PopoverContent ref={ref} className={cn('w-full p-1', className)} align="start" {...props}>
-            <div className="max-h-[300px] overflow-y-auto overflow-x-hidden">{children}</div>
+            <div
+                className="max-h-[300px] overflow-y-auto overflow-x-hidden"
+                style={{ WebkitOverflowScrolling: 'touch', touchAction: 'pan-y' }}
+                onPointerDown={(e) => e.stopPropagation()}
+            >
+                {children}
+            </div>
         </PopoverContent>
     );
 });
@@ -102,13 +117,14 @@ const SelectItem = React.forwardRef<
     HTMLDivElement,
     React.HTMLAttributes<HTMLDivElement> & { value: string }
 >(({ className, children, value: itemValue, ...props }, ref) => {
-    const { value, onValueChange, setOpen, labelMap } = useSelect();
+    const { value, onValueChange, setOpen, registerLabel } = useSelect();
 
-    // Register label
-    // This is a bit of a hack in React strict mode / fast refresh but works for basic cases
-    if (children) {
-        labelMap.set(itemValue, children);
-    }
+    // Register label for display in trigger
+    React.useEffect(() => {
+        if (children) {
+            registerLabel(itemValue, children);
+        }
+    }, [itemValue, children, registerLabel]);
 
     const isSelected = value === itemValue;
 

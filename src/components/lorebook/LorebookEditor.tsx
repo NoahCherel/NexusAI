@@ -6,7 +6,21 @@ import { decryptApiKey } from '@/lib/crypto';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
-import { Plus, Trash2, Save, X, Search, Book, ChevronLeft, Sparkles, Loader2, Check, Inbox, Upload, Download } from 'lucide-react';
+import {
+    Plus,
+    Trash2,
+    Save,
+    X,
+    Search,
+    Book,
+    ChevronLeft,
+    Sparkles,
+    Loader2,
+    Check,
+    Inbox,
+    Upload,
+    Download,
+} from 'lucide-react';
 import type { LorebookEntry, Lorebook } from '@/types';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
@@ -20,8 +34,17 @@ import {
 } from '@/components/ui/dialog';
 
 export function LorebookEditor({ onClose }: { onClose: () => void }) {
-    const { activeLorebook, addEntry, updateEntry, deleteEntry, pendingSuggestions, acceptSuggestion, rejectSuggestion, clearSuggestions, updateLorebook } =
-        useLorebookStore();
+    const {
+        activeLorebook,
+        addEntry,
+        updateEntry,
+        deleteEntry,
+        pendingSuggestions,
+        acceptSuggestion,
+        rejectSuggestion,
+        clearSuggestions,
+        updateLorebook,
+    } = useLorebookStore();
 
     const [selectedEntryIndex, setSelectedEntryIndex] = useState<number | null>(null);
     const [searchQuery, setSearchQuery] = useState('');
@@ -144,7 +167,7 @@ export function LorebookEditor({ onClose }: { onClose: () => void }) {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${apiKey}`,
+                    Authorization: `Bearer ${apiKey}`,
                     'HTTP-Referer': window.location.origin,
                 },
                 body: JSON.stringify({
@@ -152,7 +175,8 @@ export function LorebookEditor({ onClose }: { onClose: () => void }) {
                     messages: [
                         {
                             role: 'system',
-                            content: 'You are a lorebook entry summarizer. Condense the following text while keeping ALL essential information: character traits, relationships, abilities, appearance, and key facts. Be concise but complete. Output ONLY the condensed text, nothing else.',
+                            content:
+                                'You are a lorebook entry summarizer. Condense the following text while keeping ALL essential information: character traits, relationships, abilities, appearance, and key facts. Be concise but complete. Output ONLY the condensed text, nothing else.',
                         },
                         {
                             role: 'user',
@@ -280,7 +304,6 @@ export function LorebookEditor({ onClose }: { onClose: () => void }) {
                         </Button>
                     </div>
 
-
                     <Button variant="ghost" size="icon" onClick={onClose} className="h-8 w-8">
                         <X className="w-4 h-4" />
                     </Button>
@@ -325,7 +348,8 @@ export function LorebookEditor({ onClose }: { onClose: () => void }) {
                             )}
                         >
                             <span className="flex items-center justify-center gap-2">
-                                <Book className="w-3.5 h-3.5" /> Entries ({activeLorebook?.entries.length || 0})
+                                <Book className="w-3.5 h-3.5" /> Entries (
+                                {activeLorebook?.entries.length || 0})
                             </span>
                         </button>
                         <button
@@ -424,7 +448,9 @@ export function LorebookEditor({ onClose }: { onClose: () => void }) {
                                                     for (const s of pendingSuggestions) {
                                                         await acceptSuggestion(s.id);
                                                     }
-                                                    toast.success(`Accepted ${pendingSuggestions.length} suggestions`);
+                                                    toast.success(
+                                                        `Accepted ${pendingSuggestions.length} suggestions`
+                                                    );
                                                 }}
                                                 className="h-6 text-[9px] gap-1 text-green-500 hover:text-green-600 hover:bg-green-500/10 border-green-500/20 px-2"
                                             >
@@ -451,7 +477,10 @@ export function LorebookEditor({ onClose }: { onClose: () => void }) {
                                     >
                                         <div className="flex flex-wrap gap-1">
                                             {suggestion.keys.map((k, i) => (
-                                                <span key={i} className="bg-primary/10 text-primary text-[10px] font-bold px-1.5 py-0.5 rounded">
+                                                <span
+                                                    key={i}
+                                                    className="bg-primary/10 text-primary text-[10px] font-bold px-1.5 py-0.5 rounded"
+                                                >
                                                     {k}
                                                 </span>
                                             ))}
@@ -523,7 +552,11 @@ export function LorebookEditor({ onClose }: { onClose: () => void }) {
                                         }
                                     }}
                                     onKeyDown={(e) => {
-                                        if (e.key === 'Enter' && selectedEntryIndex !== null && currentEntry) {
+                                        if (
+                                            e.key === 'Enter' &&
+                                            selectedEntryIndex !== null &&
+                                            currentEntry
+                                        ) {
                                             updateEntry(selectedEntryIndex, {
                                                 ...currentEntry,
                                                 keys: keysRawText
@@ -547,7 +580,9 @@ export function LorebookEditor({ onClose }: { onClose: () => void }) {
                                             variant="ghost"
                                             size="sm"
                                             onClick={handleSummarize}
-                                            disabled={isSummarizing || currentEntry.content.length < 100}
+                                            disabled={
+                                                isSummarizing || currentEntry.content.length < 100
+                                            }
                                             className="h-7 gap-1.5 text-xs text-primary/70 hover:text-primary hover:bg-primary/10"
                                             title="AI-powered summarization to reduce token usage"
                                         >
@@ -664,6 +699,6 @@ export function LorebookEditor({ onClose }: { onClose: () => void }) {
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
-        </div >
+        </div>
     );
 }

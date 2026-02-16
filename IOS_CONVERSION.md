@@ -104,19 +104,21 @@ NexusAI is built as a PWA. On an iPhone:
 If you are running the app on your computer (`localhost`), you won't see it on your iPhone Safari by default. Here is how to fix it:
 
 1. **Local Network Access**:
-   - Ensure your iPhone and PC are on the **same Wi-Fi**.
-   - Find your PC's local IP (Run `ipconfig` on Windows, look for "IPv4 Address", e.g., `192.168.1.50`).
-   - On your iPhone Safari, go to `http://192.168.1.50:3000`.
-   - *Note: Some PWA features (like installation) require HTTPS.*
+    - Ensure your iPhone and PC are on the **same Wi-Fi**.
+    - Find your PC's local IP (Run `ipconfig` on Windows, look for "IPv4 Address", e.g., `192.168.1.50`).
+    - On your iPhone Safari, go to `http://192.168.1.50:3000`.
+    - _Note: Some PWA features (like installation) require HTTPS._
 
 2. **Use a Tunnel (Best for Installation)**:
-   - Use a tool like **ngrok** or **localtunnel** to create a temporary public HTTPS URL.
-   ```bash
-   npx localtunnel --port 3000
-   ```
-   - Open the resulting `https://...` URL on your iPhone. Safari will see it as a secure site and allow **Add to Home Screen**.
+    - Use a tool like **ngrok** or **localtunnel** to create a temporary public HTTPS URL.
+
+    ```bash
+    npx localtunnel --port 3000
+    ```
+
+    - Open the resulting `https://...` URL on your iPhone. Safari will see it as a secure site and allow **Add to Home Screen**.
 
 3. **Production Deployment (Easiest & Free)**:
-   - Push your code to **GitHub**.
-   - Connect it to **Vercel** (it takes 1 minute).
-   - Use the `https://your-app.vercel.app` link on your iPhone. This is the most reliable way to test the full PWA experience.
+    - Push your code to **GitHub**.
+    - Connect it to **Vercel** (it takes 1 minute).
+    - Use the `https://your-app.vercel.app` link on your iPhone. This is the most reliable way to test the full PWA experience.
