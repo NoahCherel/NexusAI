@@ -270,7 +270,7 @@ export async function deleteConversation(id: string): Promise<void> {
     // Delete associated messages
     const tx = db.transaction('messages', 'readwrite');
     const index = tx.store.index('by-conversation');
-    let cursor = await index.openKeyCursor(IDBKeyRange.only(id));
+    let cursor = await index.openCursor(IDBKeyRange.only(id));
     while (cursor) {
         await cursor.delete();
         cursor = await cursor.continue();
@@ -334,7 +334,7 @@ export async function deleteVectorsByConversation(conversationId: string): Promi
     const db = await initDB();
     const tx = db.transaction('vectors', 'readwrite');
     const index = tx.store.index('by-conversation');
-    let cursor = await index.openKeyCursor(IDBKeyRange.only(conversationId));
+    let cursor = await index.openCursor(IDBKeyRange.only(conversationId));
     while (cursor) {
         await cursor.delete();
         cursor = await cursor.continue();
@@ -357,7 +357,7 @@ export async function deleteSummariesByConversation(conversationId: string): Pro
     const db = await initDB();
     const tx = db.transaction('summaries', 'readwrite');
     const index = tx.store.index('by-conversation');
-    let cursor = await index.openKeyCursor(IDBKeyRange.only(conversationId));
+    let cursor = await index.openCursor(IDBKeyRange.only(conversationId));
     while (cursor) {
         await cursor.delete();
         cursor = await cursor.continue();
@@ -397,7 +397,7 @@ export async function deleteFactsByConversation(conversationId: string): Promise
     const db = await initDB();
     const tx = db.transaction('facts', 'readwrite');
     const index = tx.store.index('by-conversation');
-    let cursor = await index.openKeyCursor(IDBKeyRange.only(conversationId));
+    let cursor = await index.openCursor(IDBKeyRange.only(conversationId));
     while (cursor) {
         await cursor.delete();
         cursor = await cursor.continue();
