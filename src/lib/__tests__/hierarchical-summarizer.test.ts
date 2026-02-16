@@ -21,10 +21,10 @@ function mockSummary(overrides: Partial<MemorySummary> = {}): MemorySummary {
         conversationId: 'conv-1',
         level: 0,
         content: 'Test summary',
-        tokenCount: 50,
-        messageRange: [0, 9],
+        keyFacts: [],
+        messageRange: [0, 10],
         childIds: [],
-        timestamp: Date.now(),
+        createdAt: Date.now(),
         ...overrides,
     };
 }
@@ -34,10 +34,13 @@ function mockMessages(count: number): Message[] {
     return Array.from({ length: count }, (_, i) => ({
         id: `msg-${i}`,
         conversationId: 'conv-1',
+        parentId: i > 0 ? `msg-${i - 1}` : null,
         role: i % 2 === 0 ? 'user' : 'assistant',
         content: `Message content ${i}`,
-        createdAt: new Date(Date.now() + i * 1000).toISOString(),
+        createdAt: new Date(Date.now() + i * 1000),
         isActiveBranch: true,
+        messageOrder: i + 1,
+        regenerationIndex: 0,
     })) as Message[];
 }
 

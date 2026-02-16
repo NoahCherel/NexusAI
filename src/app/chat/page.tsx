@@ -345,6 +345,7 @@ export default function ChatPage() {
                                     if (done) break;
                                     text += decoder.decode(value, { stream: true });
                                 }
+                                text += decoder.decode(); // Flush remaining bytes
                             }
 
                             const cleanText = text.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
@@ -443,6 +444,7 @@ export default function ChatPage() {
                                     if (done) break;
                                     text += decoder.decode(value, { stream: true });
                                 }
+                                text += decoder.decode(); // Flush remaining bytes
                             }
 
                             const cleanText = text.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
@@ -492,6 +494,7 @@ export default function ChatPage() {
                                     if (done) break;
                                     text += decoder.decode(value, { stream: true });
                                 }
+                                text += decoder.decode(); // Flush remaining bytes
                             }
 
                             const cleanText = text.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
