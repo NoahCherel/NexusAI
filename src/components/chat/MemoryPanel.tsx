@@ -401,6 +401,8 @@ export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
                         const range: [number, number] = [Math.min(...l0s.map(s => s.messageRange[0])), Math.max(...l0s.map(s => s.messageRange[1]))];
                         const embedding = await embedText(parsed.summary);
                         await createSummary(activeConversationId, 1, parsed.summary, parsed.keyFacts, range, l0s.map(s => s.id), embedding);
+                    } else {
+                        console.warn('[Reindex] L1 summary: failed to parse response');
                     }
                 } else {
                     console.warn(`[Reindex] L1 summary failed with status ${l1Response.status}`);
@@ -443,6 +445,8 @@ export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
                         const range: [number, number] = [Math.min(...l1s.map(s => s.messageRange[0])), Math.max(...l1s.map(s => s.messageRange[1]))];
                         const embedding = await embedText(parsed.summary);
                         await createSummary(activeConversationId, 2, parsed.summary, parsed.keyFacts, range, l1s.map(s => s.id), embedding);
+                    } else {
+                        console.warn('[Reindex] L2 summary: failed to parse response');
                     }
                 } else {
                     console.warn(`[Reindex] L2 summary failed with status ${l2Response.status}`);
