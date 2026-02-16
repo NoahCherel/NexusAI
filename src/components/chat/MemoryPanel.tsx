@@ -318,6 +318,7 @@ export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
                             if (done) break;
                             text += decoder.decode(value, { stream: true });
                         }
+                        text += decoder.decode(); // Flush remaining bytes
                     }
                     const cleanText = text.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
                     const parsed = parseSummarizationResponse(cleanText);
@@ -354,6 +355,8 @@ export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
                                 await saveFactsBatch(factsWithIds);
                             }
                         }
+                    } else {
+                        console.warn(`[Reindex] Chunk ${i + 1}: failed to parse summary response`);
                     }
                 } else {
                     console.warn(`[Reindex] Chunk ${i + 1} failed with status ${response.status}`);
@@ -363,80 +366,94 @@ export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
                 await new Promise(r => setTimeout(r, 1000));
             }
 
-            // Try creating L1 summaries
+            // Create L1 summaries (loop to handle multiple batches)
             setReindexProgress('Creating higher-level summaries...');
-            const updatedSummaries = await getSummaries(activeConversationId);
+            let currentSummaries = await getSummaries(activeConversationId);
 
-            if (shouldCreateL1Summary(updatedSummaries)) {
-                const l0s = getL0SummariesForL1(updatedSummaries);
-                if (l0s) {
-                    const l1Prompt = buildL1Prompt(l0s);
-                    const l1Response = await fetch('/api/chat', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            messages: [{ role: 'user', content: l1Prompt }],
-                            provider: 'openrouter',
-                            model: 'meta-llama/llama-3.3-70b-instruct:free',
-                            apiKey,
-                            systemPrompt: SUMMARIZATION_PROMPT_L1,
-                            temperature: 0.3,
-                            maxTokens: 2000,
-                        }),
-                    });
-                    if (l1Response.ok) {
-                        const reader = l1Response.body?.getReader();
-                        const decoder = new TextDecoder();
-                        let text = '';
-                        if (reader) {
-                            while (true) { const { done, value } = await reader.read(); if (done) break; text += decoder.decode(value, { stream: true }); }
-                        }
-                        const cleanText = text.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
-                        const parsed = parseSummarizationResponse(cleanText);
-                        if (parsed) {
-                            const range: [number, number] = [Math.min(...l0s.map(s => s.messageRange[0])), Math.max(...l0s.map(s => s.messageRange[1]))];
-                            const embedding = await embedText(parsed.summary);
-                            await createSummary(activeConversationId, 1, parsed.summary, parsed.keyFacts, range, l0s.map(s => s.id), embedding);
-                        }
+            while (shouldCreateL1Summary(currentSummaries)) {
+                const l0s = getL0SummariesForL1(currentSummaries);
+                if (!l0s) break;
+                const l1Prompt = buildL1Prompt(l0s);
+                const l1Response = await fetch('/api/chat', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        messages: [{ role: 'user', content: l1Prompt }],
+                        provider: 'openrouter',
+                        model: 'meta-llama/llama-3.3-70b-instruct:free',
+                        apiKey,
+                        systemPrompt: SUMMARIZATION_PROMPT_L1,
+                        temperature: 0.3,
+                        maxTokens: 2000,
+                    }),
+                });
+                if (l1Response.ok) {
+                    const reader = l1Response.body?.getReader();
+                    const decoder = new TextDecoder();
+                    let text = '';
+                    if (reader) {
+                        while (true) { const { done, value } = await reader.read(); if (done) break; text += decoder.decode(value, { stream: true }); }
+                        text += decoder.decode(); // Flush remaining bytes
                     }
+                    const cleanText = text.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+                    const parsed = parseSummarizationResponse(cleanText);
+                    if (parsed) {
+                        const range: [number, number] = [Math.min(...l0s.map(s => s.messageRange[0])), Math.max(...l0s.map(s => s.messageRange[1]))];
+                        const embedding = await embedText(parsed.summary);
+                        await createSummary(activeConversationId, 1, parsed.summary, parsed.keyFacts, range, l0s.map(s => s.id), embedding);
+                    } else {
+                        console.warn('[Reindex] L1 summary: failed to parse response');
+                    }
+                } else {
+                    console.warn(`[Reindex] L1 summary failed with status ${l1Response.status}`);
+                    break;
                 }
+                currentSummaries = await getSummaries(activeConversationId);
+                await new Promise(r => setTimeout(r, 1000));
             }
 
-            // Try creating L2 summaries
-            const finalSummaries = await getSummaries(activeConversationId);
-            if (shouldCreateL2Summary(finalSummaries)) {
-                const l1s = getL1SummariesForL2(finalSummaries);
-                if (l1s) {
-                    const l2Prompt = buildL2Prompt(l1s);
-                    const l2Response = await fetch('/api/chat', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            messages: [{ role: 'user', content: l2Prompt }],
-                            provider: 'openrouter',
-                            model: 'meta-llama/llama-3.3-70b-instruct:free',
-                            apiKey,
-                            systemPrompt: SUMMARIZATION_PROMPT_L2,
-                            temperature: 0.3,
-                            maxTokens: 2000,
-                        }),
-                    });
-                    if (l2Response.ok) {
-                        const reader = l2Response.body?.getReader();
-                        const decoder = new TextDecoder();
-                        let text = '';
-                        if (reader) {
-                            while (true) { const { done, value } = await reader.read(); if (done) break; text += decoder.decode(value, { stream: true }); }
-                        }
-                        const cleanText = text.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
-                        const parsed = parseSummarizationResponse(cleanText);
-                        if (parsed) {
-                            const range: [number, number] = [Math.min(...l1s.map(s => s.messageRange[0])), Math.max(...l1s.map(s => s.messageRange[1]))];
-                            const embedding = await embedText(parsed.summary);
-                            await createSummary(activeConversationId, 2, parsed.summary, parsed.keyFacts, range, l1s.map(s => s.id), embedding);
-                        }
+            // Create L2 summaries (loop to handle multiple batches)
+            currentSummaries = await getSummaries(activeConversationId);
+            while (shouldCreateL2Summary(currentSummaries)) {
+                const l1s = getL1SummariesForL2(currentSummaries);
+                if (!l1s) break;
+                const l2Prompt = buildL2Prompt(l1s);
+                const l2Response = await fetch('/api/chat', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        messages: [{ role: 'user', content: l2Prompt }],
+                        provider: 'openrouter',
+                        model: 'meta-llama/llama-3.3-70b-instruct:free',
+                        apiKey,
+                        systemPrompt: SUMMARIZATION_PROMPT_L2,
+                        temperature: 0.3,
+                        maxTokens: 2000,
+                    }),
+                });
+                if (l2Response.ok) {
+                    const reader = l2Response.body?.getReader();
+                    const decoder = new TextDecoder();
+                    let text = '';
+                    if (reader) {
+                        while (true) { const { done, value } = await reader.read(); if (done) break; text += decoder.decode(value, { stream: true }); }
+                        text += decoder.decode(); // Flush remaining bytes
                     }
+                    const cleanText = text.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+                    const parsed = parseSummarizationResponse(cleanText);
+                    if (parsed) {
+                        const range: [number, number] = [Math.min(...l1s.map(s => s.messageRange[0])), Math.max(...l1s.map(s => s.messageRange[1]))];
+                        const embedding = await embedText(parsed.summary);
+                        await createSummary(activeConversationId, 2, parsed.summary, parsed.keyFacts, range, l1s.map(s => s.id), embedding);
+                    } else {
+                        console.warn('[Reindex] L2 summary: failed to parse response');
+                    }
+                } else {
+                    console.warn(`[Reindex] L2 summary failed with status ${l2Response.status}`);
+                    break;
                 }
+                currentSummaries = await getSummaries(activeConversationId);
+                await new Promise(r => setTimeout(r, 1000));
             }
 
             setReindexProgress('Reindexing complete!');
