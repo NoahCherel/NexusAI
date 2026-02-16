@@ -131,7 +131,7 @@ export function LorebookEditor({ onClose }: { onClose: () => void }) {
         setIsSummarizing(true);
         try {
             // Get API key from settings
-            const { apiKeys } = useSettingsStore.getState();
+            const { apiKeys, backgroundModel } = useSettingsStore.getState();
             const keyConfig = apiKeys.find((k) => k.provider === 'openrouter');
             let apiKey = '';
             if (keyConfig) {
@@ -139,6 +139,7 @@ export function LorebookEditor({ onClose }: { onClose: () => void }) {
             }
 
             // Direct call to OpenRouter API
+            const modelToUse = backgroundModel || 'deepseek/deepseek-r1-0528:free';
             const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
                 method: 'POST',
                 headers: {
@@ -147,7 +148,7 @@ export function LorebookEditor({ onClose }: { onClose: () => void }) {
                     'HTTP-Referer': window.location.origin,
                 },
                 body: JSON.stringify({
-                    model: 'deepseek/deepseek-r1-0528:free',
+                    model: modelToUse,
                     messages: [
                         {
                             role: 'system',

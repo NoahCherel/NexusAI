@@ -123,11 +123,13 @@ export function useWorldStateAnalyzer(): UseWorldStateAnalyzerReturn {
                     userName
                 );
 
-                const models = [
-                    'deepseek/deepseek-r1-0528:free', // Primary
-                    'meta-llama/llama-3.3-70b-instruct:free',
-                    'mistralai/mistral-small-3.1-24b-instruct:free',
-                ];
+                const models = settingsStore.backgroundModel
+                    ? [settingsStore.backgroundModel]
+                    : [
+                        'deepseek/deepseek-r1-0528:free', // Primary
+                        'meta-llama/llama-3.3-70b-instruct:free',
+                        'mistralai/mistral-small-3.1-24b-instruct:free',
+                    ];
 
                 const resultData = await performAIRequest(
                     models,

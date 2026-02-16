@@ -282,7 +282,7 @@ export default function ChatPage() {
 
     // Hierarchical Auto-Summary & Fact Extraction Logic
     useEffect(() => {
-        const { enableHierarchicalSummaries } = useSettingsStore.getState();
+        const { enableHierarchicalSummaries, backgroundModel } = useSettingsStore.getState();
         const runHierarchicalSummary = async () => {
             if (!enableHierarchicalSummaries) return;
             if (!character || !activeConversationId || messages.length === 0 || !currentApiKey) return;
@@ -327,6 +327,7 @@ export default function ChatPage() {
                             userPrompt: prompt,
                             apiKey: currentApiKey,
                             temperature: 0.3,
+                            backgroundModel,
                         });
 
                         if (result) {
@@ -405,6 +406,7 @@ export default function ChatPage() {
                             userPrompt: prompt,
                             apiKey: currentApiKey,
                             temperature: 0.3,
+                            backgroundModel,
                         });
 
                         if (result) {
@@ -437,6 +439,7 @@ export default function ChatPage() {
                             userPrompt: prompt,
                             apiKey: currentApiKey,
                             temperature: 0.3,
+                            backgroundModel,
                         });
 
                         if (result) {
@@ -754,7 +757,7 @@ export default function ChatPage() {
                                     return await decryptApiKey(orConfig.encryptedKey) || currentApiKey;
                                 })();
 
-                                const { customFactCategories } = useSettingsStore.getState();
+                                const { customFactCategories, backgroundModel: bgModel } = useSettingsStore.getState();
                                 const factSystemPrompt = customFactCategories.length > 0
                                     ? buildFactExtractionSystemPrompt(customFactCategories)
                                     : FACT_EXTRACTION_PROMPT;
@@ -764,6 +767,7 @@ export default function ChatPage() {
                                     userPrompt: factPrompt,
                                     apiKey: openRouterKey || currentApiKey || '',
                                     temperature: 0.2,
+                                    backgroundModel: bgModel,
                                 });
 
                                 if (factResult) {

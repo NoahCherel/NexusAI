@@ -164,6 +164,9 @@ interface SettingsState {
     immersiveMode: boolean;
     lorebookAutoExtract: boolean;
 
+    // Background AI Model
+    backgroundModel: string | null; // null = auto (free model rotation), string = specific modelId
+
     // RAG / Memory Settings
     enableFactExtraction: boolean;
     enableHierarchicalSummaries: boolean;
@@ -193,6 +196,7 @@ interface SettingsState {
     setShowWorldState: (show: boolean) => void;
     setImmersiveMode: (immersive: boolean) => void;
     setLorebookAutoExtract: (enabled: boolean) => void;
+    setBackgroundModel: (model: string | null) => void;
     setEnableFactExtraction: (enabled: boolean) => void;
     setEnableHierarchicalSummaries: (enabled: boolean) => void;
     setEnableRAGRetrieval: (enabled: boolean) => void;
@@ -228,6 +232,7 @@ export const useSettingsStore = create<SettingsState>()(
             showWorldState: true,
             immersiveMode: false,
             lorebookAutoExtract: true,
+            backgroundModel: null,
             enableFactExtraction: true,
             enableHierarchicalSummaries: true,
             enableRAGRetrieval: true,
@@ -282,6 +287,7 @@ export const useSettingsStore = create<SettingsState>()(
             setShowWorldState: (showWorldState) => set({ showWorldState }),
             setImmersiveMode: (immersiveMode) => set({ immersiveMode }),
             setLorebookAutoExtract: (lorebookAutoExtract) => set({ lorebookAutoExtract }),
+            setBackgroundModel: (backgroundModel) => set({ backgroundModel }),
             setEnableFactExtraction: (enableFactExtraction) => set({ enableFactExtraction }),
             setEnableHierarchicalSummaries: (enableHierarchicalSummaries) => set({ enableHierarchicalSummaries }),
             setEnableRAGRetrieval: (enableRAGRetrieval) => set({ enableRAGRetrieval }),

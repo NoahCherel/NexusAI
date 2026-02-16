@@ -39,6 +39,8 @@ interface BackgroundAIOptions {
     models?: string[];
     /** Max retries per model on 429 */
     maxRetries?: number;
+    /** User-chosen background model override (from settings). Bypasses fallback chain. */
+    backgroundModel?: string | null;
 }
 
 interface BackgroundAIResult {
@@ -57,11 +59,15 @@ export async function backgroundAICall(options: BackgroundAIOptions): Promise<Ba
         apiKey,
         temperature = 0.3,
         maxTokens = 2000,
-        models = FREE_MODELS,
+        models,
         maxRetries = 2,
+        backgroundModel,
     } = options;
 
-    for (const model of models) {
+    // If user chose a specific background model, use only that (no fallback chain)
+    const modelChain = backgroundModel ? [backgroundModel] : (models ?? FREE_MODELS);
+
+    for (const model of modelChain) {
         for (let attempt = 0; attempt <= maxRetries; attempt++) {
             try {
                 // Wait for global rate limit slot

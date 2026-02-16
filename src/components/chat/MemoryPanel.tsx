@@ -265,9 +265,9 @@ export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
             const { deduplicateFacts } = await import('@/lib/ai/fact-extractor');
             const { saveFactsBatch, getSummariesByConversation: getSummaries, getFactsByConversation: getFacts, deleteSummariesByConversation, deleteVectorsByConversation } = await import('@/lib/db');
             const { backgroundAICall } = await import('@/lib/ai/background-ai');
-            const { getActivePersona } = await import('@/stores/settings-store').then(m => {
+            const { getActivePersona, backgroundModel } = await import('@/stores/settings-store').then(m => {
                 const state = m.useSettingsStore.getState();
-                return { getActivePersona: () => state.personas.find(p => p.id === state.activePersonaId) };
+                return { getActivePersona: () => state.personas.find(p => p.id === state.activePersonaId), backgroundModel: state.backgroundModel };
             });
 
             const activePersona = getActivePersona();
@@ -305,6 +305,7 @@ export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
                     userPrompt: prompt,
                     apiKey,
                     temperature: 0.3,
+                    backgroundModel,
                 });
 
                 if (result) {
@@ -363,6 +364,7 @@ export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
                     userPrompt: l1Prompt,
                     apiKey,
                     temperature: 0.3,
+                    backgroundModel,
                 });
                 if (l1Result) {
                     const parsed = parseSummarizationResponse(l1Result.content);
@@ -388,6 +390,7 @@ export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
                     userPrompt: l2Prompt,
                     apiKey,
                     temperature: 0.3,
+                    backgroundModel,
                 });
                 if (l2Result) {
                     const parsed = parseSummarizationResponse(l2Result.content);

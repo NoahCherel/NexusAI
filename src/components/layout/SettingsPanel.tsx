@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Settings, Key, Sliders, Eye, EyeOff, Check, X, Settings2 } from 'lucide-react';
+import { Settings, Key, Sliders, Eye, EyeOff, Check, X, Settings2, Bot } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -12,9 +12,17 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Separator } from '@/components/ui/separator';
 import { useSettingsStore } from '@/stores';
+import { DEFAULT_MODELS } from '@/stores/settings-store';
 import { encryptApiKey, validateApiKey } from '@/lib/crypto';
 import { type Provider } from '@/lib/ai';
 import { PresetEditor } from '@/components/settings/PresetEditor';
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from '@/components/ui/select';
 
 interface SettingsPanelProps {
     open: boolean;
@@ -29,6 +37,8 @@ export function SettingsPanel({ open, onOpenChange }: SettingsPanelProps) {
         showWorldState,
         enableReasoning,
         immersiveMode,
+        backgroundModel,
+        customModels,
         setApiKey,
         setActiveProvider,
         setTemperature,
@@ -36,9 +46,12 @@ export function SettingsPanel({ open, onOpenChange }: SettingsPanelProps) {
         setShowWorldState,
         setEnableReasoning,
         setImmersiveMode,
+        setBackgroundModel,
         lorebookAutoExtract,
         setLorebookAutoExtract,
     } = useSettingsStore();
+
+    const allModels = [...DEFAULT_MODELS, ...customModels];
 
     const [newKey, setNewKey] = useState('');
     const [selectedProvider, setSelectedProvider] = useState<Provider>('openrouter');
@@ -241,6 +254,48 @@ export function SettingsPanel({ open, onOpenChange }: SettingsPanelProps) {
                                         >
                                             {lorebookAutoExtract ? 'On' : 'Off'}
                                         </Button>
+                                    </div>
+                                </div>
+
+                                {/* Background AI Model */}
+                                <div className="space-y-4">
+                                    <div className="p-4 border rounded-lg bg-card/50 space-y-3">
+                                        <div>
+                                            <p className="text-sm font-medium flex items-center gap-2">
+                                                <Bot className="h-4 w-4" />
+                                                Background AI Model
+                                            </p>
+                                            <p className="text-xs text-muted-foreground mt-1">
+                                                Model used for summaries, fact extraction, world state analysis, and lorebook suggestions. &quot;Auto (Free)&quot; rotates between free models with fallback.
+                                            </p>
+                                        </div>
+                                        <Select
+                                            value={backgroundModel ?? '__auto__'}
+                                            onValueChange={(v) => setBackgroundModel(v === '__auto__' ? null : v)}
+                                        >
+                                            <SelectTrigger className="w-full h-9">
+                                                <SelectValue placeholder="Auto (Free Models)" />
+                                            </SelectTrigger>
+                                            <SelectContent className="max-h-[300px]">
+                                                <SelectItem value="__auto__">
+                                                    🔄 Auto (Free Models)
+                                                </SelectItem>
+                                                {allModels.filter(m => m.isFree).map((model) => (
+                                                    <SelectItem key={model.modelId} value={model.modelId}>
+                                                        ✨ {model.name}
+                                                    </SelectItem>
+                                                ))}
+                                                {allModels.filter(m => !m.isFree).length > 0 && (
+                                                    <>
+                                                        {allModels.filter(m => !m.isFree).map((model) => (
+                                                            <SelectItem key={model.modelId} value={model.modelId}>
+                                                                ⚡ {model.name}
+                                                            </SelectItem>
+                                                        ))}
+                                                    </>
+                                                )}
+                                            </SelectContent>
+                                        </Select>
                                     </div>
                                 </div>
 
