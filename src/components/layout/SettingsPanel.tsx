@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Settings, Key, Sliders, Eye, EyeOff, Check, X, Settings2, Bot } from 'lucide-react';
+import { Settings, Key, Sliders, Eye, EyeOff, Check, X, Settings2, Bot, ChevronDown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -16,7 +16,13 @@ import { DEFAULT_MODELS } from '@/stores/settings-store';
 import { encryptApiKey, validateApiKey } from '@/lib/crypto';
 import { type Provider } from '@/lib/ai';
 import { PresetEditor } from '@/components/settings/PresetEditor';
-import { Select, SelectContent, SelectItem, SelectTrigger } from '@/components/ui/select';
+import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuSeparator,
+    DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 
 interface SettingsPanelProps {
     open: boolean;
@@ -270,51 +276,88 @@ export function SettingsPanel({ open, onOpenChange }: SettingsPanelProps) {
                                                 fallback.
                                             </p>
                                         </div>
-                                        <Select
-                                            value={backgroundModel ?? '__auto__'}
-                                            onValueChange={(v) =>
-                                                setBackgroundModel(v === '__auto__' ? null : v)
-                                            }
-                                        >
-                                            <SelectTrigger className="w-full h-9">
-                                                <span className="block truncate">
-                                                    {backgroundModel
-                                                        ? (allModels.find(
-                                                              (m) => m.modelId === backgroundModel
-                                                          )?.name ?? backgroundModel)
-                                                        : 'Auto (Free Models)'}
-                                                </span>
-                                            </SelectTrigger>
-                                            <SelectContent>
-                                                <SelectItem value="__auto__">
+                                        <DropdownMenu>
+                                            <DropdownMenuTrigger asChild>
+                                                <Button
+                                                    variant="outline"
+                                                    className="w-full h-9 justify-between font-normal"
+                                                >
+                                                    <span className="truncate">
+                                                        {backgroundModel
+                                                            ? (allModels.find(
+                                                                  (m) =>
+                                                                      m.modelId ===
+                                                                      backgroundModel
+                                                              )?.name ?? backgroundModel)
+                                                            : 'Auto (Free Models)'}
+                                                    </span>
+                                                    <ChevronDown className="h-4 w-4 opacity-50 shrink-0" />
+                                                </Button>
+                                            </DropdownMenuTrigger>
+                                            <DropdownMenuContent
+                                                align="start"
+                                                className="w-[var(--radix-dropdown-menu-trigger-width)] max-h-[300px] overflow-y-auto"
+                                            >
+                                                <DropdownMenuItem
+                                                    onClick={() => setBackgroundModel(null)}
+                                                    className="flex items-center justify-between"
+                                                >
                                                     Auto (Free Models)
-                                                </SelectItem>
+                                                    {!backgroundModel && (
+                                                        <span className="w-1.5 h-1.5 bg-primary rounded-full" />
+                                                    )}
+                                                </DropdownMenuItem>
+                                                <DropdownMenuSeparator />
+                                                <div className="px-2 py-1.5 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
+                                                    Free Models
+                                                </div>
                                                 {allModels
                                                     .filter((m) => m.isFree)
                                                     .map((model) => (
-                                                        <SelectItem
+                                                        <DropdownMenuItem
                                                             key={model.modelId}
-                                                            value={model.modelId}
+                                                            onClick={() =>
+                                                                setBackgroundModel(model.modelId)
+                                                            }
+                                                            className="flex items-center justify-between"
                                                         >
                                                             {model.name}
-                                                        </SelectItem>
+                                                            {backgroundModel ===
+                                                                model.modelId && (
+                                                                <span className="w-1.5 h-1.5 bg-primary rounded-full" />
+                                                            )}
+                                                        </DropdownMenuItem>
                                                     ))}
-                                                {allModels.filter((m) => !m.isFree).length > 0 && (
+                                                {allModels.filter((m) => !m.isFree).length >
+                                                    0 && (
                                                     <>
+                                                        <DropdownMenuSeparator />
+                                                        <div className="px-2 py-1.5 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
+                                                            Premium Models
+                                                        </div>
                                                         {allModels
                                                             .filter((m) => !m.isFree)
                                                             .map((model) => (
-                                                                <SelectItem
+                                                                <DropdownMenuItem
                                                                     key={model.modelId}
-                                                                    value={model.modelId}
+                                                                    onClick={() =>
+                                                                        setBackgroundModel(
+                                                                            model.modelId
+                                                                        )
+                                                                    }
+                                                                    className="flex items-center justify-between"
                                                                 >
                                                                     {model.name}
-                                                                </SelectItem>
+                                                                    {backgroundModel ===
+                                                                        model.modelId && (
+                                                                        <span className="w-1.5 h-1.5 bg-primary rounded-full" />
+                                                                    )}
+                                                                </DropdownMenuItem>
                                                             ))}
                                                     </>
                                                 )}
-                                            </SelectContent>
-                                        </Select>
+                                            </DropdownMenuContent>
+                                        </DropdownMenu>
                                     </div>
                                 </div>
 
