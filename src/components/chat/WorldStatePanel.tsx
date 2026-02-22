@@ -61,8 +61,11 @@ export function WorldStatePanel({
 
     const handleRemoveItem = (item: string) => {
         if (activeConversationId) {
+            const conversation = useChatStore.getState().conversations.find(c => c.id === activeConversationId);
+            const dismissed = conversation?.worldState?.dismissedInventoryItems || [];
             updateWorldState(activeConversationId, {
                 inventory: inventory.filter((i) => i !== item),
+                dismissedInventoryItems: [...dismissed, item],
             });
         }
     };
@@ -154,7 +157,7 @@ export function WorldStatePanel({
             </div>
 
             {!isCollapsed ? (
-                <div className="p-4 space-y-5">
+                <div className="p-4 space-y-5 max-h-[60vh] overflow-y-auto custom-scrollbar">
                     {/* Location */}
                     <div className="space-y-1.5">
                         <div className="flex items-center justify-between">
@@ -290,7 +293,7 @@ export function WorldStatePanel({
                             )}
                         </div>
 
-                        <ScrollArea className="max-h-[250px]">
+                        <ScrollArea className="max-h-[250px] overflow-y-auto">
                             <div className="pr-2 space-y-3">
                                 {relationshipEntries.map(([name, level]) => {
                                     const percent = Math.max(0, Math.min(100, (level + 100) / 2));

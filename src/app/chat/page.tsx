@@ -585,6 +585,7 @@ export default function ChatPage() {
                         scanDepth: activePreset?.lorebookScanDepth,
                         tokenBudget: lorebookTokenBudget,
                         matchWholeWords: activePreset?.matchWholeWords,
+                        characterName: character.name,
                     }
                 );
             } catch (err) {
@@ -603,6 +604,7 @@ export default function ChatPage() {
                         tokenBudget: lorebookTokenBudget,
                         recursive: activePreset?.lorebookRecursiveScanning,
                         matchWholeWords: activePreset?.matchWholeWords,
+                        characterName: character.name,
                     }
                 );
             }
@@ -622,6 +624,7 @@ export default function ChatPage() {
                           tokenBudget: lorebookTokenBudget,
                           recursive: activePreset?.lorebookRecursiveScanning,
                           matchWholeWords: activePreset?.matchWholeWords,
+                          characterName: character.name,
                       }
                   )
                 : [];
@@ -1088,6 +1091,7 @@ export default function ChatPage() {
                       tokenBudget: lorebookTokenBudget,
                       recursive: activePreset?.lorebookRecursiveScanning,
                       matchWholeWords: activePreset?.matchWholeWords,
+                      characterName: character.name,
                   }
               )
             : [];
@@ -1146,7 +1150,8 @@ export default function ChatPage() {
             activePreset?.postHistoryInstructions,
             maxContextTokens,
             maxOutputTokens,
-            activeEntries
+            activeEntries,
+            worldState
         );
 
         setContextPreviewData({
@@ -1194,6 +1199,7 @@ export default function ChatPage() {
                           tokenBudget: activePreset?.lorebookTokenBudget,
                           recursive: activePreset?.lorebookRecursiveScanning,
                           matchWholeWords: activePreset?.matchWholeWords,
+                          characterName: character.name,
                       }
                   )
                 : [];

@@ -1,7 +1,7 @@
 'use client';
 
 import { motion } from 'framer-motion';
-import { MoreVertical, Trash2, Edit, Download } from 'lucide-react';
+import { MoreVertical, Trash2, Edit, Download, Clock } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import {
@@ -21,6 +21,7 @@ interface CharacterCardProps {
     onEdit?: () => void;
     onDelete?: () => void;
     onExport?: () => void;
+    lastPlayed?: string | null;
 }
 
 export function CharacterCard({
@@ -31,6 +32,7 @@ export function CharacterCard({
     onEdit,
     onDelete,
     onExport,
+    lastPlayed,
 }: CharacterCardProps) {
     if (isCollapsed) {
         return (
@@ -121,6 +123,11 @@ export function CharacterCard({
                               ).slice(0, 16) + '...'
                             : character.description || character.personality || 'No description'}
                     </p>
+                    {lastPlayed && (
+                        <p className="text-[9px] text-muted-foreground/60 mt-0.5 flex items-center gap-1">
+                            <Clock className="w-2.5 h-2.5" /> {lastPlayed}
+                        </p>
+                    )}
 
                     {/* Tags */}
                     {character.tags && character.tags.length > 0 && (

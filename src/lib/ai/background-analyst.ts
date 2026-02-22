@@ -96,15 +96,16 @@ export function parseAnalystResponse(text: string): WorldStateChanges | null {
  * Merge world state changes into current state
  */
 export function mergeWorldState(
-    current: { inventory: string[]; location: string; relationships: Record<string, number> },
+    current: { inventory: string[]; location: string; relationships: Record<string, number>; dismissedInventoryItems?: string[] },
     changes: WorldStateChanges
 ): { inventory: string[]; location: string; relationships: Record<string, number> } {
     // Update inventory
     let newInventory = [...current.inventory];
+    const dismissed = current.dismissedInventoryItems || [];
 
-    // Add new items (avoid duplicates)
+    // Add new items (avoid duplicates and dismissed items)
     for (const item of changes.inventory_add) {
-        if (!newInventory.includes(item)) {
+        if (!newInventory.includes(item) && !dismissed.some(d => d.toLowerCase() === item.toLowerCase())) {
             newInventory.push(item);
         }
     }

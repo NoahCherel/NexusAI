@@ -113,7 +113,7 @@ export async function retrieveRelevantContext(
 
     // 2. Hierarchical summary (always included if available — very compact)
     if (includeSummary) {
-        const summaryBudget = Math.min(Math.floor(tokenBudget * 0.3), 300);
+        const summaryBudget = Math.min(Math.floor(tokenBudget * 0.35), 400);
         const summaryText = await getBestContextSummary(conversationId, summaryBudget);
         if (summaryText) {
             const tokens = countTokens(summaryText);
@@ -161,8 +161,8 @@ export async function retrieveRelevantContext(
             const avgFactConfidence =
                 factResults.reduce((sum, r) => sum + r.score, 0) / factResults.length;
 
-            // Apply minimum confidence threshold
-            if (avgFactConfidence >= minConfidence) {
+            // Apply minimum confidence threshold — only include if meaningfully relevant
+            if (avgFactConfidence >= Math.max(minConfidence, 0.3)) {
                 const factLines = factResults.map((r) => {
                     const imp = r.item.importance >= 8 ? '⚠️' : r.item.importance >= 5 ? '•' : '◦';
                     return `${imp} ${r.item.fact}`;
@@ -255,7 +255,7 @@ function retrieveRelevantFacts(
         })
         .sort((a, b) => b.score - a.score)
         .slice(0, topK)
-        .filter((r) => r.score > 0.15);
+        .filter((r) => r.score > 0.25);
 }
 
 // ============================================
@@ -274,9 +274,10 @@ export async function hybridLorebookSearch(
         scanDepth?: number;
         tokenBudget?: number;
         matchWholeWords?: boolean;
+        characterName?: string;
     } = {}
 ): Promise<LorebookEntry[]> {
-    const { scanDepth = 2, tokenBudget = 500, matchWholeWords = false } = config;
+    const { scanDepth = 2, tokenBudget = 500, matchWholeWords = false, characterName } = config;
 
     if (!entries || entries.length === 0) return [];
 
@@ -335,10 +336,19 @@ export async function hybridLorebookSearch(
         return { entry, score };
     });
 
-    // Sort by score, then by priority
+    // Sort by score, then by priority, then alphabetically
     scored.sort((a, b) => {
+        // Character entry always first
+        if (characterName) {
+            const aIsChar = a.entry.keys.some(k => k.toLowerCase() === characterName.toLowerCase());
+            const bIsChar = b.entry.keys.some(k => k.toLowerCase() === characterName.toLowerCase());
+            if (aIsChar && !bIsChar) return -1;
+            if (!aIsChar && bIsChar) return 1;
+        }
         if (b.score !== a.score) return b.score - a.score;
-        return (b.entry.priority || 10) - (a.entry.priority || 10);
+        const priorityDiff = (b.entry.priority || 10) - (a.entry.priority || 10);
+        if (priorityDiff !== 0) return priorityDiff;
+        return (a.entry.keys[0] || '').localeCompare(b.entry.keys[0] || '');
     });
 
     // 3. Fill within token budget
@@ -346,8 +356,8 @@ export async function hybridLorebookSearch(
     let currentTokens = 0;
 
     for (const { entry, score } of scored) {
-        // Skip very low semantic scores (unless keyword matched)
-        if (score < 0.25) continue;
+        // Skip low semantic scores (unless keyword matched — score > 1.0 means keyword match)
+        if (score < 0.3) continue;
 
         const entryTokens = countTokens(entry.content);
         if (currentTokens + entryTokens > tokenBudget) continue;
@@ -415,7 +425,8 @@ export async function buildContextPreview(
     postHistory: string | undefined,
     maxContextTokens: number,
     maxOutputTokens: number,
-    activeLorebookEntries?: { keys: string[]; content: string }[]
+    activeLorebookEntries?: { keys: string[]; content: string }[],
+    worldState?: { location?: string; relationships?: Record<string, string>; inventory?: string[] }
 ): Promise<{
     sections: ContextSection[];
     totalTokens: number;
@@ -425,19 +436,72 @@ export async function buildContextPreview(
     const sections: ContextSection[] = [];
     const warnings: string[] = [];
 
-    // 1. System prompt
-    const sysTokens = countTokens(systemPrompt);
+    // 1. System prompt (strip lorebook & world state content for cleaner preview — shown in dedicated sections)
+    let displaySystemPrompt = systemPrompt;
+
+    // Strip lorebook entries from system prompt display (they're shown in their own section)
+    if (activeLorebookEntries && activeLorebookEntries.length > 0) {
+        for (const entry of activeLorebookEntries) {
+            const lorebookLine = `[About ${entry.keys[0]}: ${entry.content}]`;
+            displaySystemPrompt = displaySystemPrompt.replace(lorebookLine, '');
+        }
+    }
+
+    // Strip world state block from system prompt display (shown in dedicated section)
+    if (worldState) {
+        // Remove the "Current World Context:" block if present
+        displaySystemPrompt = displaySystemPrompt.replace(
+            /Current World Context:\n(?:Location:[^\n]*\n?)?(?:Relationships:[^\n]*\n?)?(?:Inventory:[^\n]*\n?)?/gi,
+            ''
+        );
+    }
+
+    // Clean up excessive whitespace from stripping
+    displaySystemPrompt = displaySystemPrompt.replace(/\n{3,}/g, '\n\n').trim();
+
+    const sysTokens = countTokens(systemPrompt); // Use original for accurate token count
     sections.push({
         priority: 0,
-        content: systemPrompt,
+        content: displaySystemPrompt,
         tokens: sysTokens,
         label: 'System Prompt',
         type: 'system',
     });
 
-    // 2. Lorebook entries (shown separately for visibility, but tokens already counted in system prompt)
+    // 2. World State (relationships & inventory - shown separately for visibility, already in system prompt)
+    if (worldState) {
+        const wsParts: string[] = [];
+        if (worldState.location) {
+            wsParts.push(`Location: ${worldState.location}`);
+        }
+        if (worldState.relationships && Object.keys(worldState.relationships).length > 0) {
+            const rels = Object.entries(worldState.relationships)
+                .map(([name, desc]) => `  ${name}: ${desc}`)
+                .join('\n');
+            wsParts.push(`Relationships:\n${rels}`);
+        }
+        if (worldState.inventory && worldState.inventory.length > 0) {
+            wsParts.push(`Inventory: ${worldState.inventory.join(', ')}`);
+        }
+        if (wsParts.length > 0) {
+            const wsContent = wsParts.join('\n\n');
+            sections.push({
+                priority: 0,
+                content: wsContent,
+                tokens: countTokens(wsContent),
+                label: 'World State — included in system prompt',
+                type: 'world-state',
+            });
+        }
+    }
+
+    // 3. Lorebook entries (shown separately for visibility, but tokens already counted in system prompt)
     if (activeLorebookEntries && activeLorebookEntries.length > 0) {
-        const lorebookContent = activeLorebookEntries
+        // Sort alphabetically by first key for display
+        const sortedEntries = [...activeLorebookEntries].sort((a, b) =>
+            (a.keys[0] || '').localeCompare(b.keys[0] || '')
+        );
+        const lorebookContent = sortedEntries
             .map((e) => `[About ${e.keys[0]}: ${e.content}]`)
             .join('\n');
         const lorebookTokens = countTokens(lorebookContent);
@@ -445,7 +509,7 @@ export async function buildContextPreview(
             priority: 1,
             content: lorebookContent,
             tokens: lorebookTokens,
-            label: `Lorebook (${activeLorebookEntries.length} entries)`,
+            label: `Lorebook (${activeLorebookEntries.length} entries) — included in system prompt`,
             type: 'lorebook',
         });
     }
@@ -479,9 +543,9 @@ export async function buildContextPreview(
     }
 
     // Calculate totals
-    // Note: Lorebook tokens are already included in system prompt, so we exclude them from total
+    // Note: Lorebook and world-state tokens are already included in system prompt, so exclude from total
     const totalTokens =
-        sections.filter((s) => s.type !== 'lorebook').reduce((sum, s) => sum + s.tokens, 0) +
+        sections.filter((s) => s.type !== 'lorebook' && s.type !== 'world-state').reduce((sum, s) => sum + s.tokens, 0) +
         maxOutputTokens;
 
     if (totalTokens > maxContextTokens) {

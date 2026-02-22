@@ -9,6 +9,7 @@ interface LorebookConfig {
     tokenBudget?: number; // Approximate
     recursive?: boolean;
     matchWholeWords?: boolean;
+    characterName?: string; // Character name to prioritize in lorebook
 }
 
 /**
@@ -25,7 +26,7 @@ export function getActiveLorebookEntries(
     const entries = lorebook.entries.filter((e) => e.enabled);
     if (entries.length === 0) return [];
 
-    const { scanDepth = 2, tokenBudget = 500, recursive = false, matchWholeWords = false } = config;
+    const { scanDepth = 2, tokenBudget = 500, recursive = false, matchWholeWords = false, characterName } = config;
 
     // 1. Get text to scan
     const messagesToScan = messages.slice(-scanDepth);
@@ -84,8 +85,20 @@ export function getActiveLorebookEntries(
     // Initial scan
     scanForKeywords(scanText);
 
-    // Convert Set to Array and sort
-    return Array.from(matchedEntries).sort((a, b) => (b.priority || 10) - (a.priority || 10));
+    // Convert Set to Array and sort:
+    // 1. Character's own entry always first
+    // 2. Then by priority (higher first)
+    // 3. Then alphabetically by first key
+    const result = Array.from(matchedEntries);
+    return result.sort((a, b) => {
+        const aIsChar = characterName ? a.keys.some(k => k.toLowerCase() === characterName.toLowerCase()) : false;
+        const bIsChar = characterName ? b.keys.some(k => k.toLowerCase() === characterName.toLowerCase()) : false;
+        if (aIsChar && !bIsChar) return -1;
+        if (!aIsChar && bIsChar) return 1;
+        const priorityDiff = (b.priority || 10) - (a.priority || 10);
+        if (priorityDiff !== 0) return priorityDiff;
+        return (a.keys[0] || '').localeCompare(b.keys[0] || '');
+    });
 }
 
 /**

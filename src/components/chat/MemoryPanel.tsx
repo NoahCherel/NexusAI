@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
+import { Input } from '@/components/ui/input';
 import {
     Brain,
     Plus,
@@ -14,6 +15,7 @@ import {
     Database,
     Layers,
     RefreshCw,
+    Search,
 } from 'lucide-react';
 import { useCharacterStore } from '@/stores/character-store';
 import { useChatStore } from '@/stores/chat-store';
@@ -68,6 +70,8 @@ export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
     const [reindexProgress, setReindexProgress] = useState('');
     const [isMergingFacts, setIsMergingFacts] = useState(false);
     const [mergeResult, setMergeResult] = useState('');
+    const [factSearchTerm, setFactSearchTerm] = useState('');
+    const [summarySearchTerm, setSummarySearchTerm] = useState('');
 
     // Load RAG data when tab changes
     const loadRagData = useCallback(async () => {
@@ -730,6 +734,26 @@ export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
                     {/* === FACTS TAB === */}
                     {activeTab === 'facts' && (
                         <div className="flex flex-col flex-1 min-h-0">
+                            {/* Search bar */}
+                            <div className="px-4 pt-3 pb-1 shrink-0">
+                                <div className="relative">
+                                    <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
+                                    <Input
+                                        placeholder="Search facts..."
+                                        value={factSearchTerm}
+                                        onChange={(e) => setFactSearchTerm(e.target.value)}
+                                        className="pl-8 h-8 text-xs bg-background/40 border-border/40"
+                                    />
+                                    {factSearchTerm && (
+                                        <button
+                                            onClick={() => setFactSearchTerm('')}
+                                            className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                                        >
+                                            <X className="w-3 h-3" />
+                                        </button>
+                                    )}
+                                </div>
+                            </div>
                             <div className="flex-1 overflow-y-auto">
                                 <div className="p-4 space-y-2">
                                     {isLoadingRag ? (
@@ -748,6 +772,15 @@ export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
                                         </div>
                                     ) : (
                                         facts
+                                            .filter((fact) => {
+                                                if (!factSearchTerm.trim()) return true;
+                                                const term = factSearchTerm.toLowerCase();
+                                                return (
+                                                    fact.fact.toLowerCase().includes(term) ||
+                                                    fact.category.toLowerCase().includes(term) ||
+                                                    fact.relatedEntities.some((e) => e.toLowerCase().includes(term))
+                                                );
+                                            })
                                             .sort((a, b) => b.importance - a.importance)
                                             .map((fact) => (
                                                 <div
@@ -844,6 +877,26 @@ export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
                     {/* === SUMMARIES TAB === */}
                     {activeTab === 'summaries' && (
                         <div className="flex flex-col flex-1 min-h-0">
+                            {/* Search bar */}
+                            <div className="px-4 pt-3 pb-1 shrink-0">
+                                <div className="relative">
+                                    <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
+                                    <Input
+                                        placeholder="Search summaries..."
+                                        value={summarySearchTerm}
+                                        onChange={(e) => setSummarySearchTerm(e.target.value)}
+                                        className="pl-8 h-8 text-xs bg-background/40 border-border/40"
+                                    />
+                                    {summarySearchTerm && (
+                                        <button
+                                            onClick={() => setSummarySearchTerm('')}
+                                            className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                                        >
+                                            <X className="w-3 h-3" />
+                                        </button>
+                                    )}
+                                </div>
+                            </div>
                             <div className="flex-1 overflow-y-auto">
                                 <div className="p-4 space-y-2">
                                     {isLoadingRag ? (
@@ -862,6 +915,14 @@ export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
                                         </div>
                                     ) : (
                                         summaries
+                                            .filter((summary) => {
+                                                if (!summarySearchTerm.trim()) return true;
+                                                const term = summarySearchTerm.toLowerCase();
+                                                return (
+                                                    summary.content.toLowerCase().includes(term) ||
+                                                    summary.keyFacts.some((kf) => kf.toLowerCase().includes(term))
+                                                );
+                                            })
                                             .sort(
                                                 (a, b) =>
                                                     b.level - a.level || b.createdAt - a.createdAt

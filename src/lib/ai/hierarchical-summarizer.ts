@@ -22,11 +22,14 @@ const L2_THRESHOLD = 3; // L1 summaries per L2 summary
 export const SUMMARIZATION_PROMPT_L0 = `You are a RPG session chronicler. Summarize this chunk of roleplay messages into a concise narrative paragraph.
 
 RULES:
-- Write in past tense, third person
+- Write EXCLUSIVELY in past tense, third person (e.g. "Character walked..." NOT "Character walks...")
 - Capture: WHO did WHAT, WHERE, key decisions, important dialogue
 - Include specific names, items, locations
 - Max 3-4 sentences
-- Also extract 3-5 KEY FACTS as a separate list (atomic, searchable statements)
+- Do NOT repeat information already covered in previous summaries
+- Do NOT include things that are no longer relevant (e.g. completed side conversations, resolved misunderstandings)
+- Focus on ACTIONS and CONSEQUENCES, not descriptions of scenery or internal thoughts unless plot-critical
+- Also extract 3-5 KEY FACTS as a separate list (atomic, searchable statements, also in past tense)
 - Output in this JSON format:
 
 {
@@ -37,11 +40,13 @@ RULES:
 export const SUMMARIZATION_PROMPT_L1 = `You are a RPG story arc compiler. Combine these chapter summaries into a broader section summary.
 
 RULES:
-- Write in past tense, third person
+- Write EXCLUSIVELY in past tense, third person
 - Focus on overarching plot progression, character development, and consequences
 - Preserve critical names, items, and locations
 - Max 2-3 sentences
-- Extract 2-3 CRITICAL facts that define this section
+- Do NOT repeat the same events across sentences; merge overlapping information
+- Omit details that became irrelevant (resolved subplots, outdated information)
+- Extract 2-3 CRITICAL facts that define this section (in past tense)
 - Output JSON:
 
 {
@@ -52,11 +57,13 @@ RULES:
 export const SUMMARIZATION_PROMPT_L2 = `You are a RPG epic chronicler. Combine these section summaries into a grand arc summary.
 
 RULES:
-- Write in past tense, third person
+- Write EXCLUSIVELY in past tense, third person
 - Capture the overarching narrative arc, major turning points
 - This is the highest-level summary — it should give someone a complete overview
 - Max 2-3 sentences
-- Extract 1-2 defining facts of the entire arc
+- Eliminate ALL redundancy — each piece of information should appear only once
+- Remove references to events that have been superseded or are no longer relevant
+- Extract 1-2 defining facts of the entire arc (in past tense)
 - Output JSON:
 
 {

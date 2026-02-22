@@ -115,7 +115,7 @@ export interface ContextSection {
     content: string;
     tokens: number;
     label: string; // For context preview UI
-    type: 'system' | 'memory' | 'fact' | 'summary' | 'lorebook' | 'history' | 'post-history';
+    type: 'system' | 'memory' | 'fact' | 'summary' | 'lorebook' | 'history' | 'post-history' | 'world-state';
     confidence?: number; // 0–1 relevance confidence score
 }
 

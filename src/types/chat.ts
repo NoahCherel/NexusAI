@@ -32,6 +32,7 @@ export interface WorldState {
     location: string;
     relationships: Record<string, number>;
     customState?: Record<string, unknown>;
+    dismissedInventoryItems?: string[]; // Items manually removed by user — prevents re-adding
 }
 
 export interface ChatSettings {

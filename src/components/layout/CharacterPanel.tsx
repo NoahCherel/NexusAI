@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useCharacterStore } from '@/stores';
 import { CharacterCard } from '@/components/character/CharacterCard';
 import { CharacterEditor } from '@/components/character/CharacterEditor';
@@ -20,6 +20,7 @@ import {
     DropdownMenuLabel,
 } from '@/components/ui/dropdown-menu';
 import { useChatStore } from '@/stores/chat-store';
+import { getConversationsByCharacter } from '@/lib/db';
 import type { CharacterCard as CharacterCardType } from '@/types';
 
 interface CharacterPanelProps {
@@ -37,12 +38,53 @@ export function CharacterPanel({ trigger }: CharacterPanelProps) {
 
     const { getConversationMessages, conversations: allConversations } = useChatStore();
 
+    // Cache of last activity timestamps per character (loaded from DB for all characters)
+    const [lastActivityMap, setLastActivityMap] = useState<Record<string, number>>({});
+
+    const loadLastActivities = useCallback(async () => {
+        const map: Record<string, number> = {};
+        for (const char of characters) {
+            try {
+                const convs = await getConversationsByCharacter(char.id);
+                if (convs.length > 0) {
+                    const latest = convs.reduce((best, c) => {
+                        const t = new Date(c.updatedAt).getTime();
+                        return t > best ? t : best;
+                    }, 0);
+                    map[char.id] = latest;
+                }
+            } catch {
+                // ignore
+            }
+        }
+        setLastActivityMap(map);
+    }, [characters]);
+
+    useEffect(() => {
+        if (isOpen) {
+            loadLastActivities();
+        }
+    }, [isOpen, loadLastActivities]);
+
     // Helper to get last activity time for a character
     const getLastActivity = (characterId: string) => {
-        const charConvs = allConversations
-            .filter((c) => c.characterId === characterId)
-            .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime());
-        return charConvs.length > 0 ? charConvs[0].updatedAt.getTime() : 0;
+        return lastActivityMap[characterId] || 0;
+    };
+
+    // Format relative time for display
+    const formatLastPlayed = (characterId: string): string | null => {
+        const ts = getLastActivity(characterId);
+        if (!ts) return null;
+        const now = Date.now();
+        const diff = now - ts;
+        const minutes = Math.floor(diff / 60000);
+        const hours = Math.floor(diff / 3600000);
+        const days = Math.floor(diff / 86400000);
+        if (minutes < 1) return 'Just now';
+        if (minutes < 60) return `${minutes}m ago`;
+        if (hours < 24) return `${hours}h ago`;
+        if (days < 7) return `${days}d ago`;
+        return new Date(ts).toLocaleDateString();
     };
 
     const filteredCharacters = characters
@@ -232,6 +274,7 @@ export function CharacterPanel({ trigger }: CharacterPanelProps) {
                                             onDelete={() => removeCharacter(char.id)}
                                             onExport={() => handleExport(char)}
                                             isCollapsed={false}
+                                            lastPlayed={formatLastPlayed(char.id)}
                                         />
                                     </div>
                                 ))

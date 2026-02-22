@@ -40,16 +40,24 @@ export function deriveWorldStateUpdates(
             const loseMatch = matchLosePatterns(lower);
 
             if (obtainMatch) {
-                // Extract item names from entities (exclude character names)
+                // Extract item names from entities (exclude characters, people, places, abstract concepts)
                 const items = fact.relatedEntities.filter(
-                    (e) => !isCharacterName(e, characterName, userName)
+                    (e) => !isCharacterName(e, characterName, userName) &&
+                           !looksLikePerson(e) &&
+                           !looksLikePlace(e) &&
+                           !isTooAbstract(e) &&
+                           e.trim().length > 0
                 );
                 itemsToAdd.push(...items);
             }
 
             if (loseMatch) {
                 const items = fact.relatedEntities.filter(
-                    (e) => !isCharacterName(e, characterName, userName)
+                    (e) => !isCharacterName(e, characterName, userName) &&
+                           !looksLikePerson(e) &&
+                           !looksLikePlace(e) &&
+                           !isTooAbstract(e) &&
+                           e.trim().length > 0
                 );
                 itemsToRemove.push(...items);
             }
@@ -100,11 +108,13 @@ export function deriveWorldStateUpdates(
     // Assemble update
     if (itemsToAdd.length > 0 || itemsToRemove.length > 0) {
         update.inventory = {};
+        const dismissed = currentState.dismissedInventoryItems || [];
         if (itemsToAdd.length > 0) {
-            // Deduplicate and filter already-in-inventory
+            // Deduplicate, filter already-in-inventory, and exclude dismissed items
             update.inventory.add = [...new Set(itemsToAdd)].filter(
                 (item) =>
-                    !currentState.inventory.some((i) => i.toLowerCase() === item.toLowerCase())
+                    !currentState.inventory.some((i) => i.toLowerCase() === item.toLowerCase()) &&
+                    !dismissed.some((d) => d.toLowerCase() === item.toLowerCase())
             );
         }
         if (itemsToRemove.length > 0) {
@@ -191,6 +201,38 @@ function isCharacterName(entity: string, characterName: string, userName: string
         lower === 'user' ||
         lower === 'you'
     );
+}
+
+/**
+ * Check if an entity looks like a person/character name (not an item).
+ * People names are typically 1-3 capitalized words without common item descriptors.
+ */
+function looksLikePerson(entity: string): boolean {
+    const lower = entity.toLowerCase().trim();
+    // Common person-like patterns: single name, "The <Title>", "Mr/Mrs/Dr"
+    if (/^(the |a |an |mr\.?|mrs\.?|dr\.?|sir |lord |lady |king |queen |prince |princess |captain |chief )/i.test(entity)) {
+        // Could be a person title
+        if (!/sword|shield|armor|potion|ring|amulet|book|scroll|map|key|gem|stone|coin|gold|weapon|staff|wand|bow|arrow|cloak|helm|boots|gloves/i.test(lower)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+/**
+ * Check if an entity looks like a place/location (not an item).
+ */
+function looksLikePlace(entity: string): boolean {
+    const lower = entity.toLowerCase().trim();
+    return /\b(city|town|village|forest|mountain|castle|dungeon|cave|temple|palace|kingdom|realm|island|tavern|inn|market|square|road|path|river|lake|sea|ocean|bridge|tower|gate|harbor|port|camp|ruins|shrine|sanctuary|wasteland|desert|swamp|valley|plateau|hill)\b/i.test(lower);
+}
+
+/**
+ * Check if an entity is too abstract/generic to be an inventory item.
+ */
+function isTooAbstract(entity: string): boolean {
+    const lower = entity.toLowerCase().trim();
+    return /^(people|person|group|crowd|army|soldiers|guards|villagers|citizens|everyone|nobody|someone|something|nothing|power|strength|magic|love|hate|fear|trust|loyalty|honor|courage|hope|death|life|time|destiny|fate|freedom|peace|war|danger|truth|lie|secret|mystery|knowledge|wisdom|darkness|light|silence|chaos|order|luck|justice|revenge|mercy|friendship|information|conversation|situation|moment|feeling|emotion|thought|idea|plan|mission|quest|adventure|journey|battle|fight|attack|defense|story|legend|myth|history|rumor|news|message|warning|promise|threat|curse|blessing|pain|pleasure|comfort|sorrow|joy|anger|surprise|memory|dream)$/i.test(lower);
 }
 
 function hasItemKeywords(text: string): boolean {
