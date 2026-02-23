@@ -107,6 +107,17 @@ export function WorldStatePanel({
         }
     };
 
+    const handleRenameRelation = (oldName: string, newName: string) => {
+        const trimmedNewName = newName.trim();
+        if (activeConversationId && trimmedNewName && trimmedNewName !== oldName) {
+            const newRelationships = { ...relationships };
+            const value = newRelationships[oldName];
+            delete newRelationships[oldName];
+            newRelationships[trimmedNewName] = value;
+            updateWorldState(activeConversationId, { relationships: newRelationships });
+        }
+    };
+
     return (
         <motion.div
             initial={{ opacity: 0, x: 20 }}
@@ -309,8 +320,18 @@ export function WorldStatePanel({
                                             className="space-y-2 group bg-background/20 p-2.5 rounded-lg border border-border/20"
                                         >
                                             <div className="flex items-center justify-between text-xs font-semibold gap-2">
-                                                <span className="flex items-center gap-1 truncate min-w-0">
-                                                    <span className="truncate">{name}</span>
+                                                <span className="flex items-center gap-1 truncate min-w-0 flex-1">
+                                                    <input
+                                                        type="text"
+                                                        defaultValue={name}
+                                                        onBlur={(e) => handleRenameRelation(name, e.target.value)}
+                                                        onKeyDown={(e) => {
+                                                            if (e.key === 'Enter') {
+                                                                e.currentTarget.blur();
+                                                            }
+                                                        }}
+                                                        className="truncate bg-transparent border-none outline-none focus:ring-1 focus:ring-primary/50 rounded px-1 w-full"
+                                                    />
                                                     <button
                                                         onClick={() => handleRemoveRelation(name)}
                                                         className="p-1 hover:bg-destructive/10 rounded opacity-100 lg:opacity-0 lg:group-hover:opacity-100 transition-opacity shrink-0"

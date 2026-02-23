@@ -218,14 +218,9 @@ export function mapToFullName(entity: string, existingRelationships: Record<stri
     });
     if (partialMatch) return partialMatch;
 
-    // If it's a new character, require at least two words (name + surname)
-    if (cleanEntity.split(' ').length >= 2) {
-        // Capitalize first letters for consistency
-        return cleanEntity.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
-    }
-
-    // Reject single-word new characters
-    return null;
+    // Allow any new character name (single word or multiple words)
+    // Capitalize first letters for consistency
+    return cleanEntity.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
 }
 
 function isCharacterName(entity: string, characterName: string, userName: string): boolean {

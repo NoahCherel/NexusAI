@@ -233,6 +233,10 @@ export function LorebookEditor({ onClose }: { onClose: () => void }) {
         }
     };
 
+    const { personas, activePersonaId } = useSettingsStore();
+    const activePersona = personas.find((p) => p.id === activePersonaId);
+    const userPersonaName = activePersona?.name;
+
     const filteredEntries =
         activeLorebook?.entries
             .map((entry, index) => ({ entry, index }))
@@ -240,7 +244,23 @@ export function LorebookEditor({ onClose }: { onClose: () => void }) {
                 ({ entry }) =>
                     entry.keys.some((k) => k.toLowerCase().includes(searchQuery.toLowerCase())) ||
                     entry.content.toLowerCase().includes(searchQuery.toLowerCase())
-            ) || [];
+            )
+            .sort((a, b) => {
+                const aIsUser = userPersonaName
+                    ? a.entry.keys.some((k) => k.toLowerCase() === userPersonaName.toLowerCase())
+                    : false;
+                const bIsUser = userPersonaName
+                    ? b.entry.keys.some((k) => k.toLowerCase() === userPersonaName.toLowerCase())
+                    : false;
+
+                if (aIsUser && !bIsUser) return -1;
+                if (!aIsUser && bIsUser) return 1;
+
+                // Alphabetical sort by first key
+                const aKey = a.entry.keys[0] || '';
+                const bKey = b.entry.keys[0] || '';
+                return aKey.localeCompare(bKey);
+            }) || [];
 
     const currentEntry =
         selectedEntryIndex !== null && activeLorebook?.entries[selectedEntryIndex]
