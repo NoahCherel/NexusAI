@@ -586,6 +586,7 @@ export default function ChatPage() {
                         tokenBudget: lorebookTokenBudget,
                         matchWholeWords: activePreset?.matchWholeWords,
                         characterName: character.name,
+                        userPersonaName: activePersona?.name,
                     }
                 );
             } catch (err) {
@@ -605,6 +606,7 @@ export default function ChatPage() {
                         recursive: activePreset?.lorebookRecursiveScanning,
                         matchWholeWords: activePreset?.matchWholeWords,
                         characterName: character.name,
+                        userPersonaName: activePersona?.name,
                     }
                 );
             }
@@ -625,6 +627,7 @@ export default function ChatPage() {
                           recursive: activePreset?.lorebookRecursiveScanning,
                           matchWholeWords: activePreset?.matchWholeWords,
                           characterName: character.name,
+                          userPersonaName: activePersona?.name,
                       }
                   )
                 : [];
@@ -642,6 +645,8 @@ export default function ChatPage() {
             longTermMemory: combinedMemory,
             recentMessages: history,
             excludePostHistory: true,
+            storyGuidance: currentConv?.storyGuidance,
+            scratchpad: currentConv?.scratchpad,
         });
 
         // Handle Impersonation System Prompt Override
@@ -803,8 +808,20 @@ export default function ChatPage() {
             // normalizeCoT re-parses whole string.
             // If we used prefill, fullContent has prefill.
 
+            // Extract scratchpad
+            let finalContent = finalResult.content;
+            const scratchpadMatch = finalContent.match(/<scratchpad>([\s\S]*?)<\/scratchpad>/i);
+            if (scratchpadMatch) {
+                const scratchpadContent = scratchpadMatch[1].trim();
+                if (activeConversationId) {
+                    useChatStore.getState().updateScratchpad(activeConversationId, scratchpadContent);
+                }
+                // Remove scratchpad from final content
+                finalContent = finalContent.replace(/<scratchpad>[\s\S]*?<\/scratchpad>/i, '').trim();
+            }
+
             updateMessage(targetId, {
-                content: finalResult.content,
+                content: finalContent,
                 thought: finalResult.thought || assistantThought || undefined,
             });
 
@@ -1092,6 +1109,7 @@ export default function ChatPage() {
                       recursive: activePreset?.lorebookRecursiveScanning,
                       matchWholeWords: activePreset?.matchWholeWords,
                       characterName: character.name,
+                      userPersonaName: activePersona?.name,
                   }
               )
             : [];
@@ -1106,6 +1124,8 @@ export default function ChatPage() {
             longTermMemory: combinedMem,
             recentMessages: simulatedMessages,
             excludePostHistory: true,
+            storyGuidance: conv?.storyGuidance,
+            scratchpad: conv?.scratchpad,
         });
 
         const maxContextTokens = activePreset?.maxContextTokens ?? 16384;
@@ -1200,6 +1220,7 @@ export default function ChatPage() {
                           recursive: activePreset?.lorebookRecursiveScanning,
                           matchWholeWords: activePreset?.matchWholeWords,
                           characterName: character.name,
+                          userPersonaName: activePersona?.name,
                       }
                   )
                 : [];
@@ -1214,6 +1235,8 @@ export default function ChatPage() {
                 longTermMemory: impMem,
                 recentMessages: messages, // Pass current messages for context
                 excludePostHistory: true,
+                storyGuidance: impConv?.storyGuidance,
+                scratchpad: impConv?.scratchpad,
             });
 
             // Impersonation Override

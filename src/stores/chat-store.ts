@@ -30,6 +30,8 @@ interface ChatState {
     setStreaming: (streaming: boolean) => void;
     updateWorldState: (conversationId: string, worldState: Partial<WorldState>) => void;
     updateConversationNotes: (conversationId: string, notes: string[]) => void;
+    updateStoryGuidance: (conversationId: string, guidance: string) => void;
+    updateScratchpad: (conversationId: string, scratchpad: string) => void;
     clearConversation: (conversationId: string) => void;
     navigateToSibling: (messageId: string, direction: 'prev' | 'next') => void;
     navigateToMessage: (messageId: string) => void;
@@ -352,6 +354,48 @@ export const useChatStore = create<ChatState>()((set, get) => ({
                     conversationToUpdate = {
                         ...c,
                         notes,
+                        updatedAt: new Date(),
+                    };
+                    return conversationToUpdate;
+                }
+                return c;
+            });
+            return { conversations: newConversations };
+        });
+        if (conversationToUpdate) {
+            saveConversation(conversationToUpdate).catch(console.error);
+        }
+    },
+
+    updateStoryGuidance: (conversationId, guidance) => {
+        let conversationToUpdate: Conversation | undefined;
+        set((state) => {
+            const newConversations = state.conversations.map((c) => {
+                if (c.id === conversationId) {
+                    conversationToUpdate = {
+                        ...c,
+                        storyGuidance: guidance,
+                        updatedAt: new Date(),
+                    };
+                    return conversationToUpdate;
+                }
+                return c;
+            });
+            return { conversations: newConversations };
+        });
+        if (conversationToUpdate) {
+            saveConversation(conversationToUpdate).catch(console.error);
+        }
+    },
+
+    updateScratchpad: (conversationId, scratchpad) => {
+        let conversationToUpdate: Conversation | undefined;
+        set((state) => {
+            const newConversations = state.conversations.map((c) => {
+                if (c.id === conversationId) {
+                    conversationToUpdate = {
+                        ...c,
+                        scratchpad: scratchpad,
                         updatedAt: new Date(),
                     };
                     return conversationToUpdate;

@@ -5,6 +5,8 @@
  * Uses a free-tier model (Gemini Flash) to extract state changes.
  */
 
+import { mapToFullName } from './world-state-updater';
+
 // Regex patterns to detect action verbs in messages (English)
 export const ACTION_TRIGGERS =
     /\b(take|give|pick\s*up|grab|drop|put\s*down|throw|go\s+to|enter|exit|leave|arrive|attack|hit|kill|wound|heal|speak|say|shout|eat|drink|buy|sell|open|close|use|equip|wear|remove)\b/i;
@@ -121,9 +123,12 @@ export function mergeWorldState(
     // Update relationships (additive)
     const newRelationships = { ...current.relationships };
     for (const [name, delta] of Object.entries(changes.relationship_changes)) {
-        const currentValue = newRelationships[name] ?? 0; // Default 0 (neutral) - changed from 50
+        const mappedName = mapToFullName(name, newRelationships);
+        if (!mappedName) continue; // Skip if it's a single name and no full name exists
+
+        const currentValue = newRelationships[mappedName] ?? 0; // Default 0 (neutral) - changed from 50
         // Clamp between -100 (Hated) and 100 (Devotion)
-        newRelationships[name] = Math.max(-100, Math.min(100, currentValue + delta));
+        newRelationships[mappedName] = Math.max(-100, Math.min(100, currentValue + delta));
     }
 
     return {

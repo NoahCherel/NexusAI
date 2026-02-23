@@ -16,6 +16,7 @@ import {
     Layers,
     RefreshCw,
     Search,
+    BrainCircuit,
 } from 'lucide-react';
 import { useCharacterStore } from '@/stores/character-store';
 import { useChatStore } from '@/stores/chat-store';
@@ -40,7 +41,7 @@ interface MemoryPanelProps {
     onClose: () => void;
 }
 
-type TabType = 'notes' | 'facts' | 'summaries';
+type TabType = 'notes' | 'guidance' | 'scratchpad' | 'facts' | 'summaries';
 
 export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
     const { getActiveCharacter, updateLongTermMemory } = useCharacterStore();
@@ -522,6 +523,8 @@ export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
 
     const tabs: { key: TabType; label: string; icon: typeof Brain; count?: number }[] = [
         { key: 'notes', label: 'Notes', icon: Brain, count: memories.length },
+        { key: 'guidance', label: 'Guidance', icon: Sparkles },
+        { key: 'scratchpad', label: 'Scratchpad', icon: BrainCircuit },
         { key: 'facts', label: 'Facts', icon: Database, count: facts.length },
         { key: 'summaries', label: 'Summaries', icon: Layers, count: summaries.length },
     ];
@@ -728,6 +731,52 @@ export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
                                     </Button>
                                 </div>
                             </div>
+                        </div>
+                    )}
+
+                    {/* === GUIDANCE TAB === */}
+                    {activeTab === 'guidance' && (
+                        <div className="flex flex-col flex-1 min-h-0 p-4 space-y-4">
+                            <div className="flex items-center gap-2 text-sm font-medium text-primary">
+                                <Sparkles className="w-4 h-4" />
+                                Story Guidance (Author's Note)
+                            </div>
+                            <p className="text-xs text-muted-foreground leading-relaxed">
+                                Write a memo to guide the AI's narrative direction. This will be injected directly into the system prompt to subtly (or overtly) nudge the story, character behavior, or upcoming events.
+                            </p>
+                            <Textarea
+                                placeholder="e.g., 'Subtly nudge the player towards the old tavern', 'Act more suspicious of the player's motives', 'The weather is slowly turning into a thunderstorm...'"
+                                value={conversation?.storyGuidance || ''}
+                                onChange={(e) => {
+                                    if (activeConversationId) {
+                                        useChatStore.getState().updateStoryGuidance(activeConversationId, e.target.value);
+                                    }
+                                }}
+                                className="flex-1 resize-none text-sm p-3 bg-muted/30 border-border/50 focus-visible:ring-primary/20"
+                            />
+                        </div>
+                    )}
+
+                    {/* === SCRATCHPAD TAB === */}
+                    {activeTab === 'scratchpad' && (
+                        <div className="flex flex-col flex-1 min-h-0 p-4 space-y-4">
+                            <div className="flex items-center gap-2 text-sm font-medium text-primary">
+                                <BrainCircuit className="w-4 h-4" />
+                                AI Scratchpad (Working Memory)
+                            </div>
+                            <p className="text-xs text-muted-foreground leading-relaxed">
+                                This is the AI's internal working memory from the previous turn. It uses this space to plan its next moves, track state, and maintain continuity. You can edit it to correct the AI's assumptions.
+                            </p>
+                            <Textarea
+                                placeholder="The AI's scratchpad is currently empty."
+                                value={conversation?.scratchpad || ''}
+                                onChange={(e) => {
+                                    if (activeConversationId) {
+                                        useChatStore.getState().updateScratchpad(activeConversationId, e.target.value);
+                                    }
+                                }}
+                                className="flex-1 resize-none text-sm p-3 bg-muted/30 border-border/50 focus-visible:ring-primary/20 font-mono"
+                            />
                         </div>
                     )}
 

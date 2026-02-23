@@ -275,9 +275,10 @@ export async function hybridLorebookSearch(
         tokenBudget?: number;
         matchWholeWords?: boolean;
         characterName?: string;
+        userPersonaName?: string;
     } = {}
 ): Promise<LorebookEntry[]> {
-    const { scanDepth = 2, tokenBudget = 500, matchWholeWords = false, characterName } = config;
+    const { scanDepth = 2, tokenBudget = 500, matchWholeWords = false, characterName, userPersonaName } = config;
 
     if (!entries || entries.length === 0) return [];
 
@@ -338,7 +339,14 @@ export async function hybridLorebookSearch(
 
     // Sort by score, then by priority, then alphabetically
     scored.sort((a, b) => {
-        // Character entry always first
+        // User Persona entry always first
+        if (userPersonaName) {
+            const aIsUser = a.entry.keys.some(k => k.toLowerCase() === userPersonaName.toLowerCase());
+            const bIsUser = b.entry.keys.some(k => k.toLowerCase() === userPersonaName.toLowerCase());
+            if (aIsUser && !bIsUser) return -1;
+            if (!aIsUser && bIsUser) return 1;
+        }
+        // Character entry second
         if (characterName) {
             const aIsChar = a.entry.keys.some(k => k.toLowerCase() === characterName.toLowerCase());
             const bIsChar = b.entry.keys.some(k => k.toLowerCase() === characterName.toLowerCase());
@@ -356,8 +364,12 @@ export async function hybridLorebookSearch(
     let currentTokens = 0;
 
     for (const { entry, score } of scored) {
-        // Skip low semantic scores (unless keyword matched — score > 1.0 means keyword match)
-        if (score < 0.3) continue;
+        // Always include User Persona and AI Character if they exist
+        const isUser = userPersonaName && entry.keys.some(k => k.toLowerCase() === userPersonaName.toLowerCase());
+        const isChar = characterName && entry.keys.some(k => k.toLowerCase() === characterName.toLowerCase());
+        
+        // Skip low semantic scores (unless keyword matched — score > 1.0 means keyword match, or it's a core character)
+        if (score < 0.3 && !isUser && !isChar) continue;
 
         const entryTokens = countTokens(entry.content);
         if (currentTokens + entryTokens > tokenBudget) continue;
@@ -497,11 +509,8 @@ export async function buildContextPreview(
 
     // 3. Lorebook entries (shown separately for visibility, but tokens already counted in system prompt)
     if (activeLorebookEntries && activeLorebookEntries.length > 0) {
-        // Sort alphabetically by first key for display
-        const sortedEntries = [...activeLorebookEntries].sort((a, b) =>
-            (a.keys[0] || '').localeCompare(b.keys[0] || '')
-        );
-        const lorebookContent = sortedEntries
+        // Keep the order they were passed in (User Persona first, then AI Character, then priority/alphabetical)
+        const lorebookContent = activeLorebookEntries
             .map((e) => `[About ${e.keys[0]}: ${e.content}]`)
             .join('\n');
         const lorebookTokens = countTokens(lorebookContent);

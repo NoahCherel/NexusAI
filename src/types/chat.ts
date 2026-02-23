@@ -23,6 +23,8 @@ export interface Conversation {
     worldState: WorldState; // Kept for backward compatibility (maps to root branch)
     worldStates?: Record<string, WorldState>; // Branch-specific states (branchId -> state)
     notes?: string[]; // Conversation-scoped persona notes/memories
+    storyGuidance?: string; // User-written memo to guide the AI's narrative direction
+    scratchpad?: string; // AI's working memory from the previous turn
     createdAt: Date;
     updatedAt: Date;
 }

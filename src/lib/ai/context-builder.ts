@@ -9,7 +9,8 @@ interface LorebookConfig {
     tokenBudget?: number; // Approximate
     recursive?: boolean;
     matchWholeWords?: boolean;
-    characterName?: string; // Character name to prioritize in lorebook
+    characterName?: string; // AI Character name to prioritize in lorebook
+    userPersonaName?: string; // User's persona name to prioritize in lorebook
 }
 
 /**
@@ -26,7 +27,7 @@ export function getActiveLorebookEntries(
     const entries = lorebook.entries.filter((e) => e.enabled);
     if (entries.length === 0) return [];
 
-    const { scanDepth = 2, tokenBudget = 500, recursive = false, matchWholeWords = false, characterName } = config;
+    const { scanDepth = 2, tokenBudget = 500, recursive = false, matchWholeWords = false, characterName, userPersonaName } = config;
 
     // 1. Get text to scan
     const messagesToScan = messages.slice(-scanDepth);
@@ -85,16 +86,47 @@ export function getActiveLorebookEntries(
     // Initial scan
     scanForKeywords(scanText);
 
+    // Forcefully include character's entry if characterName is provided
+    if (characterName) {
+        const charEntry = entries.find(e => e.keys.some(k => k.toLowerCase() === characterName.toLowerCase()));
+        if (charEntry && !matchedEntries.has(charEntry)) {
+            const contentTokens = estimateTokens(charEntry.content);
+            if (currentTokenCount + contentTokens <= tokenBudget) {
+                matchedEntries.add(charEntry);
+                currentTokenCount += contentTokens;
+            }
+        }
+    }
+
+    // Forcefully include user persona's entry if userPersonaName is provided
+    if (userPersonaName) {
+        const userEntry = entries.find(e => e.keys.some(k => k.toLowerCase() === userPersonaName.toLowerCase()));
+        if (userEntry && !matchedEntries.has(userEntry)) {
+            const contentTokens = estimateTokens(userEntry.content);
+            if (currentTokenCount + contentTokens <= tokenBudget) {
+                matchedEntries.add(userEntry);
+                currentTokenCount += contentTokens;
+            }
+        }
+    }
+
     // Convert Set to Array and sort:
-    // 1. Character's own entry always first
-    // 2. Then by priority (higher first)
-    // 3. Then alphabetically by first key
+    // 1. User Persona's entry always first
+    // 2. AI Character's entry second
+    // 3. Then by priority (higher first)
+    // 4. Then alphabetically by first key
     const result = Array.from(matchedEntries);
     return result.sort((a, b) => {
+        const aIsUser = userPersonaName ? a.keys.some(k => k.toLowerCase() === userPersonaName.toLowerCase()) : false;
+        const bIsUser = userPersonaName ? b.keys.some(k => k.toLowerCase() === userPersonaName.toLowerCase()) : false;
+        if (aIsUser && !bIsUser) return -1;
+        if (!aIsUser && bIsUser) return 1;
+
         const aIsChar = characterName ? a.keys.some(k => k.toLowerCase() === characterName.toLowerCase()) : false;
         const bIsChar = characterName ? b.keys.some(k => k.toLowerCase() === characterName.toLowerCase()) : false;
         if (aIsChar && !bIsChar) return -1;
         if (!aIsChar && bIsChar) return 1;
+
         const priorityDiff = (b.priority || 10) - (a.priority || 10);
         if (priorityDiff !== 0) return priorityDiff;
         return (a.keys[0] || '').localeCompare(b.keys[0] || '');
@@ -175,19 +207,21 @@ export function resolveSystemPromptTemplate(
             ? `The story so far:\n${longTermMemory.join('\n')}`
             : '';
 
-    // Extract character names mentioned in recent messages (last 4)
+    // Extract character names mentioned in recent messages (last 10)
     // for filtering relationships
     let recentCharacterNames: string[] | undefined;
     if (recentMessages && recentMessages.length > 0) {
-        const last4 = recentMessages.slice(-4);
-        const combinedText = last4
+        const last10 = recentMessages.slice(-10);
+        const combinedText = last10
             .map((m) => m.content)
             .join(' ')
             .toLowerCase();
-        // Get all relationship names and filter to those mentioned
-        recentCharacterNames = Object.keys(worldState.relationships).filter((name) =>
-            combinedText.includes(name.toLowerCase())
-        );
+        // Get all relationship names and filter to those mentioned (by full name or first name)
+        recentCharacterNames = Object.keys(worldState.relationships).filter((name) => {
+            const lowerName = name.toLowerCase();
+            const firstName = lowerName.split(' ')[0];
+            return combinedText.includes(lowerName) || combinedText.includes(firstName);
+        });
     }
 
     const replacements: Record<string, string> = {
@@ -240,6 +274,8 @@ export function buildSystemPrompt(
         longTermMemory?: string[];
         recentMessages?: Message[];
         excludePostHistory?: boolean;
+        storyGuidance?: string;
+        scratchpad?: string;
     } = {}
 ): string {
     const promptTemplate = options.template || DEFAULT_SYSTEM_PROMPT_TEMPLATE;
@@ -279,6 +315,16 @@ export function buildSystemPrompt(
         const personaText = desc !== bio ? `${bio} ${desc}` : bio;
         prompt += `\n\nAbout ${options.userPersona.name || 'User'}: ${personaText}`;
     }
+
+    if (options.storyGuidance) {
+        prompt += `\n\n[Author's Note / Story Guidance: ${options.storyGuidance}]`;
+    }
+
+    if (options.scratchpad) {
+        prompt += `\n\n<scratchpad>\n${options.scratchpad}\n</scratchpad>`;
+    }
+
+    prompt += `\n\nAt the end of your response, you must output a <scratchpad> block containing your working memory, thoughts, and plans for the next turn. This will be provided to you in the next turn.`;
 
     // Add reinforcement if not already present and custom template not used (heuristic)
     if (!prompt.includes('Stay in character') && !options.template) {

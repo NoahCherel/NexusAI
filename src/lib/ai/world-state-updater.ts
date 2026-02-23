@@ -83,9 +83,13 @@ export function deriveWorldStateUpdates(
             );
 
             for (const charEntity of characters) {
+                // Map to existing full name if possible, or require name + surname for new
+                const mappedEntity = mapToFullName(charEntity, currentState.relationships);
+                if (!mappedEntity) continue; // Skip if it's a single name and no full name exists
+
                 const delta = computeRelationshipDelta(lower, fact.importance);
                 if (delta !== 0) {
-                    relationshipDeltas[charEntity] = (relationshipDeltas[charEntity] || 0) + delta;
+                    relationshipDeltas[mappedEntity] = (relationshipDeltas[mappedEntity] || 0) + delta;
                 }
             }
         }
@@ -97,9 +101,12 @@ export function deriveWorldStateUpdates(
                 (e) => !isCharacterName(e, characterName, userName) && e.length > 1
             );
             for (const charEntity of characters) {
+                const mappedEntity = mapToFullName(charEntity, currentState.relationships);
+                if (!mappedEntity) continue;
+
                 const delta = computeRelationshipDelta(lower, fact.importance);
                 if (delta !== 0) {
-                    relationshipDeltas[charEntity] = (relationshipDeltas[charEntity] || 0) + delta;
+                    relationshipDeltas[mappedEntity] = (relationshipDeltas[mappedEntity] || 0) + delta;
                 }
             }
         }
@@ -191,6 +198,35 @@ export function applyWorldStateUpdate(
 // ============================================
 // Keyword Pattern Helpers
 // ============================================
+
+/**
+ * Maps a potentially partial name (e.g., "James") to a full name in existing relationships (e.g., "James Pepito").
+ * If it's a new character, requires both a first and last name (at least one space).
+ */
+export function mapToFullName(entity: string, existingRelationships: Record<string, number>): string | null {
+    const cleanEntity = entity.trim();
+    const lowerEntity = cleanEntity.toLowerCase();
+    
+    // Check if it exactly matches an existing relationship (case-insensitive)
+    const exactMatch = Object.keys(existingRelationships).find(k => k.toLowerCase() === lowerEntity);
+    if (exactMatch) return exactMatch;
+
+    // Check if it's a partial match for an existing relationship (e.g., "James" -> "James Pepito")
+    const partialMatch = Object.keys(existingRelationships).find(k => {
+        const parts = k.toLowerCase().split(' ');
+        return parts.includes(lowerEntity);
+    });
+    if (partialMatch) return partialMatch;
+
+    // If it's a new character, require at least two words (name + surname)
+    if (cleanEntity.split(' ').length >= 2) {
+        // Capitalize first letters for consistency
+        return cleanEntity.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
+    }
+
+    // Reject single-word new characters
+    return null;
+}
 
 function isCharacterName(entity: string, characterName: string, userName: string): boolean {
     const lower = entity.toLowerCase();
