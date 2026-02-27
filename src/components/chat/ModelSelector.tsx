@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { ChevronDown, Plus, Sparkles, Zap, X, Cpu, Search, Check } from 'lucide-react';
+import { ChevronDown, ChevronLeft, Plus, Sparkles, Zap, X, Cpu, Search, Check } from 'lucide-react';
 import { useSettingsStore, DEFAULT_MODELS } from '@/stores/settings-store';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -43,12 +43,15 @@ export function ModelSelector() {
         return () => window.removeEventListener('resize', checkMobile);
     }, []);
 
-    // When the dialog opens, default to the active model
-    useEffect(() => {
-        if (open && !selectedModelId && !isCreatingModel) {
-            setSelectedModelId(activeModel);
+    // Reset state when the dialog is closed so the user isn't stuck
+    const handleOpenChange = (isOpen: boolean) => {
+        setOpen(isOpen);
+        if (!isOpen) {
+            setSelectedModelId(null);
+            setIsCreatingModel(false);
+            setSearchQuery('');
         }
-    }, [open, activeModel, selectedModelId, isCreatingModel]);
+    };
 
     const handleCreateNew = () => {
         setSearchQuery('');
@@ -171,8 +174,8 @@ export function ModelSelector() {
                 <ChevronDown className="w-3 h-3 opacity-50 hidden sm:block shrink-0" />
             </Button>
 
-            <Dialog open={open} onOpenChange={setOpen}>
-                <DialogContent className="max-w-4xl h-[80vh] p-0 flex flex-col overflow-hidden glass-heavy border-primary/20">
+            <Dialog open={open} onOpenChange={handleOpenChange}>
+                <DialogContent showCloseButton={false} className="max-w-4xl h-[80vh] p-0 flex flex-col overflow-hidden glass-heavy border-primary/20">
                     <DialogTitle className="sr-only">Model Selector</DialogTitle>
 
                     {/* Header */}
@@ -188,7 +191,7 @@ export function ModelSelector() {
                                     }}
                                     className="mr-1 h-8 w-8 shrink-0"
                                 >
-                                    <X className="w-5 h-5" />
+                                    <ChevronLeft className="w-5 h-5" />
                                 </Button>
                             )}
                             <Cpu className="w-5 h-5 text-primary shrink-0" />
@@ -203,7 +206,7 @@ export function ModelSelector() {
                         <Button
                             variant="ghost"
                             size="icon"
-                            onClick={() => setOpen(false)}
+                            onClick={() => handleOpenChange(false)}
                             className="h-8 w-8 text-muted-foreground hover:text-primary"
                         >
                             <X className="w-4 h-4" />

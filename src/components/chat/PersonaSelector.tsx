@@ -55,12 +55,14 @@ export function PersonaSelector() {
         return () => window.removeEventListener('resize', checkMobile);
     }, []);
 
-    // When the dialog opens, default to the active persona if none selected
-    useEffect(() => {
-        if (open && !selectedPersonaId) {
-            setSelectedPersonaId(activePersonaId);
+    // Reset state when the dialog is closed so the user isn't stuck
+    const handleOpenChange = (isOpen: boolean) => {
+        setOpen(isOpen);
+        if (!isOpen) {
+            setSelectedPersonaId(null);
+            setSearchQuery('');
         }
-    }, [open, activePersonaId, selectedPersonaId]);
+    };
 
     // Keep the editor state in sync with the selected persona
     useEffect(() => {
@@ -152,8 +154,8 @@ export function PersonaSelector() {
                 <ChevronUp className="h-3 w-3 opacity-50 hidden sm:block shrink-0" />
             </Button>
 
-            <Dialog open={open} onOpenChange={setOpen}>
-                <DialogContent className="max-w-4xl h-[80vh] p-0 flex flex-col overflow-hidden glass-heavy border-primary/20">
+            <Dialog open={open} onOpenChange={handleOpenChange}>
+                <DialogContent showCloseButton={false} className="max-w-4xl h-[80vh] p-0 flex flex-col overflow-hidden glass-heavy border-primary/20">
                     <DialogTitle className="sr-only">Persona Selector</DialogTitle>
 
                     {/* Header */}
@@ -179,7 +181,7 @@ export function PersonaSelector() {
                         <Button
                             variant="ghost"
                             size="icon"
-                            onClick={() => setOpen(false)}
+                            onClick={() => handleOpenChange(false)}
                             className="h-8 w-8 text-muted-foreground hover:text-primary"
                         >
                             <X className="w-4 h-4" />
