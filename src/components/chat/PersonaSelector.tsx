@@ -1,10 +1,10 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useSettingsStore } from '@/stores/settings-store';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Textarea } from '@/components/ui/textarea';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import {
     Dialog,
@@ -15,8 +15,9 @@ import {
     DialogFooter,
 } from '@/components/ui/dialog';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { ChevronUp, Plus, Trash2, Edit2 } from 'lucide-react';
+import { ChevronUp, Plus, Trash2, Edit2, Search, User, Check, X, ChevronLeft } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { toast } from 'sonner';
 
 export function PersonaSelector() {
     const {
@@ -27,12 +28,14 @@ export function PersonaSelector() {
         updatePersona,
         deletePersona,
     } = useSettingsStore();
+
     const [open, setOpen] = useState(false);
-    const [dialogOpen, setDialogOpen] = useState(false);
+    const [searchQuery, setSearchQuery] = useState('');
+    const [selectedPersonaId, setSelectedPersonaId] = useState<string | null>(null);
+    const [isMobile, setIsMobile] = useState(false);
     const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
-    const [personaToDelete, setPersonaToDelete] = useState<{ id: string; name: string } | null>(
-        null
-    );
+
+    // Form state for the right pane editor
     const [editingPersona, setEditingPersona] = useState<{
         id?: string;
         name: string;
@@ -45,270 +48,418 @@ export function PersonaSelector() {
     const displayName = activePersona?.displayName || activePersona?.name || 'You';
     const displayAvatar = activePersona?.avatar;
 
-    const openCreateDialog = () => {
-        setEditingPersona({ name: '', displayName: '', bio: '', avatar: '' });
-        setDialogOpen(true);
-        setOpen(false);
-    };
+    useEffect(() => {
+        const checkMobile = () => setIsMobile(window.innerWidth < 1024);
+        checkMobile();
+        window.addEventListener('resize', checkMobile);
+        return () => window.removeEventListener('resize', checkMobile);
+    }, []);
 
-    const openEditDialog = (persona: (typeof personas)[0]) => {
-        setEditingPersona({
-            id: persona.id,
-            name: persona.name,
-            displayName: persona.displayName || '',
-            bio: persona.bio,
-            avatar: persona.avatar || '',
-        });
-        setDialogOpen(true);
-        setOpen(false);
+    // When the dialog opens, default to the active persona if none selected
+    useEffect(() => {
+        if (open && !selectedPersonaId) {
+            setSelectedPersonaId(activePersonaId);
+        }
+    }, [open, activePersonaId, selectedPersonaId]);
+
+    // Keep the editor state in sync with the selected persona
+    useEffect(() => {
+        if (selectedPersonaId) {
+            const persona = personas.find((p) => p.id === selectedPersonaId);
+            if (persona) {
+                setEditingPersona({
+                    id: persona.id,
+                    name: persona.name,
+                    displayName: persona.displayName || '',
+                    bio: persona.bio || '',
+                    avatar: persona.avatar || '',
+                });
+            } else {
+                setEditingPersona(null);
+            }
+        } else {
+            setEditingPersona(null);
+        }
+    }, [selectedPersonaId, personas]);
+
+    const handleCreateNew = () => {
+        const id = crypto.randomUUID();
+        const newPersona = {
+            id,
+            name: 'New Persona',
+            bio: '',
+            avatar: '',
+        };
+        addPersona(newPersona);
+        setSearchQuery('');
+        setSelectedPersonaId(id);
     };
 
     const handleSave = () => {
-        if (!editingPersona || !editingPersona.name.trim()) return;
+        if (!editingPersona || !editingPersona.name.trim() || !editingPersona.id) return;
 
-        if (editingPersona.id) {
-            // Update existing
-            updatePersona(editingPersona.id, {
-                name: editingPersona.name.trim(),
-                displayName: editingPersona.displayName?.trim(),
-                bio: editingPersona.bio,
-                avatar: editingPersona.avatar,
-            });
-        } else {
-            // Create new
-            const id = crypto.randomUUID();
-            addPersona({
-                id,
-                name: editingPersona.name.trim(),
-                bio: editingPersona.bio,
-                avatar: editingPersona.avatar,
-            });
-            setActivePersonaId(id);
-        }
-        setDialogOpen(false);
-        setEditingPersona(null);
-    };
-
-    const handleDelete = (id: string, name: string) => {
-        setPersonaToDelete({ id, name });
-        setConfirmDeleteOpen(true);
+        updatePersona(editingPersona.id, {
+            name: editingPersona.name.trim(),
+            displayName: editingPersona.displayName?.trim(),
+            bio: editingPersona.bio,
+            avatar: editingPersona.avatar,
+        });
+        toast.success('Persona saved successfully');
     };
 
     const confirmDelete = () => {
-        if (personaToDelete) {
-            deletePersona(personaToDelete.id);
-            if (activePersonaId === personaToDelete.id) {
+        if (selectedPersonaId) {
+            deletePersona(selectedPersonaId);
+            if (activePersonaId === selectedPersonaId) {
                 setActivePersonaId(null);
             }
+            setSelectedPersonaId(null);
             setConfirmDeleteOpen(false);
-            setPersonaToDelete(null);
+            toast.success('Persona deleted');
         }
     };
 
+    const filteredPersonas = personas
+        .filter(
+            (p) =>
+                p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                (p.displayName || '').toLowerCase().includes(searchQuery.toLowerCase())
+        )
+        .sort((a, b) => {
+            if (a.id === activePersonaId) return -1;
+            if (b.id === activePersonaId) return 1;
+            return a.name.localeCompare(b.name);
+        });
+
+    const currentPersona = personas.find((p) => p.id === selectedPersonaId);
+    const showEditorOnMobile = isMobile && selectedPersonaId !== null;
+
     return (
         <>
-            <Popover open={open} onOpenChange={setOpen}>
-                <PopoverTrigger asChild>
-                    <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-8 gap-1.5 px-2 text-xs font-medium text-muted-foreground hover:text-foreground"
-                    >
-                        <Avatar className="h-5 w-5 border border-border/50 shrink-0">
-                            <AvatarImage src={displayAvatar} className="object-cover" />
-                            <AvatarFallback className="text-[9px] bg-primary/10 text-primary">
-                                {displayName[0].toUpperCase()}
-                            </AvatarFallback>
-                        </Avatar>
-                        <span className="max-w-[80px] truncate hidden sm:inline-block">
-                            {displayName}
-                        </span>
-                        <ChevronUp className="h-3 w-3 opacity-50 hidden sm:block shrink-0" />
-                    </Button>
-                </PopoverTrigger>
-                <PopoverContent className="w-72 p-2" align="start" side="top" sideOffset={8}>
-                    <div className="space-y-1">
-                        <div className="px-2 py-1 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
-                            Select Persona
+            <Button
+                variant="ghost"
+                size="sm"
+                className="h-8 gap-1.5 px-2 text-xs font-medium text-muted-foreground hover:text-foreground"
+                onClick={() => setOpen(true)}
+            >
+                <Avatar className="h-5 w-5 border border-border/50 shrink-0">
+                    <AvatarImage src={displayAvatar} className="object-cover" />
+                    <AvatarFallback className="text-[9px] bg-primary/10 text-primary">
+                        {displayName[0].toUpperCase()}
+                    </AvatarFallback>
+                </Avatar>
+                <span className="max-w-[80px] truncate hidden sm:inline-block">{displayName}</span>
+                <ChevronUp className="h-3 w-3 opacity-50 hidden sm:block shrink-0" />
+            </Button>
+
+            <Dialog open={open} onOpenChange={setOpen}>
+                <DialogContent className="max-w-4xl h-[80vh] p-0 flex flex-col overflow-hidden glass-heavy border-primary/20">
+                    <DialogTitle className="sr-only">Persona Selector</DialogTitle>
+
+                    {/* Header */}
+                    <div className="flex items-center justify-between p-3 sm:p-4 border-b bg-muted/30 backdrop-blur-md shrink-0">
+                        <div className="flex items-center gap-2 overflow-hidden">
+                            {showEditorOnMobile && (
+                                <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    onClick={() => setSelectedPersonaId(null)}
+                                    className="mr-1 h-8 w-8 shrink-0"
+                                >
+                                    <ChevronLeft className="w-5 h-5" />
+                                </Button>
+                            )}
+                            <User className="w-5 h-5 text-primary shrink-0" />
+                            <h2 className="font-bold text-sm sm:text-base truncate">
+                                {isMobile && currentPersona
+                                    ? currentPersona.displayName || currentPersona.name
+                                    : 'Persona Manager'}
+                            </h2>
                         </div>
-                        <ScrollArea className="max-h-[40vh] overflow-y-auto">
-                            <div className="space-y-1">
-                                {personas.map((persona) => (
-                                    <div
-                                        key={persona.id}
-                                        className={cn(
-                                            'flex items-center gap-2 p-2 rounded-lg cursor-pointer hover:bg-muted transition-colors group',
-                                            activePersonaId === persona.id && 'bg-muted'
-                                        )}
-                                    >
+                        <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => setOpen(false)}
+                            className="h-8 w-8 text-muted-foreground hover:text-primary"
+                        >
+                            <X className="w-4 h-4" />
+                        </Button>
+                    </div>
+
+                    <div className="flex flex-1 min-h-0 relative">
+                        {/* Sidebar List */}
+                        <div
+                            className={cn(
+                                'w-full lg:w-72 border-r flex flex-col bg-muted/10 transition-all duration-300',
+                                showEditorOnMobile ? 'hidden lg:flex' : 'flex'
+                            )}
+                        >
+                            <div className="p-3 border-b space-y-2 bg-muted/5">
+                                <div className="relative">
+                                    <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted-foreground outline-none" />
+                                    <Input
+                                        placeholder="Search personas..."
+                                        className="pl-9 h-9 text-xs bg-background/50 border-border/50 focus-visible:ring-primary/20"
+                                        value={searchQuery}
+                                        onChange={(e) => setSearchQuery(e.target.value)}
+                                    />
+                                </div>
+                                <Button
+                                    onClick={handleCreateNew}
+                                    size="sm"
+                                    className="w-full text-xs gap-2 font-semibold h-9 shadow-sm"
+                                >
+                                    <Plus className="w-3.5 h-3.5" /> New Persona
+                                </Button>
+                            </div>
+
+                            <ScrollArea className="flex-1 min-h-0 custom-scrollbar">
+                                <div className="flex flex-col p-2 gap-1.5 pt-3">
+                                    {filteredPersonas.map((persona) => (
                                         <div
-                                            className="flex-1 flex items-center gap-2 min-w-0"
-                                            onClick={() => {
-                                                setActivePersonaId(persona.id);
-                                                setOpen(false);
+                                            key={persona.id}
+                                            role="button"
+                                            tabIndex={0}
+                                            onClick={() => setSelectedPersonaId(persona.id)}
+                                            onKeyDown={(e) => {
+                                                if (e.key === 'Enter' || e.key === ' ') {
+                                                    setSelectedPersonaId(persona.id);
+                                                }
                                             }}
+                                            className={cn(
+                                                'text-left p-2 rounded-lg text-xs transition-all flex items-center justify-between group h-12 shrink-0 cursor-pointer',
+                                                selectedPersonaId === persona.id
+                                                    ? 'bg-primary/90 text-primary-foreground shadow-md shadow-primary/20 translate-x-1'
+                                                    : 'hover:bg-muted/80 text-muted-foreground hover:text-foreground'
+                                            )}
                                         >
-                                            <Avatar className="h-5 w-5 shrink-0">
-                                                <AvatarImage src={persona.avatar} />
-                                                <AvatarFallback className="text-[9px]">
-                                                    {persona.name[0].toUpperCase()}
-                                                </AvatarFallback>
-                                            </Avatar>
-                                            <div className="flex-1 min-w-0 flex flex-col justify-center">
-                                                <div className="flex items-center gap-1 w-full min-w-0 shrink">
-                                                    <span className="text-xs font-medium truncate block">
+                                            <div className="flex items-center gap-2 min-w-0 flex-1 pl-1">
+                                                <Avatar className="h-6 w-6 shrink-0 border border-border/50">
+                                                    <AvatarImage src={persona.avatar} />
+                                                    <AvatarFallback
+                                                        className={cn(
+                                                            'text-[10px]',
+                                                            selectedPersonaId === persona.id
+                                                                ? 'text-primary'
+                                                                : 'bg-primary/10 text-primary'
+                                                        )}
+                                                    >
+                                                        {persona.name[0].toUpperCase()}
+                                                    </AvatarFallback>
+                                                </Avatar>
+                                                <div className="flex flex-col min-w-0 flex-1 pr-2">
+                                                    <span className="font-semibold truncate">
                                                         {persona.displayName || persona.name}
                                                     </span>
                                                     {persona.displayName && (
-                                                        <span className="text-[10px] text-muted-foreground font-normal truncate shrink">
-                                                            ({persona.name})
+                                                        <span className="text-[10px] opacity-70 truncate">
+                                                            {persona.name}
                                                         </span>
                                                     )}
                                                 </div>
-                                                {persona.bio && (
-                                                    <span className="text-[10px] text-muted-foreground truncate hidden sm:block w-full">
-                                                        {persona.bio}
-                                                    </span>
-                                                )}
+                                            </div>
+                                            {activePersonaId === persona.id && (
+                                                <div className="shrink-0 flex items-center mr-2">
+                                                    <Check className="w-4 h-4 text-green-500" />
+                                                </div>
+                                            )}
+                                        </div>
+                                    ))}
+                                    {filteredPersonas.length === 0 && (
+                                        <div className="text-center py-12 px-6">
+                                            <div className="bg-muted/20 w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-3">
+                                                <Search className="w-6 h-6 opacity-20" />
+                                            </div>
+                                            <p className="text-muted-foreground text-xs font-medium">
+                                                No personas found
+                                            </p>
+                                        </div>
+                                    )}
+                                </div>
+                            </ScrollArea>
+                        </div>
+
+                        {/* Editor Area */}
+                        <div
+                            className={cn(
+                                'flex-1 flex flex-col transition-all duration-300 bg-background/50',
+                                !showEditorOnMobile && isMobile ? 'hidden' : 'flex'
+                            )}
+                        >
+                            {currentPersona && editingPersona ? (
+                                <div className="flex-1 flex flex-col p-4 sm:p-6 gap-6 overflow-y-auto custom-scrollbar">
+                                    <div className="flex items-center gap-4 border-b border-border/50 pb-6 shrink-0">
+                                        <div className="relative group">
+                                            <Avatar className="h-16 w-16 sm:h-20 sm:w-20 border-2 border-primary/20 ring-4 ring-muted">
+                                                <AvatarImage
+                                                    src={editingPersona.avatar}
+                                                    className="object-cover"
+                                                />
+                                                <AvatarFallback className="text-xl bg-primary/10 text-primary font-bold">
+                                                    {editingPersona.name[0].toUpperCase()}
+                                                </AvatarFallback>
+                                            </Avatar>
+                                        </div>
+                                        <div className="flex-1 min-w-0 flex flex-col gap-1.5 justify-center">
+                                            <h3 className="text-lg sm:text-xl font-bold truncate">
+                                                {editingPersona.displayName || editingPersona.name}
+                                            </h3>
+                                            <div className="flex items-center gap-2">
+                                                <Button
+                                                    size="sm"
+                                                    variant={
+                                                        activePersonaId === currentPersona.id
+                                                            ? 'secondary'
+                                                            : 'default'
+                                                    }
+                                                    className="text-xs h-7 px-3 w-fit"
+                                                    onClick={() => {
+                                                        setActivePersonaId(currentPersona.id);
+                                                        toast.success(
+                                                            `Active persona set to ${currentPersona.displayName ||
+                                                            currentPersona.name
+                                                            }`
+                                                        );
+                                                    }}
+                                                    disabled={activePersonaId === currentPersona.id}
+                                                >
+                                                    {activePersonaId === currentPersona.id ? (
+                                                        <>
+                                                            <Check className="w-3.5 h-3.5 mr-1" />{' '}
+                                                            Active
+                                                        </>
+                                                    ) : (
+                                                        'Set as Active'
+                                                    )}
+                                                </Button>
                                             </div>
                                         </div>
-                                        <div className="sm:hidden flex items-center gap-2 pr-1 shrink-0">
-                                            <Button
-                                                variant="ghost"
-                                                size="icon"
-                                                className="h-9 w-9 bg-muted/50 rounded-full"
-                                                onClick={() => openEditDialog(persona)}
-                                            >
-                                                <Edit2 className="h-3.5 w-3.5" />
-                                            </Button>
-                                            <Button
-                                                variant="ghost"
-                                                size="icon"
-                                                className="h-9 w-9 bg-destructive/10 text-destructive rounded-full"
-                                                onClick={() =>
-                                                    handleDelete(persona.id, persona.name)
-                                                }
-                                            >
-                                                <Trash2 className="h-3.5 w-3.5" />
-                                            </Button>
+                                    </div>
+
+                                    <div className="space-y-4 shrink-0 max-w-2xl">
+                                        <div className="grid sm:grid-cols-2 gap-4">
+                                            <div className="space-y-2">
+                                                <label className="text-[10px] font-bold uppercase tracking-widest text-primary/70">
+                                                    Character Name
+                                                </label>
+                                                <Input
+                                                    className="bg-muted/5 focus-visible:ring-primary/20 h-10 font-medium"
+                                                    value={editingPersona.name}
+                                                    onChange={(e) =>
+                                                        setEditingPersona((prev) =>
+                                                            prev
+                                                                ? {
+                                                                    ...prev,
+                                                                    name: e.target.value,
+                                                                }
+                                                                : null
+                                                        )
+                                                    }
+                                                    onBlur={handleSave}
+                                                    placeholder="e.g. System AI"
+                                                />
+                                                <p className="text-[10px] text-muted-foreground mt-1">
+                                                    The name the AI understands as its identity.
+                                                </p>
+                                            </div>
+                                            <div className="space-y-2">
+                                                <label className="text-[10px] font-bold uppercase tracking-widest text-primary/70">
+                                                    Display Name (Optional)
+                                                </label>
+                                                <Input
+                                                    className="bg-muted/5 focus-visible:ring-primary/20 h-10 font-medium"
+                                                    value={editingPersona.displayName}
+                                                    onChange={(e) =>
+                                                        setEditingPersona((prev) =>
+                                                            prev
+                                                                ? {
+                                                                    ...prev,
+                                                                    displayName: e.target.value,
+                                                                }
+                                                                : null
+                                                        )
+                                                    }
+                                                    onBlur={handleSave}
+                                                    placeholder="e.g. Helpful Assistant Mode"
+                                                />
+                                                <p className="text-[10px] text-muted-foreground mt-1">
+                                                    Shown in the UI, overrides Character Name.
+                                                </p>
+                                            </div>
                                         </div>
-                                        <div className="hidden sm:flex group-hover:flex items-center gap-0.5 shrink-0 ml-2">
-                                            <Button
-                                                variant="ghost"
-                                                size="icon"
-                                                className="h-5 w-5"
-                                                onClick={() => openEditDialog(persona)}
-                                            >
-                                                <Edit2 className="h-2.5 w-2.5" />
-                                            </Button>
-                                            <Button
-                                                variant="ghost"
-                                                size="icon"
-                                                className="h-5 w-5 hover:text-destructive"
-                                                onClick={() =>
-                                                    handleDelete(persona.id, persona.name)
+
+                                        <div className="space-y-2">
+                                            <label className="text-[10px] font-bold uppercase tracking-widest text-primary/70">
+                                                Avatar URL
+                                            </label>
+                                            <Input
+                                                className="bg-muted/5 focus-visible:ring-primary/20 h-10 text-sm font-mono"
+                                                value={editingPersona.avatar}
+                                                onChange={(e) =>
+                                                    setEditingPersona((prev) =>
+                                                        prev
+                                                            ? {
+                                                                ...prev,
+                                                                avatar: e.target.value,
+                                                            }
+                                                            : null
+                                                    )
                                                 }
-                                            >
-                                                <Trash2 className="h-2.5 w-2.5" />
-                                            </Button>
+                                                onBlur={handleSave}
+                                                placeholder="https://example.com/image.png"
+                                            />
                                         </div>
                                     </div>
-                                ))}
 
-                                {personas.length === 0 && (
-                                    <div className="px-2 py-3 text-xs text-muted-foreground italic text-center">
-                                        No personas yet
+                                    <div className="flex-1 flex flex-col gap-3 min-h-[250px] max-w-2xl">
+                                        <label className="text-[10px] font-bold uppercase tracking-widest text-primary/70 shrink-0">
+                                            Biography & System Prompt
+                                        </label>
+                                        <Textarea
+                                            className="flex-1 min-h-[200px] resize-none font-sans text-sm leading-relaxed p-4 bg-muted/5 focus-visible:ring-primary/20"
+                                            value={editingPersona.bio}
+                                            onChange={(e) =>
+                                                setEditingPersona((prev) =>
+                                                    prev ? { ...prev, bio: e.target.value } : null
+                                                )
+                                            }
+                                            onBlur={handleSave}
+                                            placeholder="Write how the persona should behave, its personality, background story..."
+                                        />
                                     </div>
-                                )}
-                            </div>
-                        </ScrollArea>
 
-                        <Button
-                            variant="ghost"
-                            size="sm"
-                            className="w-full justify-start gap-2 h-7 text-xs"
-                            onClick={openCreateDialog}
-                        >
-                            <Plus className="h-3 w-3" />
-                            New Persona
-                        </Button>
-                    </div>
-                </PopoverContent>
-            </Popover>
-
-            {/* Create/Edit Dialog */}
-            <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-                <DialogContent className="sm:max-w-md">
-                    <DialogHeader>
-                        <DialogTitle>
-                            {editingPersona?.id ? 'Edit Persona' : 'Create Persona'}
-                        </DialogTitle>
-                        <DialogDescription>
-                            Configure your persona&apos;s identity. The AI will adopt this persona
-                            during the conversation.
-                        </DialogDescription>
-                    </DialogHeader>
-                    <div className="space-y-4 py-4">
-                        <div className="space-y-2">
-                            <label className="text-sm font-medium">Name</label>
-                            <Input
-                                placeholder="Character name (used by AI)..."
-                                value={editingPersona?.name || ''}
-                                onChange={(e) =>
-                                    setEditingPersona((prev) =>
-                                        prev ? { ...prev, name: e.target.value } : null
-                                    )
-                                }
-                            />
-                        </div>
-                        <div className="space-y-2">
-                            <label className="text-sm font-medium">System Label (Optional)</label>
-                            <Input
-                                placeholder="UI label (e.g. 'Angry Mode')..."
-                                value={editingPersona?.displayName || ''}
-                                onChange={(e) =>
-                                    setEditingPersona((prev) =>
-                                        prev ? { ...prev, displayName: e.target.value } : null
-                                    )
-                                }
-                            />
-                        </div>
-                        <div className="space-y-2">
-                            <label className="text-sm font-medium">Biography / Description</label>
-                            <textarea
-                                className="flex min-h-[100px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                                placeholder="Describe your persona... (The AI will see this as your character)"
-                                value={editingPersona?.bio || ''}
-                                onChange={(e) =>
-                                    setEditingPersona((prev) =>
-                                        prev ? { ...prev, bio: e.target.value } : null
-                                    )
-                                }
-                            />
-                        </div>
-                        <div className="space-y-2">
-                            <label className="text-sm font-medium">Avatar URL (optional)</label>
-                            <Input
-                                placeholder="https://example.com/avatar.png"
-                                value={editingPersona?.avatar || ''}
-                                onChange={(e) =>
-                                    setEditingPersona((prev) =>
-                                        prev ? { ...prev, avatar: e.target.value } : null
-                                    )
-                                }
-                            />
+                                    <div className="flex items-center justify-between border-t border-border/50 pt-6 mt-4 shrink-0 max-w-2xl">
+                                        <div />
+                                        <Button
+                                            variant="ghost"
+                                            size="sm"
+                                            className="text-destructive hover:bg-destructive/10 hover:text-destructive h-9 px-4 font-semibold"
+                                            onClick={() => setConfirmDeleteOpen(true)}
+                                        >
+                                            <Trash2 className="w-4 h-4 mr-2" /> Delete Persona
+                                        </Button>
+                                    </div>
+                                </div>
+                            ) : (
+                                <div className="flex-1 flex items-center justify-center bg-muted/5">
+                                    <div className="text-center space-y-4 max-w-xs px-6">
+                                        <div className="bg-primary/5 w-16 h-16 rounded-2xl flex items-center justify-center mx-auto rotate-12">
+                                            <User className="w-8 h-8 text-primary/40" />
+                                        </div>
+                                        <div className="space-y-1">
+                                            <h3 className="font-bold">No Persona Selected</h3>
+                                            <p className="text-xs text-muted-foreground leading-relaxed">
+                                                Select a persona from the list or create a new one.
+                                            </p>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
                         </div>
                     </div>
-                    <DialogFooter>
-                        <Button variant="outline" onClick={() => setDialogOpen(false)}>
-                            Cancel
-                        </Button>
-                        <Button onClick={handleSave} disabled={!editingPersona?.name.trim()}>
-                            {editingPersona?.id ? 'Save Changes' : 'Create'}
-                        </Button>
-                    </DialogFooter>
                 </DialogContent>
             </Dialog>
+
             {/* Delete Confirmation Dialog */}
             <Dialog open={confirmDeleteOpen} onOpenChange={setConfirmDeleteOpen}>
                 <DialogContent className="sm:max-w-[400px] border-destructive/20 glass-heavy">
@@ -320,7 +471,7 @@ export function PersonaSelector() {
                         <DialogDescription className="text-center pt-2">
                             This action cannot be undone. You are about to delete{' '}
                             <span className="font-bold text-foreground">
-                                &quot;{personaToDelete?.name}&quot;
+                                &quot;{currentPersona?.name}&quot;
                             </span>
                             .
                         </DialogDescription>
@@ -338,7 +489,7 @@ export function PersonaSelector() {
                             className="flex-1 shadow-lg shadow-destructive/20"
                             onClick={confirmDelete}
                         >
-                            Delete Persona
+                            Delete
                         </Button>
                     </DialogFooter>
                 </DialogContent>
