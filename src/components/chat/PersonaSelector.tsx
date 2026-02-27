@@ -114,7 +114,7 @@ export function PersonaSelector() {
                         size="sm"
                         className="h-8 gap-1.5 px-2 text-xs font-medium text-muted-foreground hover:text-foreground"
                     >
-                        <Avatar className="h-5 w-5 border border-border/50">
+                        <Avatar className="h-5 w-5 border border-border/50 shrink-0">
                             <AvatarImage src={displayAvatar} className="object-cover" />
                             <AvatarFallback className="text-[9px] bg-primary/10 text-primary">
                                 {displayName[0].toUpperCase()}
@@ -123,7 +123,7 @@ export function PersonaSelector() {
                         <span className="max-w-[80px] truncate hidden sm:inline-block">
                             {displayName}
                         </span>
-                        <ChevronUp className="h-3 w-3 opacity-50 hidden sm:block" />
+                        <ChevronUp className="h-3 w-3 opacity-50 hidden sm:block shrink-0" />
                     </Button>
                 </PopoverTrigger>
                 <PopoverContent className="w-72 p-2" align="start" side="top" sideOffset={8}>
@@ -142,23 +142,23 @@ export function PersonaSelector() {
                                         )}
                                     >
                                         <div
-                                            className="flex-1 flex items-center gap-2"
+                                            className="flex-1 flex items-center gap-2 min-w-0"
                                             onClick={() => {
                                                 setActivePersonaId(persona.id);
                                                 setOpen(false);
                                             }}
                                         >
-                                            <Avatar className="h-5 w-5">
+                                            <Avatar className="h-5 w-5 shrink-0">
                                                 <AvatarImage src={persona.avatar} />
                                                 <AvatarFallback className="text-[9px]">
                                                     {persona.name[0].toUpperCase()}
                                                 </AvatarFallback>
                                             </Avatar>
                                             <div className="flex-1 min-w-0">
-                                                <span className="text-xs font-medium truncate block">
-                                                    {persona.displayName || persona.name}
+                                                <span className="text-xs font-medium truncate flex items-center pr-2">
+                                                    <span className="truncate">{persona.displayName || persona.name}</span>
                                                     {persona.displayName && (
-                                                        <span className="ml-1 text-[10px] text-muted-foreground font-normal">
+                                                        <span className="ml-1 text-[10px] text-muted-foreground font-normal shrink-0 truncate max-w-[50%]">
                                                             ({persona.name})
                                                         </span>
                                                     )}
