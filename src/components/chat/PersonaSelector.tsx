@@ -154,17 +154,19 @@ export function PersonaSelector() {
                                                     {persona.name[0].toUpperCase()}
                                                 </AvatarFallback>
                                             </Avatar>
-                                            <div className="flex-1 min-w-0">
-                                                <span className="text-xs font-medium truncate flex items-center pr-2">
-                                                    <span className="truncate">{persona.displayName || persona.name}</span>
+                                            <div className="flex-1 min-w-0 flex flex-col justify-center">
+                                                <div className="flex items-center gap-1 w-full min-w-0 shrink">
+                                                    <span className="text-xs font-medium truncate block">
+                                                        {persona.displayName || persona.name}
+                                                    </span>
                                                     {persona.displayName && (
-                                                        <span className="ml-1 text-[10px] text-muted-foreground font-normal shrink-0 truncate max-w-[50%]">
+                                                        <span className="text-[10px] text-muted-foreground font-normal truncate shrink">
                                                             ({persona.name})
                                                         </span>
                                                     )}
-                                                </span>
+                                                </div>
                                                 {persona.bio && (
-                                                    <span className="text-[10px] text-muted-foreground truncate hidden sm:block">
+                                                    <span className="text-[10px] text-muted-foreground truncate hidden sm:block w-full">
                                                         {persona.bio}
                                                     </span>
                                                 )}
