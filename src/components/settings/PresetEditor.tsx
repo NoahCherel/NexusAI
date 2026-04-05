@@ -218,13 +218,13 @@ export function PresetEditor() {
             />
 
             {/* Header */}
-            <div className="flex items-center justify-between p-4 border-b shrink-0">
-                <div className="flex items-center gap-3">
+            <div className="flex flex-wrap items-center justify-between p-4 border-b shrink-0 gap-3">
+                <div className="flex flex-wrap items-center gap-1 sm:gap-3 flex-1 min-w-0">
                     <Select
                         value={activePresetId || ''}
                         onValueChange={(v: string) => setActivePreset(v)}
                     >
-                        <SelectTrigger className="w-56">
+                        <SelectTrigger className="w-[130px] sm:w-[220px] shrink-0">
                             <span className="truncate text-left font-medium">
                                 {activePreset.name}
                             </span>

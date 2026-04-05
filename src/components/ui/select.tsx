@@ -6,6 +6,7 @@ import { Check, ChevronDown } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { ScrollArea } from '@/components/ui/scroll-area';
 
 // Context to share state
 interface SelectContextValue {
@@ -101,13 +102,11 @@ const SelectContent = React.forwardRef<
 >(({ className, children, ...props }, ref) => {
     return (
         <PopoverContent ref={ref} className={cn('w-full p-1', className)} align="start" {...props}>
-            <div
-                className="max-h-[300px] overflow-y-auto overflow-x-hidden"
-                style={{ WebkitOverflowScrolling: 'touch', touchAction: 'pan-y' }}
-                onPointerDown={(e) => e.stopPropagation()}
-            >
-                {children}
-            </div>
+            <ScrollArea className="max-h-[50vh] sm:max-h-[300px]">
+                <div className="flex flex-col" onPointerDown={(e) => e.stopPropagation()}>
+                    {children}
+                </div>
+            </ScrollArea>
         </PopoverContent>
     );
 });
