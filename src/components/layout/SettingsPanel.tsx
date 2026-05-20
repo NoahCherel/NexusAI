@@ -1,5 +1,16 @@
 import { useState } from 'react';
-import { Settings, Key, Sliders, Eye, EyeOff, Check, X, Settings2, Bot, ChevronDown } from 'lucide-react';
+import {
+    Settings,
+    Key,
+    Sliders,
+    Eye,
+    EyeOff,
+    Check,
+    X,
+    Settings2,
+    Bot,
+    ChevronDown,
+} from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -36,6 +47,7 @@ export function SettingsPanel({ open, onOpenChange }: SettingsPanelProps) {
         showThoughts,
         showWorldState,
         enableReasoning,
+        useFlexTier,
         immersiveMode,
         backgroundModel,
         customModels,
@@ -45,10 +57,12 @@ export function SettingsPanel({ open, onOpenChange }: SettingsPanelProps) {
         setShowThoughts,
         setShowWorldState,
         setEnableReasoning,
+        setUseFlexTier,
         setImmersiveMode,
         setBackgroundModel,
         lorebookAutoExtract,
         setLorebookAutoExtract,
+        activeProvider,
     } = useSettingsStore();
 
     const allModels = [...DEFAULT_MODELS, ...customModels];
@@ -235,6 +249,30 @@ export function SettingsPanel({ open, onOpenChange }: SettingsPanelProps) {
                                         </Button>
                                     </div>
                                 </div>
+                                
+                                {/* OpenRouter Flex Tier Toggle */}
+                                {activeProvider === 'openrouter' && (
+                                    <div className="space-y-4">
+                                        <div className="flex items-center justify-between p-4 border rounded-lg bg-card/50">
+                                            <div>
+                                                <p className="text-sm font-medium">
+                                                    OpenRouter Flex Tier
+                                                </p>
+                                                <p className="text-xs text-muted-foreground mt-1">
+                                                    Routes requests through OpenRouter&apos;s flexible (discounted) tier when available for supported models (e.g. Gemini 3.5 Flash)
+                                                </p>
+                                            </div>
+                                            <Button
+                                                variant={useFlexTier ? 'default' : 'secondary'}
+                                                size="sm"
+                                                onClick={() => setUseFlexTier(!useFlexTier)}
+                                                className="w-16"
+                                            >
+                                                {useFlexTier ? 'On' : 'Off'}
+                                            </Button>
+                                        </div>
+                                    </div>
+                                )}
 
                                 <div className="space-y-4">
                                     <div className="flex items-center justify-between p-4 border rounded-lg bg-card/50">
@@ -286,8 +324,7 @@ export function SettingsPanel({ open, onOpenChange }: SettingsPanelProps) {
                                                         {backgroundModel
                                                             ? (allModels.find(
                                                                   (m) =>
-                                                                      m.modelId ===
-                                                                      backgroundModel
+                                                                      m.modelId === backgroundModel
                                                               )?.name ?? backgroundModel)
                                                             : 'Auto (Free Models)'}
                                                     </span>
@@ -322,14 +359,12 @@ export function SettingsPanel({ open, onOpenChange }: SettingsPanelProps) {
                                                             className="flex items-center justify-between"
                                                         >
                                                             {model.name}
-                                                            {backgroundModel ===
-                                                                model.modelId && (
+                                                            {backgroundModel === model.modelId && (
                                                                 <span className="w-1.5 h-1.5 bg-primary rounded-full" />
                                                             )}
                                                         </DropdownMenuItem>
                                                     ))}
-                                                {allModels.filter((m) => !m.isFree).length >
-                                                    0 && (
+                                                {allModels.filter((m) => !m.isFree).length > 0 && (
                                                     <>
                                                         <DropdownMenuSeparator />
                                                         <div className="px-2 py-1.5 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">

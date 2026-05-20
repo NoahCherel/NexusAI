@@ -147,6 +147,7 @@ interface SettingsState {
     temperature: number;
     maxTokens: number;
     enableReasoning: boolean;
+    useFlexTier: boolean;
 
     // User Personas
     personas: Persona[];
@@ -183,6 +184,7 @@ interface SettingsState {
     setTemperature: (temp: number) => void;
     setMaxTokens: (tokens: number) => void;
     setEnableReasoning: (enabled: boolean) => void;
+    setUseFlexTier: (enabled: boolean) => void;
 
     // Persona Actions
     addPersona: (persona: Persona) => void;
@@ -222,6 +224,7 @@ export const useSettingsStore = create<SettingsState>()(
             temperature: 0.8,
             maxTokens: 2048,
             enableReasoning: false,
+            useFlexTier: false,
             personas: [],
             activePersonaId: null,
             presets: [],
@@ -267,6 +270,7 @@ export const useSettingsStore = create<SettingsState>()(
             setTemperature: (temperature) => set({ temperature }),
             setMaxTokens: (maxTokens) => set({ maxTokens }),
             setEnableReasoning: (enableReasoning) => set({ enableReasoning }),
+            setUseFlexTier: (useFlexTier) => set({ useFlexTier }),
 
             // Persona Actions
             addPersona: (persona) => set((state) => ({ personas: [...state.personas, persona] })),

@@ -57,6 +57,7 @@ export function useWorldStateAnalyzer(): UseWorldStateAnalyzerReturn {
                         temperature,
                         max_tokens: maxTokens,
                         stream: false, // Non-streaming for simpler parsing
+                        ...(useSettingsStore.getState().useFlexTier ? { service_tier: 'flex' } : {}),
                     }),
                 });
 

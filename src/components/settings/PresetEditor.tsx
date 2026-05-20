@@ -171,8 +171,9 @@ export function PresetEditor() {
                         json.assistant_prefill ?? json.assistantPrefill ?? base.assistantPrefill,
 
                     // Misc
-                    enableReasoning: false, // Default to false unless specific
+                    enableReasoning: json.enable_reasoning ?? json.enableReasoning ?? base.enableReasoning ?? false,
                     includeNames: json.names_in_completion ?? base.includeNames,
+                    useFlexTier: json.use_flex_tier ?? json.useFlexTier ?? base.useFlexTier ?? false,
 
                     createdAt: new Date(),
                     isDefault: false,
@@ -763,6 +764,28 @@ export function PresetEditor() {
                                         }
                                     >
                                         {activePreset.useAutoSummarization ? 'On' : 'Off'}
+                                    </Button>
+                                </div>
+
+                                <div className="flex items-center justify-between p-2 border rounded">
+                                    <div>
+                                        <p className="text-sm font-medium">OpenRouter Flex Tier</p>
+                                        <p className="text-xs text-muted-foreground">
+                                            Route requests through OpenRouter&apos;s flexible (discounted) tier when available
+                                        </p>
+                                    </div>
+                                    <Button
+                                        size="sm"
+                                        variant={
+                                            activePreset.useFlexTier ? 'default' : 'secondary'
+                                        }
+                                        onClick={() =>
+                                            update({
+                                                useFlexTier: !activePreset.useFlexTier,
+                                            })
+                                        }
+                                    >
+                                        {activePreset.useFlexTier ? 'On' : 'Off'}
                                     </Button>
                                 </div>
                             </div>

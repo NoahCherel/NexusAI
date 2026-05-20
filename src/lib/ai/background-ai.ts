@@ -8,6 +8,8 @@
  * - Streaming response reading
  */
 
+import { useSettingsStore } from '@/stores';
+
 // Fallback model chain — tried in order, skips on 429
 const FREE_MODELS = [
     'meta-llama/llama-3.3-70b-instruct:free',
@@ -41,6 +43,12 @@ interface BackgroundAIOptions {
     maxRetries?: number;
     /** User-chosen background model override (from settings). Bypasses fallback chain. */
     backgroundModel?: string | null;
+    /**
+     * How to process <think> tags in model output:
+     * - remove-blocks: remove <think>...</think> blocks (default)
+     * - remove-tags: keep text but strip only the <think> tags
+     */
+    thinkTagStrategy?: 'remove-blocks' | 'remove-tags';
 }
 
 interface BackgroundAIResult {
@@ -64,10 +72,14 @@ export async function backgroundAICall(
         models,
         maxRetries = 2,
         backgroundModel,
+        thinkTagStrategy = 'remove-blocks',
     } = options;
 
-    // If user chose a specific background model, use only that (no fallback chain)
-    const modelChain = backgroundModel ? [backgroundModel] : (models ?? FREE_MODELS);
+    // Prefer user-selected model first, then fallback chain.
+    const fallbackModels = models ?? FREE_MODELS;
+    const modelChain = backgroundModel
+        ? [backgroundModel, ...fallbackModels.filter((m) => m !== backgroundModel)]
+        : fallbackModels;
 
     for (const model of modelChain) {
         for (let attempt = 0; attempt <= maxRetries; attempt++) {
@@ -86,12 +98,13 @@ export async function backgroundAICall(
                         systemPrompt,
                         temperature,
                         maxTokens,
+                        useFlexTier: useSettingsStore.getState().useFlexTier,
                     }),
                 });
 
                 if (response.ok) {
                     const text = await readStreamFull(response);
-                    const cleaned = text.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+                    const cleaned = normalizeThinkText(text, thinkTagStrategy).trim();
                     if (cleaned) {
                         return { content: cleaned, usedModel: model };
                     }
@@ -128,6 +141,26 @@ export async function backgroundAICall(
 
     console.error('[BackgroundAI] All models exhausted');
     return null;
+}
+
+/**
+ * Normalize model thinking tags according to the chosen strategy.
+ * In remove-blocks mode, if everything is inside <think> tags and result becomes empty,
+ * fall back to remove-tags to avoid losing usable structured output.
+ */
+function normalizeThinkText(
+    text: string,
+    strategy: 'remove-blocks' | 'remove-tags'
+): string {
+    if (strategy === 'remove-tags') {
+        return text.replace(/<\/?think>/gi, '');
+    }
+
+    const withoutBlocks = text.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+    if (withoutBlocks) return withoutBlocks;
+
+    // Fallback: some models place all useful output inside <think> tags.
+    return text.replace(/<\/?think>/gi, '');
 }
 
 /**

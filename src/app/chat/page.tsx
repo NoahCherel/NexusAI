@@ -15,6 +15,7 @@ import {
     Users,
     Eye,
     ChevronUp,
+    Network,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
@@ -32,9 +33,16 @@ import {
     ModelSelector,
     ContextPreviewPanel,
 } from '@/components/chat';
+import { WorldGraphView } from '@/components/chat/WorldGraphView';
 import { SettingsPanel, CharacterPanel } from '@/components/layout';
 import { CharacterEditor } from '@/components/character';
-import { useCharacterStore, useSettingsStore, useChatStore, useLorebookStore } from '@/stores';
+import {
+    useCharacterStore,
+    useSettingsStore,
+    useChatStore,
+    useLorebookStore,
+    useGraphStore,
+} from '@/stores';
 import { useNotificationStore } from '@/components/ui/api-notification';
 import { useWorldStateAnalyzer } from '@/hooks';
 import { decryptApiKey } from '@/lib/crypto';
@@ -96,14 +104,83 @@ import { getAdaptiveChunkSize, scoreMessageQuality } from '@/lib/ai/message-qual
 import { backgroundAICall } from '@/lib/ai/background-ai';
 import { deriveWorldStateUpdates, applyWorldStateUpdate } from '@/lib/ai/world-state-updater';
 import { saveFactsBatch, getFactsByConversation, getSummariesByConversation } from '@/lib/db';
+import { verifyPossibility, generateScratchpadVerification } from '@/lib/ai/graph-verification';
+import {
+    formatSubgraphForPrompt,
+    updateGraphOnEvent,
+} from '@/lib/ai/graph-engine';
+import type { KnowledgeGraph } from '@/types/graph-types';
 import type { ContextSection, WorldFact } from '@/types/rag';
 import type { Message } from '@/types';
+
+type CharacterBootstrapHints = {
+    name: string;
+    scenario?: string;
+    description?: string;
+};
+
+function inferTimePointFromText(text: string): string {
+    const compactSeasonEpisode = text.match(/\bS(\d{1,2})E(\d{1,2})\b/i);
+    if (compactSeasonEpisode) {
+        return `S${compactSeasonEpisode[1]}E${compactSeasonEpisode[2]}`;
+    }
+
+    const verboseSeasonEpisode = text.match(/\bSeason\s*(\d{1,2})\s*Episode\s*(\d{1,2})\b/i);
+    if (verboseSeasonEpisode) {
+        return `S${verboseSeasonEpisode[1]}E${verboseSeasonEpisode[2]}`;
+    }
+
+    const turnMatch = text.match(/\bTurn\s*(\d{1,4})\b/i);
+    if (turnMatch) {
+        return `Turn_${turnMatch[1]}`;
+    }
+
+    return 'Start';
+}
+
+function inferUniverseName(character: CharacterBootstrapHints): string {
+    const loreText = `${character.scenario || ''}\n${character.description || ''}`.toLowerCase();
+
+    if (/\b(naruto|konoha|shinobi|hokage|akatsuki|uzumaki|uchiha|hyuga|ninja)\b/i.test(loreText)) {
+        return 'Naruto';
+    }
+
+    if (/\b(game of thrones|asoiaf|westeros|lannister|stark|targaryen|baratheon)\b/i.test(loreText)) {
+        return 'Game of Thrones';
+    }
+
+    const explicitUniverseMatch = loreText.match(
+        /\b(?:in|from|within)\s+the\s+([a-z0-9'\- ]{3,40})\s+(?:universe|world)\b/i
+    );
+    if (explicitUniverseMatch?.[1]) {
+        return explicitUniverseMatch[1].trim();
+    }
+
+    return character.name;
+}
+
+function deriveGraphBootstrapParams(
+    character: CharacterBootstrapHints,
+    history: Array<{ content: string }>
+): { universeName: string; timePoint: string } {
+    const historyText = history
+        .slice(0, 6)
+        .map((m) => m.content)
+        .join('\n');
+    const combinedText = `${character.scenario || ''}\n${character.description || ''}\n${historyText}`;
+
+    return {
+        universeName: inferUniverseName(character),
+        timePoint: inferTimePointFromText(combinedText),
+    };
+}
 
 export default function ChatPage() {
     const [isSettingsOpen, setIsSettingsOpen] = useState(false);
     const [isWorldStateCollapsed, setIsWorldStateCollapsed] = useState(false);
     const [isLorebookOpen, setIsLorebookOpen] = useState(false);
     const [isTreeOpen, setIsTreeOpen] = useState(false);
+    const [isWorldGraphOpen, setIsWorldGraphOpen] = useState(false);
     const [isMemoryOpen, setIsMemoryOpen] = useState(false);
     const [isWorldStateSheetOpen, setIsWorldStateSheetOpen] = useState(false);
     const [isWorldStateDialogOpen, setIsWorldStateDialogOpen] = useState(false);
@@ -151,6 +228,7 @@ export default function ChatPage() {
         loadedCharacterId,
         messages: storeMessages, // Get raw messages for reactivity
     } = useChatStore();
+    const { activeGraph, loadGraph, saveAndSetGraph } = useGraphStore();
     const { activeLorebook, setActiveLorebook } = useLorebookStore();
 
     // Get active messages from store - depends on raw messages for reactivity
@@ -185,10 +263,19 @@ export default function ChatPage() {
         activePersonaId,
         personas,
         enableReasoning,
+        useFlexTier,
         immersiveMode,
+        backgroundModel,
         getActivePreset,
     } = useSettingsStore();
     const character = getActiveCharacter();
+
+    const graphBootstrapDefaults = useMemo(() => {
+        if (!character) {
+            return { universeName: 'Unknown Universe', timePoint: 'Start' };
+        }
+        return deriveGraphBootstrapParams(character, messages);
+    }, [character, messages]);
 
     // Get current world state from active conversation
     const currentConversation = conversations.find((c) => c.id === activeConversationId);
@@ -216,15 +303,17 @@ export default function ChatPage() {
         loadApiKey();
     }, [apiKeys, activeProvider]);
 
-    // Auto-scroll to bottom when switching conversations or loading
     useEffect(() => {
         if (activeConversationId) {
             // Small delay to ensure content is rendered
             setTimeout(() => {
                 scrollRef.current?.scrollIntoView({ behavior: 'instant' });
             }, 100);
+
+            // Load CKG
+            loadGraph(activeConversationId);
         }
-    }, [activeConversationId]);
+    }, [activeConversationId, loadGraph]);
 
     // Sync lorebook when character changes
     useEffect(() => {
@@ -540,6 +629,43 @@ export default function ChatPage() {
         worldState.location,
     ]);
 
+    const buildGraphPromptContext = (
+        historyForGraph: Array<{ content: string }>,
+        graph: KnowledgeGraph | null
+    ): {
+        graphConstraints: string;
+        knowledgeGraphContext: string;
+        graphScratchpad: string;
+    } => {
+        if (!graph) {
+            return {
+                graphConstraints: '',
+                knowledgeGraphContext: '',
+                graphScratchpad: '',
+            };
+        }
+
+        const verification = verifyPossibility(historyForGraph, graph);
+        const scratchVerify = generateScratchpadVerification(verification.constraints);
+
+        return {
+            graphConstraints: verification.promptInjection,
+            knowledgeGraphContext:
+                verification.subgraphNodes.length > 0
+                    ? formatSubgraphForPrompt(verification.subgraphNodes, verification.subgraphEdges)
+                    : '',
+            graphScratchpad: scratchVerify ? `\n\n${scratchVerify}` : '',
+        };
+    };
+
+    const getGraphForActiveConversation = (): KnowledgeGraph | null => {
+        const currentGraph = useGraphStore.getState().activeGraph || activeGraph;
+        if (currentGraph && currentGraph.conversationId === activeConversationId) {
+            return currentGraph;
+        }
+        return null;
+    };
+
     const triggerAiReponse = async (
         history: CAMessage[],
         options: {
@@ -559,6 +685,7 @@ export default function ChatPage() {
 
         const activePreset = getActivePreset();
         const activePersona = personas.find((p) => p.id === activePersonaId);
+        const graphForTurn = getGraphForActiveConversation();
 
         // 1. Calculate Active Lorebook Entries (hybrid: keyword + semantic)
         const useLorebooks = activePreset?.useLorebooks ?? true;
@@ -637,6 +764,11 @@ export default function ChatPage() {
         // Combine conversation-scoped notes with character-level memory
         const currentConv = conversations.find((c) => c.id === activeConversationId);
         const combinedMemory = [...(currentConv?.notes || []), ...(character.longTermMemory || [])];
+
+        // --- CKG Narrative Verification ---
+        const { graphConstraints, knowledgeGraphContext, graphScratchpad } =
+            buildGraphPromptContext(history, graphForTurn);
+
         let systemPrompt = buildSystemPrompt(character, worldState, activeEntries, {
             template: activePreset?.systemPromptTemplate,
             preHistory: activePreset?.preHistoryInstructions,
@@ -646,7 +778,9 @@ export default function ChatPage() {
             recentMessages: history,
             excludePostHistory: true,
             storyGuidance: currentConv?.storyGuidance,
-            scratchpad: currentConv?.scratchpad,
+            scratchpad: (currentConv?.scratchpad || '') + graphScratchpad,
+            knowledgeGraphContext,
+            graphConstraints,
         });
 
         // Handle Impersonation System Prompt Override
@@ -756,6 +890,7 @@ export default function ChatPage() {
                     // System prompt is now in messages[0]
                     systemInstruction: undefined, // Gemini fallback? No, we use messages.
                     enableReasoning: activePreset?.enableReasoning ?? enableReasoning,
+                    useFlexTier: activePreset?.useFlexTier ?? useFlexTier,
                 }),
                 signal: abortControllerRef.current.signal,
             });
@@ -814,10 +949,14 @@ export default function ChatPage() {
             if (scratchpadMatch) {
                 const scratchpadContent = scratchpadMatch[1].trim();
                 if (activeConversationId) {
-                    useChatStore.getState().updateScratchpad(activeConversationId, scratchpadContent);
+                    useChatStore
+                        .getState()
+                        .updateScratchpad(activeConversationId, scratchpadContent);
                 }
                 // Remove scratchpad from final content
-                finalContent = finalContent.replace(/<scratchpad>[\s\S]*?<\/scratchpad>/i, '').trim();
+                finalContent = finalContent
+                    .replace(/<scratchpad>[\s\S]*?<\/scratchpad>/i, '')
+                    .trim();
             }
 
             updateMessage(targetId, {
@@ -834,6 +973,28 @@ export default function ChatPage() {
                 } else if (fullContent) {
                     // Analyze the AI response (contains the most new world state info)
                     analyzeMessage(fullContent, character.name);
+                }
+
+                // CKG Delta Update
+                if (graphForTurn && activeConversationId) {
+                    // Start async delta update
+                    (async () => {
+                        try {
+                            const result = await updateGraphOnEvent(
+                                graphForTurn,
+                                fullContent,
+                                targetId,
+                                currentApiKey,
+                                useSettingsStore.getState().backgroundModel
+                            );
+                            if (result) {
+                                console.log('[CKG] Graph updated:', result.delta.summary);
+                                saveAndSetGraph(result.graph);
+                            }
+                        } catch (err) {
+                            console.error('[CKG] Delta update failed:', err);
+                        }
+                    })();
                 }
 
                 // Lorebook extraction is now handled in handleSend on the previous message
@@ -1116,6 +1277,9 @@ export default function ChatPage() {
 
         const conv = conversations.find((c) => c.id === activeConversationId);
         const combinedMem = [...(conv?.notes || []), ...(character.longTermMemory || [])];
+        const previewGraph = getGraphForActiveConversation();
+        const previewGraphContext = buildGraphPromptContext(simulatedMessages, previewGraph);
+
         const systemPrompt = buildSystemPrompt(character, worldState, activeEntries, {
             template: activePreset?.systemPromptTemplate,
             preHistory: activePreset?.preHistoryInstructions,
@@ -1125,7 +1289,9 @@ export default function ChatPage() {
             recentMessages: simulatedMessages,
             excludePostHistory: true,
             storyGuidance: conv?.storyGuidance,
-            scratchpad: conv?.scratchpad,
+            scratchpad: (conv?.scratchpad || '') + previewGraphContext.graphScratchpad,
+            knowledgeGraphContext: previewGraphContext.knowledgeGraphContext,
+            graphConstraints: previewGraphContext.graphConstraints,
         });
 
         const maxContextTokens = activePreset?.maxContextTokens ?? 16384;
@@ -1201,6 +1367,8 @@ export default function ChatPage() {
         try {
             const activePreset = getActivePreset();
             const activePersona = personas.find((p) => p.id === activePersonaId);
+            const graphForImpersonation = getGraphForActiveConversation();
+            const impersonationGraphContext = buildGraphPromptContext(messages, graphForImpersonation);
 
             // 1. Context
             const useLorebooks = activePreset?.useLorebooks ?? true;
@@ -1236,7 +1404,9 @@ export default function ChatPage() {
                 recentMessages: messages, // Pass current messages for context
                 excludePostHistory: true,
                 storyGuidance: impConv?.storyGuidance,
-                scratchpad: impConv?.scratchpad,
+                scratchpad: (impConv?.scratchpad || '') + impersonationGraphContext.graphScratchpad,
+                knowledgeGraphContext: impersonationGraphContext.knowledgeGraphContext,
+                graphConstraints: impersonationGraphContext.graphConstraints,
             });
 
             // Impersonation Override
@@ -1284,6 +1454,7 @@ export default function ChatPage() {
                     systemPrompt,
                     userPersona: activePersona,
                     enableReasoning: activePreset?.enableReasoning ?? enableReasoning,
+                    useFlexTier: activePreset?.useFlexTier ?? useFlexTier,
                 }),
             });
 
@@ -1818,6 +1989,15 @@ export default function ChatPage() {
                                             variant="ghost"
                                             size="sm"
                                             className="h-8 w-8 p-0 text-muted-foreground hover:text-foreground shrink-0"
+                                            onClick={() => setIsWorldGraphOpen(true)}
+                                            title="Knowledge Graph"
+                                        >
+                                            <Network className="h-4 w-4" />
+                                        </Button>
+                                        <Button
+                                            variant="ghost"
+                                            size="sm"
+                                            className="h-8 w-8 p-0 text-muted-foreground hover:text-foreground shrink-0"
                                             onClick={() => setIsMemoryOpen(true)}
                                             title="Long-Term Memory"
                                         >
@@ -1906,6 +2086,16 @@ export default function ChatPage() {
             </Dialog>
 
             <TreeVisualization isOpen={isTreeOpen} onClose={() => setIsTreeOpen(false)} />
+
+            <WorldGraphView
+                isOpen={isWorldGraphOpen}
+                onClose={() => setIsWorldGraphOpen(false)}
+                apiKey={currentApiKey}
+                backgroundModel={backgroundModel}
+                activeModel={activeModel}
+                defaultUniverseName={graphBootstrapDefaults.universeName}
+                defaultTimePoint={graphBootstrapDefaults.timePoint}
+            />
 
             <MemoryPanel isOpen={isMemoryOpen} onClose={() => setIsMemoryOpen(false)} />
 

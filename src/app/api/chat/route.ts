@@ -30,6 +30,7 @@ export async function POST(req: NextRequest) {
             systemPrompt,
             userPersona,
             enableReasoning,
+            useFlexTier,
         } = await req.json();
 
         if (!apiKey) {
@@ -98,6 +99,7 @@ export async function POST(req: NextRequest) {
             if (topK) requestBody.top_k = topK;
             if (minP) requestBody.min_p = minP;
             if (repetitionPenalty) requestBody.repetition_penalty = repetitionPenalty;
+            if (useFlexTier) requestBody.service_tier = 'flex';
 
             // Add reasoning configuration per OpenRouter docs
             if (enableReasoning) {
