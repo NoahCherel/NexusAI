@@ -28,8 +28,46 @@ export interface Conversation {
     arc?: ArcCompass; // Directed progression toward the work's canonical arc
     momentumNudge?: string; // Transient anti-stall directive, consumed next turn then cleared
     rpJournal?: Record<string, string[]>; // Per-character "in this RP" developments, layered on canon
+    relationships?: DirectedRelationship[]; // Phase 2: directional, multi-axis, history-aware bonds
     createdAt: Date;
     updatedAt: Date;
+}
+
+// ============================================================================
+// Relationships (Phase 2) — directional, multi-axis, history-aware.
+// Replaces the old symmetric WorldState.relationships scalar map.
+// ============================================================================
+
+/** Canonical sentinel used as a stable `from`/`to` key for the player's persona. */
+export const USER_REL_KEY = '{{user}}';
+
+export type RelationshipAxis = 'trust' | 'affection' | 'respect' | 'attraction';
+
+export interface RelationshipAxes {
+    trust: number; // -100..100 — belief/reliance. Slow to build, fast to break.
+    affection: number; // -100..100 — warmth/liking.
+    respect: number; // -100..100 — regard for competence/standing.
+    attraction: number; // -100..100 — romantic/sexual interest.
+}
+
+/** A single recorded change to one axis, with the reason that justified it. */
+export interface RelationshipLedgerEntry {
+    ts: number;
+    axis: RelationshipAxis;
+    delta: number; // the EFFECTIVE delta applied after inertia rules
+    reason: string;
+    messageId?: string;
+}
+
+/** One character's feelings toward another. Directional: A→B is independent of B→A. */
+export interface DirectedRelationship {
+    from: string; // character name, or USER_REL_KEY for the player
+    to: string; // character name, or USER_REL_KEY for the player
+    axes: RelationshipAxes;
+    ledger: RelationshipLedgerEntry[]; // most-recent-last, capped
+    note?: string; // freeform: known facts / current thoughts about the target
+    seededFromCanon?: boolean; // true if the starting values came from a canon relationship
+    updatedAt?: number;
 }
 
 // Directed progression toward the next canonical beat of the work.

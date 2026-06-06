@@ -27,7 +27,7 @@ import type { Message as CAMessage } from '@/types';
 import {
     ChatBubble,
     ChatInput,
-    WorldStatePanel,
+    RelationshipPanel,
     PersonaSelector,
     ModelSelector,
     ContextPreviewPanel,
@@ -36,7 +36,6 @@ import { SettingsPanel, CharacterPanel } from '@/components/layout';
 import { CharacterEditor } from '@/components/character';
 import { useCharacterStore, useSettingsStore, useChatStore, useLorebookStore } from '@/stores';
 import { useNotificationStore } from '@/components/ui/api-notification';
-import { useWorldStateAnalyzer } from '@/hooks';
 import { decryptApiKey } from '@/lib/crypto';
 import { parseStreamingChunk, normalizeCoT } from '@/lib/ai/cot-middleware';
 import {
@@ -53,7 +52,7 @@ import {
     SheetTitle,
     SheetDescription,
 } from '@/components/ui/sheet';
-import { Book, Globe2Icon, Clapperboard } from 'lucide-react';
+import { Book, Clapperboard, Heart as HeartIcon } from 'lucide-react';
 import { TreeVisualization } from '@/components/chat/TreeVisualization';
 import { MemoryPanel } from '@/components/chat/MemoryPanel';
 import { CanonEditor } from '@/components/canon/CanonEditor';
@@ -96,9 +95,10 @@ import {
 import { getAdaptiveChunkSize, scoreMessageQuality } from '@/lib/ai/message-quality';
 import { backgroundAICall } from '@/lib/ai/background-ai';
 import { deriveWorldStateUpdates, applyWorldStateUpdate } from '@/lib/ai/world-state-updater';
-import { buildCanonOptions, resolveWork } from '@/lib/ai/canon-context';
+import { buildCanonOptions, resolveWork, nameMatchesText } from '@/lib/ai/canon-context';
 import { fetchCharacterDossier } from '@/lib/ai/canon-retrieval';
 import { detectStall, buildMomentumNudge } from '@/lib/ai/momentum';
+import { analyzeAndUpdateRelationships } from '@/lib/ai/relationship-analyst';
 import { saveFactsBatch, getFactsByConversation, getSummariesByConversation } from '@/lib/db';
 import type { ContextSection, WorldFact } from '@/types/rag';
 import type { Message } from '@/types';
@@ -179,7 +179,6 @@ export default function ChatPage() {
         setDisplayLimit(MESSAGE_PAGE_SIZE);
     }, [activeConversationId]);
 
-    const { analyzeMessage, isAnalyzing } = useWorldStateAnalyzer();
     const {
         apiKeys,
         activeProvider,
@@ -281,17 +280,6 @@ export default function ChatPage() {
                         messageOrder: 1,
                         regenerationIndex: 0,
                     });
-                    // Analyze first message for initial world state (delay to allow store to update)
-                    const firstMes = character.first_mes;
-                    const charName = character.name;
-                    // Capture newId for the closure
-                    const targetConversationId = newId;
-
-                    setTimeout(() => {
-                        if (firstMes) {
-                            analyzeMessage(firstMes, charName, targetConversationId);
-                        }
-                    }, 500);
                 }
             }
         };
@@ -302,7 +290,6 @@ export default function ChatPage() {
         createConversation,
         addMessage,
         conversations,
-        analyzeMessage,
         loadedCharacterId,
         isLoadingConversations,
         setActiveConversation,
@@ -643,8 +630,13 @@ export default function ChatPage() {
         // Combine conversation-scoped notes with character-level memory
         const currentConv = conversations.find((c) => c.id === activeConversationId);
         const combinedMemory = [...(currentConv?.notes || []), ...(character.longTermMemory || [])];
-        // Canon Codex (immutable identity) + Arc + momentum, layered over RP memory.
-        const canonOptions = await buildCanonOptions(character, currentConv, history);
+        // Canon Codex (immutable identity) + Arc + momentum + relationships, over RP memory.
+        const canonOptions = await buildCanonOptions(
+            character,
+            currentConv,
+            history,
+            activePersona?.name || 'the player'
+        );
         let systemPrompt = buildSystemPrompt(character, worldState, activeEntries, {
             template: activePreset?.systemPromptTemplate,
             preHistory: activePreset?.preHistoryInstructions,
@@ -868,11 +860,7 @@ export default function ChatPage() {
                     const roster = character.canonCast || [];
                     if (work && roster.length > 0) {
                         const lower = finalContent.toLowerCase();
-                        const active = roster.filter(
-                            (n) =>
-                                lower.includes(n.toLowerCase()) ||
-                                lower.includes(n.toLowerCase().split(' ')[0])
-                        );
+                        const active = roster.filter((n) => nameMatchesText(n, lower));
                         for (const name of active) {
                             fetchCharacterDossier(work, name, cap).catch((e) =>
                                 console.error('[Canon] dossier fetch failed', name, e)
@@ -901,15 +889,16 @@ export default function ChatPage() {
                 thought: finalResult.thought || assistantThought || undefined,
             });
 
-            // Analyze state logic (Background)
-            // Only analyze one message per exchange to reduce API calls
+            // Background analysis after a beat.
             if (character) {
-                if (options.isImpersonation) {
-                    // If impersonating, analyze the NEW User message
-                    analyzeMessage(fullContent, activePersona?.name || 'User');
-                } else if (fullContent) {
-                    // Analyze the AI response (contains the most new world state info)
-                    analyzeMessage(fullContent, character.name);
+                // Relationships (Phase 2): update NPC bonds from this beat, in the background.
+                if (finalContent && activeConversationId && !options.isImpersonation) {
+                    analyzeAndUpdateRelationships(
+                        character,
+                        activeConversationId,
+                        finalContent,
+                        targetId
+                    ).catch((e) => console.error('[Relationships] analysis failed', e));
                 }
 
                 // Lorebook extraction is now handled in handleSend on the previous message
@@ -1079,15 +1068,6 @@ export default function ChatPage() {
         setIsSettingsOpen(true);
     };
 
-    const handleForceAnalysis = async () => {
-        if (!character || messages.length === 0 || !activeConversationId) return;
-
-        // Get the last message to analyze
-        const lastMessage = messages[messages.length - 1];
-        if (!lastMessage) return;
-
-        await analyzeMessage(lastMessage.content, character.name, activeConversationId, true);
-    };
 
     const handleSend = async (userMessage: string) => {
         if (!activeConversationId || !character) return;
@@ -1205,7 +1185,12 @@ export default function ChatPage() {
 
         const conv = conversations.find((c) => c.id === activeConversationId);
         const combinedMem = [...(conv?.notes || []), ...(character.longTermMemory || [])];
-        const previewCanonOptions = await buildCanonOptions(character, conv, simulatedMessages);
+        const previewCanonOptions = await buildCanonOptions(
+            character,
+            conv,
+            simulatedMessages,
+            activePersona?.name || 'the player'
+        );
         const systemPrompt = buildSystemPrompt(character, worldState, activeEntries, {
             template: activePreset?.systemPromptTemplate,
             preHistory: activePreset?.preHistoryInstructions,
@@ -1886,16 +1871,16 @@ export default function ChatPage() {
                                                 size="sm"
                                                 className="h-8 w-8 p-0 text-muted-foreground hover:text-foreground shrink-0"
                                                 onClick={() => {
-                                                    // Desktop: open dialog, Mobile: opensheet
+                                                    // Desktop: open dialog, Mobile: open sheet
                                                     if (window.innerWidth >= 1024) {
                                                         setIsWorldStateDialogOpen(true);
                                                     } else {
                                                         setIsWorldStateSheetOpen(true);
                                                     }
                                                 }}
-                                                title="World Context"
+                                                title="Relations"
                                             >
-                                                <Globe2Icon className="h-4 w-4" />
+                                                <HeartIcon className="h-4 w-4" />
                                             </Button>
                                         )}
                                         <Button
@@ -2021,73 +2006,38 @@ export default function ChatPage() {
                 </DialogContent>
             </Dialog>
 
-            {/* Desktop WorldState Dialog */}
+            {/* Desktop Relationships Dialog */}
             <Dialog open={isWorldStateDialogOpen} onOpenChange={setIsWorldStateDialogOpen}>
-                <DialogContent className="!max-w-[600px] !w-[600px] h-[85vh] p-0 overflow-hidden">
-                    <DialogTitle className="sr-only">World Context</DialogTitle>
+                <DialogContent className="!max-w-[640px] !w-[640px] h-[85vh] p-0 overflow-hidden flex flex-col">
+                    <DialogTitle className="sr-only">Relations</DialogTitle>
                     <DialogDescription className="sr-only">
-                        Track inventory, location, and relationships in the current conversation.
+                        Directional, multi-axis relationships between the characters in this story.
                     </DialogDescription>
                     <div className="flex flex-col h-full">
                         <div className="p-4 border-b">
-                            <h2 className="text-lg font-semibold">🌍 World Context</h2>
+                            <h2 className="text-lg font-semibold">💞 Relations</h2>
                             <p className="text-sm text-muted-foreground">
-                                Track inventory, relationships, and location
+                                Confiance / Affection / Respect / Attirance — dirigées et asymétriques
                             </p>
                         </div>
                         <div className="flex-1 overflow-y-auto p-4">
-                            <WorldStatePanel
-                                inventory={worldState.inventory.map((i) =>
-                                    i.replace(
-                                        /{{user}}/gi,
-                                        personas.find((p) => p.id === activePersonaId)?.name ||
-                                            'You'
-                                    )
-                                )}
-                                location={worldState.location.replace(
-                                    /{{user}}/gi,
-                                    personas.find((p) => p.id === activePersonaId)?.name || 'You'
-                                )}
-                                relationships={worldState.relationships}
-                                isCollapsed={false}
-                                onForceAnalyze={() => {
-                                    handleForceAnalysis();
-                                }}
-                                isAnalyzing={isAnalyzing}
-                            />
+                            <RelationshipPanel />
                         </div>
                     </div>
                 </DialogContent>
             </Dialog>
 
-            {/* Mobile WorldState Bottom Sheet */}
+            {/* Mobile Relationships Bottom Sheet */}
             <Sheet open={isWorldStateSheetOpen} onOpenChange={setIsWorldStateSheetOpen}>
-                <SheetContent side="bottom" className="h-[70vh] p-0">
+                <SheetContent side="bottom" className="h-[75vh] p-0">
                     <SheetHeader className="p-4 border-b">
-                        <SheetTitle>🌍 World Context</SheetTitle>
+                        <SheetTitle>💞 Relations</SheetTitle>
                         <SheetDescription>
-                            Track inventory, relationships, and location
+                            Dirigées et asymétriques (Confiance / Affection / Respect / Attirance)
                         </SheetDescription>
                     </SheetHeader>
-                    <div className="p-4 overflow-y-auto h-[calc(70vh-5rem)]">
-                        <WorldStatePanel
-                            inventory={worldState.inventory.map((i) =>
-                                i.replace(
-                                    /{{user}}/gi,
-                                    personas.find((p) => p.id === activePersonaId)?.name || 'You'
-                                )
-                            )}
-                            location={worldState.location.replace(
-                                /{{user}}/gi,
-                                personas.find((p) => p.id === activePersonaId)?.name || 'You'
-                            )}
-                            relationships={worldState.relationships}
-                            isCollapsed={false}
-                            onForceAnalyze={() => {
-                                handleForceAnalysis();
-                            }}
-                            isAnalyzing={isAnalyzing}
-                        />
+                    <div className="p-4 overflow-y-auto h-[calc(75vh-5rem)]">
+                        <RelationshipPanel />
                     </div>
                 </SheetContent>
             </Sheet>

@@ -481,6 +481,10 @@ export async function buildContextPreview(
         /\[IN THIS RP — [^\]]+\][\s\S]*?(?=\n\n|\n\[|$)/g,
         '⟨in-this-rp block — see Canon section⟩'
     );
+    displaySystemPrompt = displaySystemPrompt.replace(
+        /\[RELATIONSHIPS —[\s\S]*?(?=\n\n|$)/g,
+        '⟨relationships block — see Canon section⟩'
+    );
 
     // Strip world state block from system prompt display (shown in dedicated section)
     if (worldState) {
@@ -546,9 +550,11 @@ export async function buildContextPreview(
         const canonBlocks: string[] = [];
         const canonRegex = /\[CANON — [^\]]+\][\s\S]*?(?=\n\n|\n\[|$)/g;
         const rpRegex = /\[IN THIS RP — [^\]]+\][\s\S]*?(?=\n\n|\n\[|$)/g;
+        const relRegex = /\[RELATIONSHIPS —[\s\S]*?(?=\n\n|$)/g;
         const canonMatches = systemPrompt.match(canonRegex) || [];
         const rpMatches = systemPrompt.match(rpRegex) || [];
-        canonBlocks.push(...canonMatches, ...rpMatches);
+        const relMatches = systemPrompt.match(relRegex) || [];
+        canonBlocks.push(...canonMatches, ...rpMatches, ...relMatches);
 
         const lines: string[] = [];
         lines.push(

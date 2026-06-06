@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { Message, Conversation, WorldState, ArcCompass } from '@/types';
+import type { Message, Conversation, WorldState, ArcCompass, DirectedRelationship } from '@/types';
 import {
     saveConversation,
     getConversationsByCharacter,
@@ -36,6 +36,7 @@ interface ChatState {
     appendRpJournal: (conversationId: string, character: string, note: string) => void;
     setRpJournalForCharacter: (conversationId: string, character: string, notes: string[]) => void;
     setMomentumNudge: (conversationId: string, nudge: string | undefined) => void;
+    setRelationships: (conversationId: string, relationships: DirectedRelationship[]) => void;
     clearConversation: (conversationId: string) => void;
     navigateToSibling: (messageId: string, direction: 'prev' | 'next') => void;
     navigateToMessage: (messageId: string) => void;
@@ -67,11 +68,11 @@ export const useChatStore = create<ChatState>()((set, get) => ({
         set({ isLoading: true });
         try {
             const convs = await getConversationsByCharacter(characterId);
+            // Preserve EVERY persisted field (relationships, arc, rpJournal, scratchpad,
+            // storyGuidance, notes, momentumNudge, worldStates, …). The previous explicit
+            // allow-list silently dropped all of these on reload even though they were saved.
             const conversations: Conversation[] = convs.map((conv) => ({
-                id: conv.id,
-                characterId: conv.characterId,
-                title: conv.title,
-                worldState: conv.worldState,
+                ...conv,
                 createdAt: new Date(conv.createdAt),
                 updatedAt: new Date(conv.updatedAt),
             }));
@@ -473,6 +474,20 @@ export const useChatStore = create<ChatState>()((set, get) => ({
             conversations: state.conversations.map((c) => {
                 if (c.id === conversationId) {
                     conversationToUpdate = { ...c, momentumNudge: nudge, updatedAt: new Date() };
+                    return conversationToUpdate;
+                }
+                return c;
+            }),
+        }));
+        if (conversationToUpdate) saveConversation(conversationToUpdate).catch(console.error);
+    },
+
+    setRelationships: (conversationId, relationships) => {
+        let conversationToUpdate: Conversation | undefined;
+        set((state) => ({
+            conversations: state.conversations.map((c) => {
+                if (c.id === conversationId) {
+                    conversationToUpdate = { ...c, relationships, updatedAt: new Date() };
                     return conversationToUpdate;
                 }
                 return c;

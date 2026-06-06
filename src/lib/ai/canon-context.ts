@@ -12,9 +12,44 @@ import type { CanonDossier } from '@/types/canon';
 import { getCanonDossiersByWork, getArcOutline } from '@/lib/db';
 import { deriveWorkFromName } from '@/lib/ai/canon-retrieval';
 import { useSettingsStore } from '@/stores/settings-store';
+import { formatRelationshipBlock } from '@/lib/ai/relationship-context';
 
 export function resolveWork(card: CharacterCard): string {
     return (card.work?.trim() || deriveWorkFromName(card.name)).trim();
+}
+
+/**
+ * Build the set of distinctive match tokens for a roster name. Word-boundary matching only,
+ * and short/ambiguous tokens are dropped so e.g. the Raikage named "A" doesn't match every
+ * "a", and "Ino" doesn't match "shINObi".
+ *
+ *   "Ino Yamanaka"        → ["ino yamanaka", "ino"]
+ *   "A (Fourth Raikage)"  → ["fourth", "raikage"]   (the bare "A" is too ambiguous to match)
+ *   "Killer B"            → ["killer b", "killer"]
+ */
+export function nameMatchTokens(canonName: string): string[] {
+    const core = canonName.replace(/\([^)]*\)/g, '').trim(); // strip parentheticals
+    const tokens = new Set<string>();
+    if (core.length >= 3) tokens.add(core.toLowerCase()); // full core name as a phrase
+    const first = core.split(/\s+/)[0];
+    if (first && first.length >= 3) tokens.add(first.toLowerCase()); // distinctive first name
+    // Parenthetical aliases/titles (e.g. "Raikage") — only reasonably long ones.
+    const paren = canonName.match(/\(([^)]*)\)/);
+    if (paren) {
+        for (const w of paren[1].split(/\s+/)) {
+            if (w.length >= 4) tokens.add(w.toLowerCase());
+        }
+    }
+    return [...tokens];
+}
+
+/** True if `name` appears as a whole word/phrase in `lowerText` (already lowercased). */
+export function nameMatchesText(canonName: string, lowerText: string): boolean {
+    return nameMatchTokens(canonName).some((tok) => {
+        const esc = tok.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        // Unicode-aware word boundary: token must be flanked by non-letter/non-digit (or ends).
+        return new RegExp(`(?:^|[^\\p{L}\\p{N}])${esc}(?:[^\\p{L}\\p{N}]|$)`, 'u').test(lowerText);
+    });
 }
 
 /** Names from the roster that are mentioned in the last `depth` messages. */
@@ -34,10 +69,7 @@ export function getActiveCanonNames(
         .map((m) => m.content)
         .join(' ')
         .toLowerCase();
-    return roster.filter((n) => {
-        const ln = n.toLowerCase();
-        return text.includes(ln) || text.includes(ln.split(' ')[0]);
-    });
+    return roster.filter((n) => nameMatchesText(n, text));
 }
 
 export interface CanonPromptOptions {
@@ -47,6 +79,7 @@ export interface CanonPromptOptions {
     arcOutline?: string;
     momentumNudge?: string;
     dueToAppear?: string[];
+    relationshipBlock?: string;
     /** Diagnostic info for the Context Preview — not used by the prompt itself. */
     injectionMeta?: {
         injectedNames: string[];
@@ -132,7 +165,8 @@ const SCAN_DEPTH = 10;
 export async function buildCanonOptions(
     card: CharacterCard,
     conversation: Conversation | undefined,
-    recentMessages: Message[]
+    recentMessages: Message[],
+    userName = 'the player'
 ): Promise<CanonPromptOptions> {
     // Master switch: when off, nothing canon-related reaches the prompt.
     if (!useSettingsStore.getState().useCanonCodex) return {};
@@ -143,11 +177,8 @@ export async function buildCanonOptions(
     const all = await getCanonDossiersByWork(work);
     const isInjectable = (d: CanonDossier) => d.enabled !== false && !d.stub && !!d.identity.trim();
 
-    const activeNames = new Set(
-        getActiveCanonNames(card, conversation, recentMessages, SCAN_DEPTH).map((n) =>
-            n.toLowerCase()
-        )
-    );
+    const activeNameList = getActiveCanonNames(card, conversation, recentMessages, SCAN_DEPTH);
+    const activeNames = new Set(activeNameList.map((n) => n.toLowerCase()));
 
     // Partition for diagnostics: injected vs stub vs disabled, among mentioned cast members.
     const mentioned = all.filter((d) => activeNames.has(d.character.toLowerCase()));
@@ -193,6 +224,13 @@ export async function buildCanonOptions(
         ? conversation?.arc || { enabled: true, work }
         : conversation?.arc;
 
+    // Relationships (Phase 2): inject the directional bonds among the characters on stage.
+    const relationshipBlock = formatRelationshipBlock(
+        conversation?.relationships,
+        activeNameList,
+        userName
+    );
+
     return {
         canonDossiers: injected,
         rpJournal: conversation?.rpJournal,
@@ -200,6 +238,7 @@ export async function buildCanonOptions(
         arcOutline: arcOutlineForPrompt,
         momentumNudge: conversation?.momentumNudge,
         dueToAppear,
+        relationshipBlock: relationshipBlock || undefined,
         injectionMeta: {
             injectedNames: injected.map((d) => d.character),
             ignoredStubs,

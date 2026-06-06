@@ -21,6 +21,7 @@ import {
     Globe,
     RefreshCw,
     Sparkles,
+    Heart,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
@@ -41,10 +42,11 @@ import {
     proposeScenes,
 } from '@/lib/ai/director';
 import { resolveWork } from '@/lib/ai/canon-context';
+import { RelationshipPanel } from '@/components/chat/RelationshipPanel';
 import type { CanonDossier } from '@/types/canon';
 import type { ArcCompass } from '@/types/chat';
 
-type ViewMode = 'arc' | 'cast' | 'director';
+type ViewMode = 'arc' | 'cast' | 'relations' | 'director';
 
 export function CanonEditor({ onClose }: { onClose: () => void }) {
     const { getActiveCharacter, updateCharacter } = useCharacterStore();
@@ -148,42 +150,51 @@ export function CanonEditor({ onClose }: { onClose: () => void }) {
                 </Button>
             </div>
 
+            {/* View tabs — always visible (above the sidebar/main split) so mobile is never trapped */}
+            <div className="grid grid-cols-4 border-b border-border/50 shrink-0">
+                <SideTab
+                    label="Arc"
+                    icon={Compass}
+                    active={view === 'arc'}
+                    onClick={() => {
+                        setView('arc');
+                        setSelected(null);
+                    }}
+                />
+                <SideTab
+                    label={`Casting (${dossiers.length})`}
+                    icon={Users}
+                    active={view === 'cast'}
+                    onClick={() => setView('cast')}
+                />
+                <SideTab
+                    label="Relations"
+                    icon={Heart}
+                    active={view === 'relations'}
+                    onClick={() => {
+                        setView('relations');
+                        setSelected(null);
+                    }}
+                />
+                <SideTab
+                    label="Directeur"
+                    icon={Clapperboard}
+                    active={view === 'director'}
+                    onClick={() => {
+                        setView('director');
+                        setSelected(null);
+                    }}
+                />
+            </div>
+
             <div className="flex flex-1 min-h-0 relative">
-                {/* Sidebar */}
+                {/* Sidebar (cast list / blurb) — only meaningful for the cast view */}
                 <div
                     className={cn(
                         'w-full lg:w-72 border-r flex flex-col bg-muted/10',
                         showEditorOnMobile ? 'hidden lg:flex' : 'flex'
                     )}
                 >
-                    {/* View tabs */}
-                    <div className="grid grid-cols-3 border-b border-border/50">
-                        <SideTab
-                            label="Arc"
-                            icon={Compass}
-                            active={view === 'arc'}
-                            onClick={() => {
-                                setView('arc');
-                                setSelected(null);
-                            }}
-                        />
-                        <SideTab
-                            label={`Casting (${dossiers.length})`}
-                            icon={Users}
-                            active={view === 'cast'}
-                            onClick={() => setView('cast')}
-                        />
-                        <SideTab
-                            label="Directeur"
-                            icon={Clapperboard}
-                            active={view === 'director'}
-                            onClick={() => {
-                                setView('director');
-                                setSelected(null);
-                            }}
-                        />
-                    </div>
-
                     {view === 'cast' && (
                         <CastSidebar
                             dossiers={filtered}
@@ -215,7 +226,9 @@ export function CanonEditor({ onClose }: { onClose: () => void }) {
                         <div className="p-3 text-xs text-muted-foreground">
                             {view === 'arc'
                                 ? 'Réglages d’arc, position dans la timeline, et carte des arcs canoniques.'
-                                : 'Outils du Directeur : peupler le casting, proposer des scènes vers le prochain beat canon.'}
+                                : view === 'relations'
+                                  ? 'Relations dirigées et asymétriques entre les persos (Confiance / Affection / Respect / Attirance). Mises à jour auto par les beats, éditables.'
+                                  : 'Outils du Directeur : peupler le casting, proposer des scènes vers le prochain beat canon.'}
                         </div>
                     )}
                 </div>
@@ -286,6 +299,11 @@ export function CanonEditor({ onClose }: { onClose: () => void }) {
                         ) : (
                             <EmptyCastPane work={work} />
                         ))}
+                    {view === 'relations' && (
+                        <div className="p-5 max-w-3xl">
+                            <RelationshipPanel />
+                        </div>
+                    )}
                     {view === 'director' && (
                         <DirectorPane
                             work={work}

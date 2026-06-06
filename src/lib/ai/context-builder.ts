@@ -152,43 +152,11 @@ export function getActiveLorebookEntries(
  * Formats world state for template insertion
  * Now uses a cleaner format without heavy section headers
  */
-function formatWorldState(worldState: WorldState, recentCharacterNames?: string[]): string {
-    const parts: string[] = [];
-
-    if (worldState.location) {
-        parts.push(`Location: ${worldState.location}`);
-    }
-
-    // Only include relationships for characters mentioned recently (if provided)
-    // Format: "Name: X% (explanation)"
-    if (Object.keys(worldState.relationships).length > 0) {
-        const relationshipEntries = Object.entries(worldState.relationships)
-            .filter(([name]) => !recentCharacterNames || recentCharacterNames.includes(name))
-            .map(([name, val]) => {
-                // Add explanation based on value
-                let explanation = '';
-                if (val <= -75) explanation = 'hated';
-                else if (val <= -50) explanation = 'despised';
-                else if (val <= -25) explanation = 'disliked';
-                else if (val < 0) explanation = 'wary';
-                else if (val === 0) explanation = 'neutral';
-                else if (val <= 25) explanation = 'friendly';
-                else if (val <= 50) explanation = 'liked';
-                else if (val <= 75) explanation = 'trusted';
-                else explanation = 'adored';
-                return `${name}: ${val}% (${explanation})`;
-            });
-
-        if (relationshipEntries.length > 0) {
-            parts.push(`Relationships: ${relationshipEntries.join(', ')}`);
-        }
-    }
-
-    if (worldState.inventory && worldState.inventory.length > 0) {
-        parts.push(`Inventory: ${worldState.inventory.join(', ')}`);
-    }
-
-    return parts.length > 0 ? parts.join('\n') : '';
+function formatWorldState(_worldState: WorldState, _recentCharacterNames?: string[]): string {
+    // Phase 2: the old World Context (location / inventory / symmetric relationship scalars) is
+    // retired in favour of the directional Relationship system. The `{{world_state}}` placeholder
+    // now resolves to nothing; relationships are injected via the dedicated relationship block.
+    return '';
 }
 
 /**
@@ -300,6 +268,8 @@ export function buildSystemPrompt(
         arcOutline?: string;
         // Canonical characters whose arc matches the current position but who aren't on stage yet.
         dueToAppear?: string[];
+        // Directional, multi-axis relationships among the characters on stage (Phase 2).
+        relationshipBlock?: string;
         // Transient anti-stall directive for this turn.
         momentumNudge?: string;
         // Approx token budget for all injected canon dossiers (default 1200).
@@ -373,6 +343,11 @@ export function buildSystemPrompt(
             }
         }
         if (blocks.length > 0) prompt += `\n\n${blocks.join('\n\n')}`;
+    }
+
+    // ===== Directional relationships among the characters on stage (Phase 2) =====
+    if (options.relationshipBlock) {
+        prompt += `\n\n${options.relationshipBlock}`;
     }
 
     // ===== Directed progression toward the next canonical arc beat =====
