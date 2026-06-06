@@ -11,6 +11,7 @@ import type { Conversation, Message } from '@/types/chat';
 import type { CanonDossier } from '@/types/canon';
 import { getCanonDossiersByWork, getArcOutline } from '@/lib/db';
 import { deriveWorkFromName } from '@/lib/ai/canon-retrieval';
+import { useSettingsStore } from '@/stores/settings-store';
 
 export function resolveWork(card: CharacterCard): string {
     return (card.work?.trim() || deriveWorkFromName(card.name)).trim();
@@ -133,6 +134,9 @@ export async function buildCanonOptions(
     conversation: Conversation | undefined,
     recentMessages: Message[]
 ): Promise<CanonPromptOptions> {
+    // Master switch: when off, nothing canon-related reaches the prompt.
+    if (!useSettingsStore.getState().useCanonCodex) return {};
+
     const work = resolveWork(card);
     if (!work) return {};
 

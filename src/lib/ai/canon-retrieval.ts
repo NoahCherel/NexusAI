@@ -13,6 +13,16 @@
  */
 
 import { useSettingsStore } from '@/stores/settings-store';
+
+/**
+ * Central guard: every web-fetch entry point checks this first. When the user has turned
+ * auto-fetch off in settings (e.g. they're using a custom universe and want to write the
+ * cast by hand), all fetch operations no-op without spending API calls.
+ */
+function isAutoFetchAllowed(): boolean {
+    const s = useSettingsStore.getState();
+    return s.useCanonCodex && s.useCanonAutoFetch;
+}
 import { decryptApiKey } from '@/lib/crypto';
 import { backgroundAICall } from '@/lib/ai/background-ai';
 import { saveCanonDossier, getCanonDossier, saveArcOutline, getArcOutline } from '@/lib/db';
@@ -160,6 +170,12 @@ export async function fetchCharacterDossier(
         if (existing && !existing.stub && existing.timelineCap === timelineCap) return existing;
     }
 
+    // Auto-fetch disabled — return whatever we already have in DB without spending an API call.
+    if (!isAutoFetchAllowed()) {
+        console.log('[Canon] Auto-fetch disabled — skipping dossier web call.');
+        return existing || null;
+    }
+
     const config = await getRetrievalConfig();
     if (!config) return null;
 
@@ -245,6 +261,10 @@ export async function fetchCastRoster(
     excludeNames: string[] = []
 ): Promise<CanonRosterEntry[]> {
     if (!work.trim()) return [];
+    if (!isAutoFetchAllowed()) {
+        console.log('[Canon] Auto-fetch disabled — skipping roster web call.');
+        return [];
+    }
     const config = await getRetrievalConfig();
     if (!config) return [];
 
@@ -331,6 +351,11 @@ export async function fetchArcOutline(
     if (!options.force) {
         const cached = await getArcOutline(work);
         if (cached) return cached;
+    }
+
+    if (!isAutoFetchAllowed()) {
+        console.log('[Canon] Auto-fetch disabled — skipping arc outline web call.');
+        return (await getArcOutline(work)) || null;
     }
 
     const config = await getRetrievalConfig();

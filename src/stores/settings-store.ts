@@ -174,6 +174,14 @@ interface SettingsState {
     minRAGConfidence: number; // 0–1, minimum confidence threshold for RAG sections
     customFactCategories: string[]; // User-defined fact categories (in addition to built-in ones)
 
+    // Canon Codex (Arc + Casting + Director)
+    // Master switch: when false, no canon/arc/casting injection happens at all.
+    useCanonCodex: boolean;
+    // When false, the web-fetch buttons (Peupler le casting, Plus de persos, Récupérer la
+    // carte des arcs, Récupérer la fiche complète) are disabled. Useful for custom universes
+    // where the user writes everything manually. Dossiers already in the DB are still injected.
+    useCanonAutoFetch: boolean;
+
     // Actions
     setApiKey: (config: ApiKeyConfig) => void;
     removeApiKey: (provider: string) => void;
@@ -203,6 +211,8 @@ interface SettingsState {
     setEnableRAGRetrieval: (enabled: boolean) => void;
     setMinRAGConfidence: (value: number) => void;
     setCustomFactCategories: (categories: string[]) => void;
+    setUseCanonCodex: (enabled: boolean) => void;
+    setUseCanonAutoFetch: (enabled: boolean) => void;
 
     // Preset Actions
     addPreset: (preset: APIPreset) => void;
@@ -240,6 +250,8 @@ export const useSettingsStore = create<SettingsState>()(
             enableRAGRetrieval: true,
             minRAGConfidence: 0,
             customFactCategories: [],
+            useCanonCodex: true,
+            useCanonAutoFetch: true,
 
             // Actions
             setApiKey: (config) =>
@@ -295,6 +307,8 @@ export const useSettingsStore = create<SettingsState>()(
             setEnableHierarchicalSummaries: (enableHierarchicalSummaries) =>
                 set({ enableHierarchicalSummaries }),
             setEnableRAGRetrieval: (enableRAGRetrieval) => set({ enableRAGRetrieval }),
+            setUseCanonCodex: (useCanonCodex) => set({ useCanonCodex }),
+            setUseCanonAutoFetch: (useCanonAutoFetch) => set({ useCanonAutoFetch }),
             setMinRAGConfidence: (minRAGConfidence) =>
                 set({ minRAGConfidence: Math.max(0, Math.min(1, minRAGConfidence)) }),
             setCustomFactCategories: (customFactCategories) => set({ customFactCategories }),

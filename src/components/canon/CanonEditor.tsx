@@ -28,7 +28,9 @@ import {
     getArcOutline,
     saveCanonDossier,
     deleteCanonDossier,
+    saveArcOutline,
 } from '@/lib/db';
+import { useSettingsStore } from '@/stores/settings-store';
 import {
     fetchCharacterDossier,
     fetchArcOutline,
@@ -454,6 +456,13 @@ function ArcPane({
 }) {
     const [busy, setBusy] = useState(false);
     const [status, setStatus] = useState('');
+    // Editable buffer for the arc outline — lets the user type their own arc map for custom
+    // universes, or tweak whatever the web fetch produced.
+    const [outlineDraft, setOutlineDraft] = useState(arcOutlineText);
+    const { useCanonAutoFetch } = useSettingsStore();
+
+    // Keep the draft in sync if the store reloads (e.g. after a web fetch).
+    useEffect(() => setOutlineDraft(arcOutlineText), [arcOutlineText]);
 
     const handleFetch = async () => {
         const w = arc?.work?.trim() || (character ? resolveWork(character) : '');
@@ -472,6 +481,21 @@ function ArcPane({
         } finally {
             setBusy(false);
         }
+    };
+
+    const handleSaveOutline = async () => {
+        const w = arc?.work?.trim() || (character ? resolveWork(character) : '');
+        if (!w) {
+            setStatus('Renseigne d’abord l’œuvre.');
+            return;
+        }
+        await saveArcOutline({
+            work: w,
+            outline: outlineDraft.trim(),
+            fetchedAt: Date.now(),
+        });
+        setStatus('Carte des arcs enregistrée ✓');
+        await onReload();
     };
 
     return (
@@ -525,33 +549,51 @@ function ArcPane({
 
             <div className="border-t pt-4 space-y-2">
                 <div className="flex items-center justify-between">
-                    <span className="text-sm font-semibold">Carte des arcs (canon)</span>
-                    <Button
-                        onClick={handleFetch}
-                        disabled={busy}
-                        variant="outline"
-                        size="sm"
-                        className="gap-2"
-                    >
-                        {busy ? (
-                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                        ) : (
-                            <Globe className="w-3.5 h-3.5" />
-                        )}
-                        {arcOutlineText ? 'Rafraîchir' : 'Récupérer'}
-                    </Button>
+                    <span className="text-sm font-semibold">Carte des arcs (éditable)</span>
+                    <div className="flex gap-2">
+                        <Button
+                            onClick={handleFetch}
+                            disabled={busy || !useCanonAutoFetch}
+                            variant="outline"
+                            size="sm"
+                            className="gap-2"
+                            title={
+                                !useCanonAutoFetch
+                                    ? 'Désactivé dans les paramètres (Canon — Web Auto-Fetch).'
+                                    : 'Récupère la carte des arcs canoniques depuis le web.'
+                            }
+                        >
+                            {busy ? (
+                                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            ) : (
+                                <Globe className="w-3.5 h-3.5" />
+                            )}
+                            {arcOutlineText ? 'Rafraîchir' : 'Récupérer'}
+                        </Button>
+                        <Button
+                            onClick={handleSaveOutline}
+                            disabled={outlineDraft.trim() === arcOutlineText.trim()}
+                            size="sm"
+                            className="gap-2"
+                        >
+                            <Save className="w-3.5 h-3.5" /> Enregistrer
+                        </Button>
+                    </div>
                 </div>
+                <p className="text-[10px] text-muted-foreground/70">
+                    Format conseillé : un arc par ligne, p. ex. «&nbsp;1. Mon Arc — Résumé court&nbsp;».
+                    Tu peux écrire à la main pour un univers personnel ou éditer ce que le web a
+                    renvoyé.
+                </p>
+                <Textarea
+                    value={outlineDraft}
+                    onChange={(e) => setOutlineDraft(e.target.value)}
+                    placeholder={
+                        '1. Premier arc — résumé court\n2. Deuxième arc — résumé court\n3. ...'
+                    }
+                    className="min-h-[200px] text-xs font-sans"
+                />
                 {status && <p className="text-xs text-muted-foreground">{status}</p>}
-                {arcOutlineText ? (
-                    <pre className="text-xs whitespace-pre-wrap font-sans bg-muted/30 rounded-lg p-3 max-h-80 overflow-y-auto">
-                        {arcOutlineText}
-                    </pre>
-                ) : (
-                    <p className="text-xs text-muted-foreground/70">
-                        Aucune carte récupérée pour le moment. Renseigne l&apos;œuvre puis clique
-                        Récupérer.
-                    </p>
-                )}
                 {work && !arc?.work && (
                     <p className="text-[10px] text-muted-foreground/70">
                         (œuvre auto-déduite : <span className="font-mono">{work}</span>)
@@ -594,6 +636,10 @@ function CastPane({
     const [arcs, setArcs] = useState((dossier?.appearsInArcs || []).join(', '));
     const [journalText, setJournalText] = useState(rpNotes.join('\n'));
     const [fetching, setFetching] = useState(false);
+    const { useCanonAutoFetch } = useSettingsStore();
+    const autoFetchOffTip =
+        'Désactivé : Canon — Web Auto-Fetch est sur Off dans les paramètres. ' +
+        'Écris la fiche à la main et clique Enregistrer.';
 
     useEffect(() => {
         setName(dossier?.character || '');
@@ -685,9 +731,10 @@ function CastPane({
                     </p>
                     <Button
                         onClick={() => handleFetch(false)}
-                        disabled={fetching}
+                        disabled={fetching || !useCanonAutoFetch}
                         size="sm"
                         className="gap-2"
+                        title={!useCanonAutoFetch ? autoFetchOffTip : undefined}
                     >
                         {fetching ? (
                             <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -696,6 +743,12 @@ function CastPane({
                         )}
                         Récupérer la fiche complète (web)
                     </Button>
+                    {!useCanonAutoFetch && (
+                        <p className="text-[10px] text-muted-foreground/70">
+                            Astuce : tu peux aussi désactiver cette fiche puis cliquer « Nouveau
+                            perso » pour écrire la fiche entièrement à la main.
+                        </p>
+                    )}
                 </div>
             ) : (
                 <>
@@ -751,11 +804,15 @@ function CastPane({
                 {!isNew && (
                     <Button
                         onClick={() => handleFetch(true)}
-                        disabled={fetching}
+                        disabled={fetching || !useCanonAutoFetch}
                         variant="outline"
                         size="sm"
                         className="gap-2"
-                        title="Re-récupère depuis le web (écrase tes éditions)"
+                        title={
+                            !useCanonAutoFetch
+                                ? autoFetchOffTip
+                                : 'Re-récupère depuis le web (écrase tes éditions)'
+                        }
                     >
                         {fetching ? (
                             <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -810,6 +867,10 @@ function DirectorPane({
     const [createStatus, setCreateStatus] = useState('');
     const [proposing, setProposing] = useState(false);
     const [scenes, setScenes] = useState<string[]>([]);
+    const { useCanonAutoFetch } = useSettingsStore();
+    const autoFetchOffTip =
+        'Désactivé : Canon — Web Auto-Fetch est sur Off dans les paramètres. ' +
+        'Active-le ou crée manuellement (onglet Casting → Nouveau perso).';
 
     const handlePopulate = async (mode: 'initial' | 'more') => {
         setPopulating(true);
@@ -862,6 +923,15 @@ function DirectorPane({
 
     return (
         <div className="p-5 space-y-6 max-w-3xl">
+            {!useCanonAutoFetch && (
+                <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 text-xs">
+                    <strong className="text-amber-400">Canon — Web Auto-Fetch est désactivé.</strong>{' '}
+                    Les outils du Directeur qui font des appels API sont indisponibles. Tu peux
+                    toujours créer/éditer des personnages à la main dans l&apos;onglet Casting, et la
+                    carte des arcs reste éditable dans l&apos;onglet Arc. Tout ce qui existe en DB
+                    sera injecté normalement.
+                </div>
+            )}
             {/* Populate cast */}
             <section>
                 <h3 className="text-sm font-semibold flex items-center gap-2">
@@ -874,9 +944,10 @@ function DirectorPane({
                 <div className="mt-3 flex items-center gap-2 flex-wrap">
                     <Button
                         onClick={() => handlePopulate('initial')}
-                        disabled={populating || !work}
+                        disabled={populating || !work || !useCanonAutoFetch}
                         size="sm"
                         className="gap-2"
+                        title={!useCanonAutoFetch ? autoFetchOffTip : undefined}
                     >
                         {populating ? (
                             <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -887,11 +958,20 @@ function DirectorPane({
                     </Button>
                     <Button
                         onClick={() => handlePopulate('more')}
-                        disabled={populating || !work || (character.canonCast?.length || 0) === 0}
+                        disabled={
+                            populating ||
+                            !work ||
+                            (character.canonCast?.length || 0) === 0 ||
+                            !useCanonAutoFetch
+                        }
                         variant="outline"
                         size="sm"
                         className="gap-2"
-                        title="Demande au modèle une nouvelle volée de persos, en excluant ceux déjà présents"
+                        title={
+                            !useCanonAutoFetch
+                                ? autoFetchOffTip
+                                : 'Demande au modèle une nouvelle volée de persos, en excluant ceux déjà présents'
+                        }
                     >
                         {populating ? (
                             <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -923,9 +1003,10 @@ function DirectorPane({
                     />
                     <Button
                         onClick={handleCreate}
-                        disabled={creating || !name.trim() || !work}
+                        disabled={creating || !name.trim() || !work || !useCanonAutoFetch}
                         size="sm"
                         className="gap-2 shrink-0"
+                        title={!useCanonAutoFetch ? autoFetchOffTip : undefined}
                     >
                         {creating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : 'Ajouter'}
                     </Button>
@@ -943,10 +1024,11 @@ function DirectorPane({
                     </h3>
                     <Button
                         onClick={handlePropose}
-                        disabled={proposing}
+                        disabled={proposing || !useCanonAutoFetch}
                         variant="outline"
                         size="sm"
                         className="gap-2"
+                        title={!useCanonAutoFetch ? autoFetchOffTip : undefined}
                     >
                         {proposing ? (
                             <Loader2 className="w-3.5 h-3.5 animate-spin" />

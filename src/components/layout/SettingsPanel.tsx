@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { cn } from '@/lib/utils';
 import {
     Settings,
     Key,
@@ -62,6 +63,10 @@ export function SettingsPanel({ open, onOpenChange }: SettingsPanelProps) {
         setBackgroundModel,
         lorebookAutoExtract,
         setLorebookAutoExtract,
+        useCanonCodex,
+        setUseCanonCodex,
+        useCanonAutoFetch,
+        setUseCanonAutoFetch,
         activeProvider,
     } = useSettingsStore();
 
@@ -295,6 +300,58 @@ export function SettingsPanel({ open, onOpenChange }: SettingsPanelProps) {
                                             className="w-16"
                                         >
                                             {lorebookAutoExtract ? 'On' : 'Off'}
+                                        </Button>
+                                    </div>
+                                </div>
+
+                                {/* Canon Codex master switch */}
+                                <div className="space-y-4">
+                                    <div className="flex items-center justify-between p-4 border rounded-lg bg-card/50">
+                                        <div>
+                                            <p className="text-sm font-medium">Canon Codex</p>
+                                            <p className="text-xs text-muted-foreground mt-1">
+                                                Master toggle for the Arc Compass, casting canon, and
+                                                Director system. Off ⇒ no canon/arc/casting injection
+                                                in the prompt at all.
+                                            </p>
+                                        </div>
+                                        <Button
+                                            variant={useCanonCodex ? 'default' : 'secondary'}
+                                            size="sm"
+                                            onClick={() => setUseCanonCodex(!useCanonCodex)}
+                                            className="w-16"
+                                        >
+                                            {useCanonCodex ? 'On' : 'Off'}
+                                        </Button>
+                                    </div>
+
+                                    {/* Sub-toggle: web auto-fetch */}
+                                    <div
+                                        className={cn(
+                                            'flex items-center justify-between p-4 border rounded-lg bg-card/50',
+                                            !useCanonCodex && 'opacity-50 pointer-events-none'
+                                        )}
+                                    >
+                                        <div>
+                                            <p className="text-sm font-medium">
+                                                Canon — Web Auto-Fetch
+                                            </p>
+                                            <p className="text-xs text-muted-foreground mt-1">
+                                                When off, no API calls are made for canon (no roster
+                                                populate, no dossier fetch, no arc map fetch).
+                                                Dossiers and arc map you wrote manually are still
+                                                injected. Use this for custom universes.
+                                            </p>
+                                        </div>
+                                        <Button
+                                            variant={useCanonAutoFetch ? 'default' : 'secondary'}
+                                            size="sm"
+                                            onClick={() =>
+                                                setUseCanonAutoFetch(!useCanonAutoFetch)
+                                            }
+                                            className="w-16"
+                                        >
+                                            {useCanonAutoFetch ? 'On' : 'Off'}
                                         </Button>
                                     </div>
                                 </div>

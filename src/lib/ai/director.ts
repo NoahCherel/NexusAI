@@ -14,6 +14,11 @@ import { backgroundAICall } from '@/lib/ai/background-ai';
 import { fetchCharacterDossier, fetchCastRoster } from '@/lib/ai/canon-retrieval';
 import { resolveWork } from '@/lib/ai/canon-context';
 import { getCanonDossiersByWork } from '@/lib/db';
+
+function isAutoFetchAllowed(): boolean {
+    const s = useSettingsStore.getState();
+    return s.useCanonCodex && s.useCanonAutoFetch;
+}
 import { getArcOutline } from '@/lib/db';
 import type { CharacterCard } from '@/types/character';
 import type { Conversation } from '@/types/chat';
@@ -116,6 +121,10 @@ export async function proposeScenes(
     conversation: Conversation | undefined,
     recentSummary?: string
 ): Promise<string[]> {
+    if (!isAutoFetchAllowed()) {
+        console.log('[Director] Auto-fetch disabled — skipping scene proposal API call.');
+        return [];
+    }
     const config = await getModelConfig();
     if (!config) return [];
 
