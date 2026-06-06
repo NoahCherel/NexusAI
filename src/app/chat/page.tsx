@@ -845,20 +845,22 @@ export default function ChatPage() {
                 const conv = useChatStore
                     .getState()
                     .conversations.find((c) => c.id === activeConversationId);
-                if (conv?.arc?.enabled) {
+                // Arc Compass: enabled by default. Treat undefined as ON; only an explicit
+                // `enabled: false` from the user turns it off.
+                if (conv && conv.arc?.enabled !== false) {
                     const work = resolveWork(character);
-                    let cap = conv.arc.currentPosition || 'Start';
+                    let cap = conv.arc?.currentPosition || 'Start';
                     const tl = finalContent.match(
                         /\[([^\]\n]*(?:season|episode|s\d|e\d|arc|chapter|timeline)[^\]\n]*)\]\s*$/i
                     );
                     if (tl) {
                         const pos = tl[1].trim();
-                        if (pos && pos !== conv.arc.currentPosition) {
+                        if (pos && pos !== conv.arc?.currentPosition) {
                             cap = pos;
                             useChatStore
                                 .getState()
                                 .updateArc(activeConversationId, {
-                                    ...conv.arc,
+                                    ...(conv.arc || {}),
                                     currentPosition: pos,
                                 });
                         }
@@ -1260,7 +1262,8 @@ export default function ChatPage() {
             maxContextTokens,
             maxOutputTokens,
             activeEntries,
-            worldState
+            worldState,
+            previewCanonOptions.injectionMeta
         );
 
         setContextPreviewData({

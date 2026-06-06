@@ -36,6 +36,7 @@ const sectionIcons: Record<string, React.ReactNode> = {
     fact: <Eye className="h-4 w-4 text-blue-400" />,
     summary: <BookOpen className="h-4 w-4 text-green-400" />,
     lorebook: <BookOpen className="h-4 w-4 text-orange-400" />,
+    canon: <BookOpen className="h-4 w-4 text-rose-400" />,
     history: <MessageSquare className="h-4 w-4 text-cyan-400" />,
     'post-history': <FileText className="h-4 w-4 text-pink-400" />,
 };
@@ -47,6 +48,7 @@ const sectionColors: Record<string, string> = {
     fact: 'border-blue-400/30 bg-blue-400/5',
     summary: 'border-green-400/30 bg-green-400/5',
     lorebook: 'border-orange-400/30 bg-orange-400/5',
+    canon: 'border-rose-400/30 bg-rose-400/5',
     history: 'border-cyan-400/30 bg-cyan-400/5',
     'post-history': 'border-pink-400/30 bg-pink-400/5',
 };

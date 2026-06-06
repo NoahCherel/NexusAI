@@ -438,7 +438,19 @@ export async function buildContextPreview(
     maxContextTokens: number,
     maxOutputTokens: number,
     activeLorebookEntries?: { keys: string[]; content: string }[],
-    worldState?: { location?: string; relationships?: Record<string, number>; inventory?: string[] }
+    worldState?: { location?: string; relationships?: Record<string, number>; inventory?: string[] },
+    /**
+     * Casting metadata used to expose what's injected vs ignored, so the user can see
+     * exactly which canon fiches reach the model (and which were excluded because they're
+     * stubs / disabled / not mentioned in the recent scene).
+     */
+    canonInjection?: {
+        injectedNames: string[]; // dossiers actually rendered in the system prompt
+        ignoredStubs: string[]; // stubs that won't be injected (no identity fetched)
+        ignoredDisabled: string[]; // dossiers explicitly toggled off
+        scanDepth: number; // how many recent messages were scanned
+        dueToAppear?: string[]; // characters hinted to the Director (arc-matched)
+    }
 ): Promise<{
     sections: ContextSection[];
     totalTokens: number;
@@ -448,7 +460,7 @@ export async function buildContextPreview(
     const sections: ContextSection[] = [];
     const warnings: string[] = [];
 
-    // 1. System prompt (strip lorebook & world state content for cleaner preview — shown in dedicated sections)
+    // 1. System prompt (strip lorebook, world state, AND canon blocks for cleaner preview)
     let displaySystemPrompt = systemPrompt;
 
     // Strip lorebook entries from system prompt display (they're shown in their own section)
@@ -458,6 +470,17 @@ export async function buildContextPreview(
             displaySystemPrompt = displaySystemPrompt.replace(lorebookLine, '');
         }
     }
+
+    // Strip CANON / IN THIS RP blocks (they're shown in their own section). The blocks span
+    // multiple lines from a bracketed label until a blank line. We capture the whole block.
+    displaySystemPrompt = displaySystemPrompt.replace(
+        /\[CANON — [^\]]+\][\s\S]*?(?=\n\n|\n\[|$)/g,
+        '⟨canon block — see Canon section⟩'
+    );
+    displaySystemPrompt = displaySystemPrompt.replace(
+        /\[IN THIS RP — [^\]]+\][\s\S]*?(?=\n\n|\n\[|$)/g,
+        '⟨in-this-rp block — see Canon section⟩'
+    );
 
     // Strip world state block from system prompt display (shown in dedicated section)
     if (worldState) {
@@ -505,6 +528,65 @@ export async function buildContextPreview(
                 type: 'world-state',
             });
         }
+    }
+
+    // 2.5 Canon dossiers — shows EXACTLY which casting fiches reached the model, plus why
+    // the others were excluded. This is the user-facing answer to "is my casting being used?".
+    if (canonInjection) {
+        const {
+            injectedNames,
+            ignoredStubs,
+            ignoredDisabled,
+            scanDepth,
+            dueToAppear,
+        } = canonInjection;
+
+        // Extract the actual rendered blocks straight from the system prompt so the user sees
+        // the literal text the model will read.
+        const canonBlocks: string[] = [];
+        const canonRegex = /\[CANON — [^\]]+\][\s\S]*?(?=\n\n|\n\[|$)/g;
+        const rpRegex = /\[IN THIS RP — [^\]]+\][\s\S]*?(?=\n\n|\n\[|$)/g;
+        const canonMatches = systemPrompt.match(canonRegex) || [];
+        const rpMatches = systemPrompt.match(rpRegex) || [];
+        canonBlocks.push(...canonMatches, ...rpMatches);
+
+        const lines: string[] = [];
+        lines.push(
+            `Scope: scanned the last ${scanDepth} message(s) for casting names mentioned in the scene.`
+        );
+        if (injectedNames.length > 0) {
+            lines.push(`Injected dossiers (${injectedNames.length}): ${injectedNames.join(', ')}`);
+        } else {
+            lines.push(
+                'Injected dossiers: none. No casting member was mentioned in the recent messages, OR all matches are stubs / disabled.'
+            );
+        }
+        if (dueToAppear && dueToAppear.length > 0) {
+            lines.push(
+                `Hinted to the Director (due to appear around this arc): ${dueToAppear.join(', ')}`
+            );
+        }
+        if (ignoredStubs.length > 0) {
+            lines.push(
+                `Excluded — stubs (no fiche fetched yet, click "Récupérer la fiche complète"): ${ignoredStubs.join(', ')}`
+            );
+        }
+        if (ignoredDisabled.length > 0) {
+            lines.push(`Excluded — disabled by user: ${ignoredDisabled.join(', ')}`);
+        }
+        if (canonBlocks.length > 0) {
+            lines.push('');
+            lines.push('— Literal blocks injected into the system prompt —');
+            lines.push(canonBlocks.join('\n\n'));
+        }
+        const content = lines.join('\n');
+        sections.push({
+            priority: 1,
+            content,
+            tokens: countTokens(content),
+            label: `Canon dossiers (${injectedNames.length} injected) — what the model sees about your casting`,
+            type: 'canon',
+        });
     }
 
     // 3. Lorebook entries (shown separately for visibility, but tokens already counted in system prompt)

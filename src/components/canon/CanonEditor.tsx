@@ -490,7 +490,9 @@ function ArcPane({
             <label className="flex items-center gap-2 text-sm">
                 <input
                     type="checkbox"
-                    checked={!!arc?.enabled}
+                    /* Default ON: only explicit `false` turns it off, so new conversations
+                       (where `arc.enabled` is undefined) start checked. */
+                    checked={arc?.enabled !== false}
                     onChange={(e) => onUpdateArc({ enabled: e.target.checked })}
                 />
                 Activer l&apos;Arc Compass

@@ -376,7 +376,8 @@ export function buildSystemPrompt(
     }
 
     // ===== Directed progression toward the next canonical arc beat =====
-    if (options.arc?.enabled) {
+    // Arc Compass is ON by default — only an explicit `enabled: false` turns it off.
+    if (options.arc && options.arc.enabled !== false) {
         const arcParts: string[] = [];
         if (options.arc.work) arcParts.push(`Work: ${options.arc.work}`);
         if (options.arcOutline) arcParts.push(`Canonical arc map:\n${options.arcOutline}`);
