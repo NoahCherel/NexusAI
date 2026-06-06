@@ -21,8 +21,19 @@ export interface CanonDossier {
     backstory: string; // up to timelineCap
     relationships: CanonRelationship[];
     abilities?: string;
+    appearsInArcs?: string[]; // canonical arcs where they appear — helps introduce them on time
     sources?: string[]; // citation URLs from web retrieval
     fetchedAt: number;
+    // Roster/lifecycle flags
+    stub?: boolean; // true = roster entry only (name + arcs), full dossier not fetched yet
+    userEdited?: boolean; // manually edited — a refetch must not silently overwrite it
+    enabled?: boolean; // false = excluded from prompt injection (default: injected)
+}
+
+/** Lightweight roster entry returned by the one-shot cast roster fetch. */
+export interface CanonRosterEntry {
+    name: string;
+    appearsInArcs?: string[];
 }
 
 /**

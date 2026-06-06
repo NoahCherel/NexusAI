@@ -104,19 +104,13 @@ export async function POST(req: NextRequest) {
             if (repetitionPenalty) requestBody.repetition_penalty = repetitionPenalty;
             if (useFlexTier) requestBody.service_tier = 'flex';
 
-            // Web search server tool (for canon retrieval). OpenRouter runs the search
-            // loop server-side and grounds the model's answer with citations.
+            // Web search for canon retrieval. We use the `web` PLUGIN (search runs BEFORE the
+            // model and results are injected as context) rather than the `openrouter:web_search`
+            // server tool, because the server tool requires agentic tool-calling that some models
+            // (DeepSeek) don't honour — they leak the tool call as text and never finish. The
+            // plugin is model-agnostic and works for DeepSeek, Gemini, etc.
             if (webSearch) {
-                requestBody.tools = [
-                    {
-                        type: 'openrouter:web_search',
-                        parameters: {
-                            engine: 'auto',
-                            max_results: webMaxResults ?? 5,
-                            max_total_results: 20,
-                        },
-                    },
-                ];
+                requestBody.plugins = [{ id: 'web', max_results: webMaxResults ?? 5 }];
             }
 
             // Add reasoning configuration per OpenRouter docs

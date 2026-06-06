@@ -9,7 +9,7 @@
 import type { CharacterCard } from '@/types/character';
 import type { Conversation, Message } from '@/types/chat';
 import type { CanonDossier } from '@/types/canon';
-import { getCanonDossier, getArcOutline } from '@/lib/db';
+import { getCanonDossiersByWork, getArcOutline } from '@/lib/db';
 import { deriveWorkFromName } from '@/lib/ai/canon-retrieval';
 
 export function resolveWork(card: CharacterCard): string {
@@ -45,6 +45,20 @@ export interface CanonPromptOptions {
     arc?: Conversation['arc'];
     arcOutline?: string;
     momentumNudge?: string;
+    dueToAppear?: string[];
+}
+
+/** True if any of the character's appearance arcs shares a significant word with `context`. */
+function arcMatches(appearsInArcs: string[] | undefined, context: string): boolean {
+    if (!appearsInArcs || appearsInArcs.length === 0 || !context.trim()) return false;
+    const ctx = context.toLowerCase();
+    return appearsInArcs.some((a) =>
+        a
+            .toLowerCase()
+            .split(/\s+/)
+            .filter((w) => w.length > 4)
+            .some((w) => ctx.includes(w))
+    );
 }
 
 export async function buildCanonOptions(
@@ -55,10 +69,32 @@ export async function buildCanonOptions(
     const work = resolveWork(card);
     if (!work) return {};
 
-    const activeNames = getActiveCanonNames(card, conversation, recentMessages);
-    const dossiers = (
-        await Promise.all(activeNames.map((n) => getCanonDossier(work, n)))
-    ).filter((d): d is CanonDossier => !!d);
+    const all = await getCanonDossiersByWork(work);
+    const isInjectable = (d: CanonDossier) => d.enabled !== false && !d.stub && !!d.identity.trim();
+
+    const activeNames = new Set(
+        getActiveCanonNames(card, conversation, recentMessages).map((n) => n.toLowerCase())
+    );
+    const dossiers = all.filter(
+        (d) => isInjectable(d) && activeNames.has(d.character.toLowerCase())
+    );
+
+    // Characters whose canonical arc matches where we are now, but who aren't on stage yet —
+    // a hint for the GM to introduce them naturally (subject to butterfly-effect divergence).
+    let dueToAppear: string[] | undefined;
+    if (conversation?.arc?.enabled) {
+        const context = `${conversation.arc.currentPosition || ''} ${conversation.arc.nextBeat || ''}`;
+        dueToAppear = all
+            .filter(
+                (d) =>
+                    d.enabled !== false &&
+                    !activeNames.has(d.character.toLowerCase()) &&
+                    arcMatches(d.appearsInArcs, context)
+            )
+            .map((d) => d.character)
+            .slice(0, 8);
+        if (dueToAppear.length === 0) dueToAppear = undefined;
+    }
 
     const arcOutline = conversation?.arc?.enabled
         ? (await getArcOutline(work))?.outline
@@ -70,5 +106,6 @@ export async function buildCanonOptions(
         arc: conversation?.arc,
         arcOutline,
         momentumNudge: conversation?.momentumNudge,
+        dueToAppear,
     };
 }

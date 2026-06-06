@@ -56,7 +56,7 @@ import {
 import { Book, Globe2Icon, Clapperboard } from 'lucide-react';
 import { TreeVisualization } from '@/components/chat/TreeVisualization';
 import { MemoryPanel } from '@/components/chat/MemoryPanel';
-import { DirectorPanel } from '@/components/chat/DirectorPanel';
+import { CanonEditor } from '@/components/canon/CanonEditor';
 import { LandingPage } from '@/components/chat/LandingPage';
 import { useAppInitialization } from '@/hooks/useAppInitialization';
 import { extractLorebookEntries, extractRpDevelopments } from '@/lib/lorebook-extractor';
@@ -109,7 +109,7 @@ export default function ChatPage() {
     const [isLorebookOpen, setIsLorebookOpen] = useState(false);
     const [isTreeOpen, setIsTreeOpen] = useState(false);
     const [isMemoryOpen, setIsMemoryOpen] = useState(false);
-    const [isDirectorOpen, setIsDirectorOpen] = useState(false);
+    const [isCanonOpen, setIsCanonOpen] = useState(false);
     const [isWorldStateSheetOpen, setIsWorldStateSheetOpen] = useState(false);
     const [isWorldStateDialogOpen, setIsWorldStateDialogOpen] = useState(false);
     const [currentApiKey, setCurrentApiKey] = useState<string | null>(null);
@@ -1917,8 +1917,8 @@ export default function ChatPage() {
                                             variant="ghost"
                                             size="sm"
                                             className="h-8 w-8 p-0 text-muted-foreground hover:text-foreground shrink-0"
-                                            onClick={() => setIsDirectorOpen(true)}
-                                            title="Directeur (canon)"
+                                            onClick={() => setIsCanonOpen(true)}
+                                            title="Canon Codex (Arc + Casting + Directeur)"
                                         >
                                             <Clapperboard className="h-4 w-4" />
                                         </Button>
@@ -2007,7 +2007,16 @@ export default function ChatPage() {
             <TreeVisualization isOpen={isTreeOpen} onClose={() => setIsTreeOpen(false)} />
 
             <MemoryPanel isOpen={isMemoryOpen} onClose={() => setIsMemoryOpen(false)} />
-            <DirectorPanel isOpen={isDirectorOpen} onClose={() => setIsDirectorOpen(false)} />
+
+            <Dialog open={isCanonOpen} onOpenChange={setIsCanonOpen}>
+                <DialogContent className="!max-w-[95vw] !w-[95vw] h-[90vh] p-0 overflow-hidden [&>button]:hidden flex flex-col">
+                    <DialogTitle className="sr-only">Canon Codex</DialogTitle>
+                    <DialogDescription className="sr-only">
+                        Arc Compass, casting canon et outils du Directeur.
+                    </DialogDescription>
+                    <CanonEditor onClose={() => setIsCanonOpen(false)} />
+                </DialogContent>
+            </Dialog>
 
             {/* Desktop WorldState Dialog */}
             <Dialog open={isWorldStateDialogOpen} onOpenChange={setIsWorldStateDialogOpen}>

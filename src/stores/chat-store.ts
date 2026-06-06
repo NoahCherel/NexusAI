@@ -34,6 +34,7 @@ interface ChatState {
     updateScratchpad: (conversationId: string, scratchpad: string) => void;
     updateArc: (conversationId: string, arc: ArcCompass) => void;
     appendRpJournal: (conversationId: string, character: string, note: string) => void;
+    setRpJournalForCharacter: (conversationId: string, character: string, notes: string[]) => void;
     setMomentumNudge: (conversationId: string, nudge: string | undefined) => void;
     clearConversation: (conversationId: string) => void;
     navigateToSibling: (messageId: string, direction: 'prev' | 'next') => void;
@@ -439,6 +440,24 @@ export const useChatStore = create<ChatState>()((set, get) => ({
                     if (existing[existing.length - 1] !== trimmed) {
                         journal[character] = [...existing, trimmed];
                     }
+                    conversationToUpdate = { ...c, rpJournal: journal, updatedAt: new Date() };
+                    return conversationToUpdate;
+                }
+                return c;
+            }),
+        }));
+        if (conversationToUpdate) saveConversation(conversationToUpdate).catch(console.error);
+    },
+
+    setRpJournalForCharacter: (conversationId, character, notes) => {
+        let conversationToUpdate: Conversation | undefined;
+        set((state) => ({
+            conversations: state.conversations.map((c) => {
+                if (c.id === conversationId) {
+                    const journal = { ...(c.rpJournal || {}) };
+                    const cleaned = notes.map((n) => n.trim()).filter(Boolean);
+                    if (cleaned.length > 0) journal[character] = cleaned;
+                    else delete journal[character];
                     conversationToUpdate = { ...c, rpJournal: journal, updatedAt: new Date() };
                     return conversationToUpdate;
                 }

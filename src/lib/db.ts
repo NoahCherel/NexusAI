@@ -434,7 +434,11 @@ export function canonKey(work: string, character: string): string {
 
 export async function saveCanonDossier(dossier: CanonDossier): Promise<void> {
     const db = await initDB();
-    await db.put('canon', dossier, canonKey(dossier.work, dossier.character));
+    // Always normalize the `work` field stored in the dossier so the `by-work` index value
+    // matches what `getCanonDossiersByWork` queries (which lowercases). Without this the
+    // index lookup misses on any work name that has uppercase letters.
+    const normalized: CanonDossier = { ...dossier, work: dossier.work.trim().toLowerCase() };
+    await db.put('canon', normalized, canonKey(dossier.work, dossier.character));
 }
 
 export async function getCanonDossier(
@@ -447,7 +451,28 @@ export async function getCanonDossier(
 
 export async function getCanonDossiersByWork(work: string): Promise<CanonDossier[]> {
     const db = await initDB();
-    return db.getAllFromIndex('canon', 'by-work', work.trim().toLowerCase());
+    const key = work.trim().toLowerCase();
+    const indexed = await db.getAllFromIndex('canon', 'by-work', key);
+    if (indexed.length > 0) return indexed;
+
+    // Self-heal: any dossier saved before `saveCanonDossier` normalized `work` will sit in
+    // the store with mixed-case `work` and be invisible to the index. Scan all entries,
+    // case-insensitively filter, and re-save them normalized so future reads hit the index.
+    const all = await db.getAll('canon');
+    const recovered = all.filter((d) => d.work.trim().toLowerCase() === key);
+    if (recovered.length === 0) return [];
+    console.warn(
+        `[Canon] Recovered ${recovered.length} dossiers for "${work}" with un-normalized work field. Healing.`
+    );
+    const tx = db.transaction('canon', 'readwrite');
+    for (const d of recovered) {
+        await tx.store.put(
+            { ...d, work: key },
+            canonKey(d.work, d.character)
+        );
+    }
+    await tx.done;
+    return recovered.map((d) => ({ ...d, work: key }));
 }
 
 export async function deleteCanonDossier(work: string, character: string): Promise<void> {

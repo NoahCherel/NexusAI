@@ -298,6 +298,8 @@ export function buildSystemPrompt(
         // Full canonical arc outline (Director/GM meta-knowledge) + per-conversation cursor.
         arc?: ArcCompass;
         arcOutline?: string;
+        // Canonical characters whose arc matches the current position but who aren't on stage yet.
+        dueToAppear?: string[];
         // Transient anti-stall directive for this turn.
         momentumNudge?: string;
         // Approx token budget for all injected canon dossiers (default 1200).
@@ -381,6 +383,12 @@ export function buildSystemPrompt(
         if (options.arc.currentPosition)
             arcParts.push(`Current position in the timeline: ${options.arc.currentPosition}`);
         if (options.arc.nextBeat) arcParts.push(`Next beat to steer toward: ${options.arc.nextBeat}`);
+        if (options.dueToAppear && options.dueToAppear.length > 0) {
+            arcParts.push(
+                `Canonical characters who appear around this point — introduce them when it fits ` +
+                    `naturally (they may diverge from canon as the RP unfolds): ${options.dueToAppear.join(', ')}`
+            );
+        }
         if (arcParts.length > 0) {
             prompt +=
                 `\n\n[NARRATIVE DIRECTOR — steer the story subtly toward the next canonical beat, ` +

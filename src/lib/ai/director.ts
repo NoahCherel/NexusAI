@@ -11,8 +11,9 @@ import { useSettingsStore } from '@/stores/settings-store';
 import { useCharacterStore } from '@/stores/character-store';
 import { decryptApiKey } from '@/lib/crypto';
 import { backgroundAICall } from '@/lib/ai/background-ai';
-import { fetchCharacterDossier } from '@/lib/ai/canon-retrieval';
+import { fetchCharacterDossier, fetchCastRoster } from '@/lib/ai/canon-retrieval';
 import { resolveWork } from '@/lib/ai/canon-context';
+import { getCanonDossiersByWork } from '@/lib/db';
 import { getArcOutline } from '@/lib/db';
 import type { CharacterCard } from '@/types/character';
 import type { Conversation } from '@/types/chat';
@@ -35,6 +36,51 @@ async function getModelConfig(): Promise<{ apiKey: string; model: string } | nul
     } catch {
         return null;
     }
+}
+
+/**
+ * Pre-fill the card's canon cast: one web call fetches the roster of major characters (names
+ * + arcs they appear in), stored as stub dossiers; full dossiers are fetched later on demand.
+ * Adds every roster name to the card's `canonCast`. Returns the number of NEW characters added.
+ *
+ * Pass `mode: 'more'` to ask for ADDITIONAL canonical characters beyond what's already known
+ * (uses both the card's `canonCast` and any dossiers already in the DB as the exclusion set,
+ * so subsequent clicks keep surfacing new names instead of repeating the top 15).
+ */
+export async function populateCanonRoster(
+    card: CharacterCard,
+    mode: 'initial' | 'more' = 'initial'
+): Promise<number> {
+    const work = resolveWork(card);
+    if (!work) return 0;
+
+    let excludeNames: string[] = [];
+    if (mode === 'more') {
+        // Source of truth = the DB dossiers, NOT `card.canonCast`. The card's list can lag
+        // behind deletions (a stub may have been removed via the cast tab without being purged
+        // from the card's roster), and including a deleted name in the exclusion list both
+        // wastes prompt tokens and prevents the model from re-suggesting it on demand.
+        excludeNames = (await getCanonDossiersByWork(work)).map((d) => d.character);
+    }
+
+    const entries = await fetchCastRoster(work, excludeNames);
+    if (entries.length === 0) return 0;
+
+    const existing = card.canonCast || [];
+    const lower = new Set(existing.map((n) => n.toLowerCase()));
+    const merged = [...existing];
+    let added = 0;
+    for (const e of entries) {
+        if (!lower.has(e.name.toLowerCase())) {
+            merged.push(e.name);
+            lower.add(e.name.toLowerCase());
+            added++;
+        }
+    }
+    const updates: Partial<CharacterCard> = { canonCast: merged };
+    if (!card.work) updates.work = work;
+    await useCharacterStore.getState().updateCharacter(card.id, updates);
+    return added;
 }
 
 /**

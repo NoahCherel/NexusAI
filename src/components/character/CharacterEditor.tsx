@@ -7,6 +7,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { Save, User, FileText, MessageSquare, Tags, Sparkles } from 'lucide-react';
 import { useCharacterStore } from '@/stores/character-store';
+import { populateCanonRoster } from '@/lib/ai/director';
 import type { CharacterCard } from '@/types';
 import {
     Dialog,
@@ -86,9 +87,14 @@ export function CharacterEditor({ isOpen, onClose, character }: CharacterEditorP
                 .map((t) => t.trim())
                 .filter((t) => t.length > 0);
 
+            const workNow = formData.work.trim();
+            const workChanged = isEditing ? workNow !== (character?.work || '') : !!workNow;
+            let savedCard: CharacterCard;
+
             if (isEditing && character) {
                 // Update existing character
-                await updateCharacter(character.id, {
+                savedCard = {
+                    ...character,
                     name: formData.name,
                     displayName: formData.displayName,
                     description: formData.description,
@@ -99,11 +105,24 @@ export function CharacterEditor({ isOpen, onClose, character }: CharacterEditorP
                     system_prompt: formData.system_prompt,
                     tags,
                     avatar: formData.avatar,
-                    work: formData.work.trim() || undefined,
+                    work: workNow || undefined,
+                };
+                await updateCharacter(character.id, {
+                    name: savedCard.name,
+                    displayName: savedCard.displayName,
+                    description: savedCard.description,
+                    personality: savedCard.personality,
+                    scenario: savedCard.scenario,
+                    first_mes: savedCard.first_mes,
+                    mes_example: savedCard.mes_example,
+                    system_prompt: savedCard.system_prompt,
+                    tags,
+                    avatar: savedCard.avatar,
+                    work: savedCard.work,
                 });
             } else {
                 // Create new character
-                const newCharacter: CharacterCard = {
+                savedCard = {
                     id: crypto.randomUUID(),
                     name: formData.name,
                     displayName: formData.displayName,
@@ -115,13 +134,21 @@ export function CharacterEditor({ isOpen, onClose, character }: CharacterEditorP
                     system_prompt: formData.system_prompt,
                     tags,
                     avatar: formData.avatar,
-                    work: formData.work.trim() || undefined,
+                    work: workNow || undefined,
                     creator: 'User',
                     creator_notes: '',
                     character_book: { entries: [] },
                 };
-                await addCharacter(newCharacter);
+                await addCharacter(savedCard);
             }
+
+            // Auto pre-fill the canon cast roster when the Work is set/changed (one cheap web call).
+            if (workNow && workChanged) {
+                populateCanonRoster(savedCard)
+                    .then((n) => console.log(`[Canon] Roster pre-filled: ${n} characters for ${workNow}`))
+                    .catch((e) => console.error('[Canon] Roster pre-fill failed:', e));
+            }
+
             onClose();
         } finally {
             setIsSaving(false);
