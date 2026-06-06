@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { Message, Conversation, WorldState } from '@/types';
+import type { Message, Conversation, WorldState, ArcCompass } from '@/types';
 import {
     saveConversation,
     getConversationsByCharacter,
@@ -32,6 +32,9 @@ interface ChatState {
     updateConversationNotes: (conversationId: string, notes: string[]) => void;
     updateStoryGuidance: (conversationId: string, guidance: string) => void;
     updateScratchpad: (conversationId: string, scratchpad: string) => void;
+    updateArc: (conversationId: string, arc: ArcCompass) => void;
+    appendRpJournal: (conversationId: string, character: string, note: string) => void;
+    setMomentumNudge: (conversationId: string, nudge: string | undefined) => void;
     clearConversation: (conversationId: string) => void;
     navigateToSibling: (messageId: string, direction: 'prev' | 'next') => void;
     navigateToMessage: (messageId: string) => void;
@@ -407,6 +410,56 @@ export const useChatStore = create<ChatState>()((set, get) => ({
         if (conversationToUpdate) {
             saveConversation(conversationToUpdate).catch(console.error);
         }
+    },
+
+    updateArc: (conversationId, arc) => {
+        let conversationToUpdate: Conversation | undefined;
+        set((state) => ({
+            conversations: state.conversations.map((c) => {
+                if (c.id === conversationId) {
+                    conversationToUpdate = { ...c, arc, updatedAt: new Date() };
+                    return conversationToUpdate;
+                }
+                return c;
+            }),
+        }));
+        if (conversationToUpdate) saveConversation(conversationToUpdate).catch(console.error);
+    },
+
+    appendRpJournal: (conversationId, character, note) => {
+        const trimmed = note.trim();
+        if (!trimmed) return;
+        let conversationToUpdate: Conversation | undefined;
+        set((state) => ({
+            conversations: state.conversations.map((c) => {
+                if (c.id === conversationId) {
+                    const journal = { ...(c.rpJournal || {}) };
+                    const existing = journal[character] || [];
+                    // Avoid duplicate consecutive notes
+                    if (existing[existing.length - 1] !== trimmed) {
+                        journal[character] = [...existing, trimmed];
+                    }
+                    conversationToUpdate = { ...c, rpJournal: journal, updatedAt: new Date() };
+                    return conversationToUpdate;
+                }
+                return c;
+            }),
+        }));
+        if (conversationToUpdate) saveConversation(conversationToUpdate).catch(console.error);
+    },
+
+    setMomentumNudge: (conversationId, nudge) => {
+        let conversationToUpdate: Conversation | undefined;
+        set((state) => ({
+            conversations: state.conversations.map((c) => {
+                if (c.id === conversationId) {
+                    conversationToUpdate = { ...c, momentumNudge: nudge, updatedAt: new Date() };
+                    return conversationToUpdate;
+                }
+                return c;
+            }),
+        }));
+        if (conversationToUpdate) saveConversation(conversationToUpdate).catch(console.error);
     },
 
     clearConversation: (conversationId) =>

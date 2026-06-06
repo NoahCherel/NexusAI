@@ -49,6 +49,12 @@ interface BackgroundAIOptions {
      * - remove-tags: keep text but strip only the <think> tags
      */
     thinkTagStrategy?: 'remove-blocks' | 'remove-tags';
+    /** Enable the OpenRouter web_search server tool (for canon retrieval). */
+    webSearch?: boolean;
+    /** Max results per web search call (default 5). */
+    webMaxResults?: number;
+    /** Turn model thinking off (structured/extraction calls). Defaults to true when webSearch. */
+    disableReasoning?: boolean;
 }
 
 interface BackgroundAIResult {
@@ -73,6 +79,9 @@ export async function backgroundAICall(
         maxRetries = 2,
         backgroundModel,
         thinkTagStrategy = 'remove-blocks',
+        webSearch = false,
+        webMaxResults,
+        disableReasoning = webSearch, // canon/extraction calls don't need thinking
     } = options;
 
     // Prefer user-selected model first, then fallback chain.
@@ -98,7 +107,12 @@ export async function backgroundAICall(
                         systemPrompt,
                         temperature,
                         maxTokens,
-                        useFlexTier: useSettingsStore.getState().useFlexTier,
+                        // Flex tier + web_search times out (504): the slow flex queue plus the
+                        // server-side search loop exceeds the deadline. Never combine them.
+                        useFlexTier: webSearch ? false : useSettingsStore.getState().useFlexTier,
+                        webSearch,
+                        webMaxResults,
+                        disableReasoning,
                     }),
                 });
 

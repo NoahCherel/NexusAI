@@ -146,3 +146,83 @@ Output format (JSON array only):
 }
 
 export const LOREBOOK_AUTO_EXTRACT_KEY = 'lorebook-auto-extract';
+
+/**
+ * Canon-safe replacement for lorebook extraction on whole-work RPG cards.
+ *
+ * Extracts ONLY what happened in THIS RP session (events, choices, relationship shifts,
+ * things a character did or learned) keyed by character. It deliberately does NOT capture
+ * canonical/background identity — that lives in the immutable Canon Codex and must never be
+ * overwritten by RP observations. The result is appended to the conversation's rpJournal.
+ */
+export async function extractRpDevelopments(
+    aiResponse: string,
+    roster: string[]
+): Promise<{ character: string; note: string }[]> {
+    const { apiKeys, activeProvider, activeModel } = useSettingsStore.getState();
+    const keyConfig = apiKeys.find((k) => k.provider === activeProvider);
+    if (!keyConfig) return [];
+
+    let apiKey: string;
+    try {
+        apiKey = await decryptApiKey(keyConfig.encryptedKey);
+        if (!apiKey) return [];
+    } catch {
+        return [];
+    }
+
+    const rosterStr =
+        roster.length > 0
+            ? `Known characters: ${roster.join(', ')}. Prefer these exact names.`
+            : 'Use the exact names as written in the text.';
+
+    const systemPrompt = `You log what happened IN THIS roleplay session, per character.
+
+RULES:
+- Extract only NEW developments from THIS message: actions taken, decisions, things learned, relationship shifts, injuries, items, promises, conflicts.
+- Do NOT describe a character's canonical personality, backstory, or fixed traits — only what CHANGED or HAPPENED here.
+- One short factual note per development. Tie each to exactly one character (the one it's about).
+- If nothing of note happened, return [].
+
+${rosterStr}
+
+Output JSON array only:
+[{"character":"Name","note":"what happened to/with them in this scene"}]`;
+
+    try {
+        const response = await fetch('/api/chat', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                provider: activeProvider,
+                apiKey,
+                model: activeModel,
+                systemPrompt,
+                maxTokens: 1500,
+                messages: [{ role: 'user', content: `Message:\n\n${aiResponse}` }],
+            }),
+        });
+        if (!response.ok) return [];
+        const text = await response.text();
+        const clean = text
+            .replace(/<think>[\s\S]*?<\/think>/gi, '')
+            .replace(/```json\n?/gi, '')
+            .replace(/```\n?/g, '');
+        const first = clean.indexOf('[');
+        const last = clean.lastIndexOf(']');
+        if (first === -1 || last === -1 || last < first) return [];
+        const parsed = JSON.parse(clean.substring(first, last + 1));
+        if (!Array.isArray(parsed)) return [];
+        return parsed
+            .filter(
+                (e: unknown): e is { character: string; note: string } =>
+                    typeof e === 'object' &&
+                    e !== null &&
+                    typeof (e as { character?: unknown }).character === 'string' &&
+                    typeof (e as { note?: unknown }).note === 'string'
+            )
+            .map((e) => ({ character: e.character.trim(), note: e.note.trim() }));
+    } catch {
+        return [];
+    }
+}

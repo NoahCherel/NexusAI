@@ -53,12 +53,13 @@ import {
     SheetTitle,
     SheetDescription,
 } from '@/components/ui/sheet';
-import { Book, Globe2Icon } from 'lucide-react';
+import { Book, Globe2Icon, Clapperboard } from 'lucide-react';
 import { TreeVisualization } from '@/components/chat/TreeVisualization';
 import { MemoryPanel } from '@/components/chat/MemoryPanel';
+import { DirectorPanel } from '@/components/chat/DirectorPanel';
 import { LandingPage } from '@/components/chat/LandingPage';
 import { useAppInitialization } from '@/hooks/useAppInitialization';
-import { extractLorebookEntries } from '@/lib/lorebook-extractor';
+import { extractLorebookEntries, extractRpDevelopments } from '@/lib/lorebook-extractor';
 import { APINotificationToast } from '@/components/ui/api-notification';
 import {
     retrieveRelevantContext,
@@ -95,6 +96,9 @@ import {
 import { getAdaptiveChunkSize, scoreMessageQuality } from '@/lib/ai/message-quality';
 import { backgroundAICall } from '@/lib/ai/background-ai';
 import { deriveWorldStateUpdates, applyWorldStateUpdate } from '@/lib/ai/world-state-updater';
+import { buildCanonOptions, resolveWork } from '@/lib/ai/canon-context';
+import { fetchCharacterDossier } from '@/lib/ai/canon-retrieval';
+import { detectStall, buildMomentumNudge } from '@/lib/ai/momentum';
 import { saveFactsBatch, getFactsByConversation, getSummariesByConversation } from '@/lib/db';
 import type { ContextSection, WorldFact } from '@/types/rag';
 import type { Message } from '@/types';
@@ -105,6 +109,7 @@ export default function ChatPage() {
     const [isLorebookOpen, setIsLorebookOpen] = useState(false);
     const [isTreeOpen, setIsTreeOpen] = useState(false);
     const [isMemoryOpen, setIsMemoryOpen] = useState(false);
+    const [isDirectorOpen, setIsDirectorOpen] = useState(false);
     const [isWorldStateSheetOpen, setIsWorldStateSheetOpen] = useState(false);
     const [isWorldStateDialogOpen, setIsWorldStateDialogOpen] = useState(false);
     const [currentApiKey, setCurrentApiKey] = useState<string | null>(null);
@@ -638,6 +643,8 @@ export default function ChatPage() {
         // Combine conversation-scoped notes with character-level memory
         const currentConv = conversations.find((c) => c.id === activeConversationId);
         const combinedMemory = [...(currentConv?.notes || []), ...(character.longTermMemory || [])];
+        // Canon Codex (immutable identity) + Arc + momentum, layered over RP memory.
+        const canonOptions = await buildCanonOptions(character, currentConv, history);
         let systemPrompt = buildSystemPrompt(character, worldState, activeEntries, {
             template: activePreset?.systemPromptTemplate,
             preHistory: activePreset?.preHistoryInstructions,
@@ -648,7 +655,13 @@ export default function ChatPage() {
             excludePostHistory: true,
             storyGuidance: currentConv?.storyGuidance,
             scratchpad: currentConv?.scratchpad,
+            ...canonOptions,
         });
+
+        // The momentum nudge is one-shot: it has now been injected, so clear it.
+        if (currentConv?.momentumNudge && activeConversationId) {
+            useChatStore.getState().setMomentumNudge(activeConversationId, undefined);
+        }
 
         // Handle Impersonation System Prompt Override
         if (options.isImpersonation) {
@@ -824,6 +837,61 @@ export default function ChatPage() {
                 finalContent = finalContent
                     .replace(/<scratchpad>[\s\S]*?<\/scratchpad>/i, '')
                     .trim();
+            }
+
+            // Canon: capture the GM's trailing [timeline …] as the arc cursor (= canon cap),
+            // then lazily fetch/refresh dossiers for roster members active this turn.
+            if (character && activeConversationId) {
+                const conv = useChatStore
+                    .getState()
+                    .conversations.find((c) => c.id === activeConversationId);
+                if (conv?.arc?.enabled) {
+                    const work = resolveWork(character);
+                    let cap = conv.arc.currentPosition || 'Start';
+                    const tl = finalContent.match(
+                        /\[([^\]\n]*(?:season|episode|s\d|e\d|arc|chapter|timeline)[^\]\n]*)\]\s*$/i
+                    );
+                    if (tl) {
+                        const pos = tl[1].trim();
+                        if (pos && pos !== conv.arc.currentPosition) {
+                            cap = pos;
+                            useChatStore
+                                .getState()
+                                .updateArc(activeConversationId, {
+                                    ...conv.arc,
+                                    currentPosition: pos,
+                                });
+                        }
+                    }
+                    const roster = character.canonCast || [];
+                    if (work && roster.length > 0) {
+                        const lower = finalContent.toLowerCase();
+                        const active = roster.filter(
+                            (n) =>
+                                lower.includes(n.toLowerCase()) ||
+                                lower.includes(n.toLowerCase().split(' ')[0])
+                        );
+                        for (const name of active) {
+                            fetchCharacterDossier(work, name, cap).catch((e) =>
+                                console.error('[Canon] dossier fetch failed', name, e)
+                            );
+                        }
+                    }
+                }
+            }
+
+            // Anti-stall: if this beat barely advanced vs the previous one, queue a one-shot nudge.
+            if (character && activeConversationId && finalContent && !options.isImpersonation) {
+                const prevAssistant = [...history].reverse().find((m) => m.role === 'assistant');
+                const { stalled } = detectStall(finalContent, prevAssistant?.content, false);
+                if (stalled) {
+                    const conv = useChatStore
+                        .getState()
+                        .conversations.find((c) => c.id === activeConversationId);
+                    useChatStore
+                        .getState()
+                        .setMomentumNudge(activeConversationId, buildMomentumNudge(conv?.arc?.nextBeat));
+                }
             }
 
             updateMessage(targetId, {
@@ -1022,27 +1090,40 @@ export default function ChatPage() {
     const handleSend = async (userMessage: string) => {
         if (!activeConversationId || !character) return;
 
-        // Lorebook extraction on the PREVIOUS assistant message (the one the user is confirming by replying)
-        // This ensures only the active regeneration branch gets extracted
+        // Extraction on the PREVIOUS assistant message (the one the user is confirming by replying).
+        // This ensures only the active regeneration branch gets extracted.
         const { lorebookAutoExtract } = useSettingsStore.getState();
-        if (lorebookAutoExtract && activeLorebook && messages.length > 0) {
+        // Whole-work RPG cards use the canon-safe RP journal instead of the (canon-destroying)
+        // lorebook accretion: canonical identity stays immutable, only "in this RP" notes are logged.
+        const isCanonCard = !!(character.work || (character.canonCast && character.canonCast.length));
+        if (lorebookAutoExtract && messages.length > 0) {
             const lastAssistantMsg = [...messages].reverse().find((m) => m.role === 'assistant');
             if (lastAssistantMsg?.content) {
-                const existingKeys = activeLorebook.entries.flatMap((e) => e.keys);
-                extractLorebookEntries(lastAssistantMsg.content, existingKeys)
-                    .then((newEntries) => {
-                        if (newEntries.length > 0) {
-                            const { addSuggestions } = useLorebookStore.getState();
-                            addSuggestions(
-                                newEntries.map((e) => ({
-                                    keys: e.keys,
-                                    content: e.content,
-                                    category: e.category,
-                                }))
-                            );
-                        }
-                    })
-                    .catch((err) => console.error('Lorebook extraction failed:', err));
+                if (isCanonCard) {
+                    const convId = activeConversationId;
+                    extractRpDevelopments(lastAssistantMsg.content, character.canonCast || [])
+                        .then((devs) => {
+                            const { appendRpJournal } = useChatStore.getState();
+                            for (const d of devs) appendRpJournal(convId, d.character, d.note);
+                        })
+                        .catch((err) => console.error('RP journal extraction failed:', err));
+                } else if (activeLorebook) {
+                    const existingKeys = activeLorebook.entries.flatMap((e) => e.keys);
+                    extractLorebookEntries(lastAssistantMsg.content, existingKeys)
+                        .then((newEntries) => {
+                            if (newEntries.length > 0) {
+                                const { addSuggestions } = useLorebookStore.getState();
+                                addSuggestions(
+                                    newEntries.map((e) => ({
+                                        keys: e.keys,
+                                        content: e.content,
+                                        category: e.category,
+                                    }))
+                                );
+                            }
+                        })
+                        .catch((err) => console.error('Lorebook extraction failed:', err));
+                }
             }
         }
 
@@ -1122,6 +1203,7 @@ export default function ChatPage() {
 
         const conv = conversations.find((c) => c.id === activeConversationId);
         const combinedMem = [...(conv?.notes || []), ...(character.longTermMemory || [])];
+        const previewCanonOptions = await buildCanonOptions(character, conv, simulatedMessages);
         const systemPrompt = buildSystemPrompt(character, worldState, activeEntries, {
             template: activePreset?.systemPromptTemplate,
             preHistory: activePreset?.preHistoryInstructions,
@@ -1132,6 +1214,7 @@ export default function ChatPage() {
             excludePostHistory: true,
             storyGuidance: conv?.storyGuidance,
             scratchpad: conv?.scratchpad,
+            ...previewCanonOptions,
         });
 
         const maxContextTokens = activePreset?.maxContextTokens ?? 16384;
@@ -1834,6 +1917,15 @@ export default function ChatPage() {
                                             variant="ghost"
                                             size="sm"
                                             className="h-8 w-8 p-0 text-muted-foreground hover:text-foreground shrink-0"
+                                            onClick={() => setIsDirectorOpen(true)}
+                                            title="Directeur (canon)"
+                                        >
+                                            <Clapperboard className="h-4 w-4" />
+                                        </Button>
+                                        <Button
+                                            variant="ghost"
+                                            size="sm"
+                                            className="h-8 w-8 p-0 text-muted-foreground hover:text-foreground shrink-0"
                                             onClick={handleContextPreview}
                                             title="Context Preview"
                                         >
@@ -1915,6 +2007,7 @@ export default function ChatPage() {
             <TreeVisualization isOpen={isTreeOpen} onClose={() => setIsTreeOpen(false)} />
 
             <MemoryPanel isOpen={isMemoryOpen} onClose={() => setIsMemoryOpen(false)} />
+            <DirectorPanel isOpen={isDirectorOpen} onClose={() => setIsDirectorOpen(false)} />
 
             {/* Desktop WorldState Dialog */}
             <Dialog open={isWorldStateDialogOpen} onOpenChange={setIsWorldStateDialogOpen}>

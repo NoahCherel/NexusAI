@@ -37,6 +37,7 @@ export function CharacterEditor({ isOpen, onClose, character }: CharacterEditorP
         system_prompt: '',
         tags: '',
         avatar: '',
+        work: '',
     });
 
     const [isSaving, setIsSaving] = useState(false);
@@ -55,6 +56,7 @@ export function CharacterEditor({ isOpen, onClose, character }: CharacterEditorP
                 system_prompt: character.system_prompt || '',
                 tags: character.tags?.join(', ') || '',
                 avatar: character.avatar || '',
+                work: character.work || '',
             });
         } else {
             // Reset for new character
@@ -69,6 +71,7 @@ export function CharacterEditor({ isOpen, onClose, character }: CharacterEditorP
                 system_prompt: '',
                 tags: '',
                 avatar: '',
+                work: '',
             });
         }
     }, [character, isOpen]);
@@ -96,6 +99,7 @@ export function CharacterEditor({ isOpen, onClose, character }: CharacterEditorP
                     system_prompt: formData.system_prompt,
                     tags,
                     avatar: formData.avatar,
+                    work: formData.work.trim() || undefined,
                 });
             } else {
                 // Create new character
@@ -111,6 +115,7 @@ export function CharacterEditor({ isOpen, onClose, character }: CharacterEditorP
                     system_prompt: formData.system_prompt,
                     tags,
                     avatar: formData.avatar,
+                    work: formData.work.trim() || undefined,
                     creator: 'User',
                     creator_notes: '',
                     character_book: { entries: [] },
@@ -318,6 +323,25 @@ export function CharacterEditor({ isOpen, onClose, character }: CharacterEditorP
                                     setFormData((prev) => ({ ...prev, tags: e.target.value }))
                                 }
                                 placeholder="fantasy, romance, adventure (comma separated)"
+                                className="bg-background/50"
+                            />
+                        </div>
+
+                        {/* Work (for whole-work RPG cards: enables the Canon Codex) */}
+                        <div className="space-y-2">
+                            <Label
+                                htmlFor="work"
+                                className="flex items-center gap-2 text-sm font-medium"
+                            >
+                                <FileText className="w-4 h-4" /> Œuvre (canon)
+                            </Label>
+                            <Input
+                                id="work"
+                                value={formData.work}
+                                onChange={(e) =>
+                                    setFormData((prev) => ({ ...prev, work: e.target.value }))
+                                }
+                                placeholder="ex. Naruto, Bleach — active la récupération du canon (laisser vide pour auto-déduire)"
                                 className="bg-background/50"
                             />
                         </div>

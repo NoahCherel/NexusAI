@@ -1,8 +1,23 @@
 import type { CharacterCard, Lorebook, LorebookEntry } from '@/types/character';
-import type { Message, WorldState } from '@/types/chat';
+import type { Message, WorldState, ArcCompass } from '@/types/chat';
 import type { ContextSection } from '@/types/rag';
+import type { CanonDossier } from '@/types/canon';
 import { DEFAULT_SYSTEM_PROMPT_TEMPLATE } from '@/types/preset';
 import { countTokens } from '@/lib/tokenizer';
+
+/** Render an immutable canon dossier as a compact, labelled block. */
+function formatCanonDossier(d: CanonDossier): string {
+    const parts: string[] = [d.identity.trim()];
+    if (d.backstory?.trim()) parts.push(`Background: ${d.backstory.trim()}`);
+    if (d.relationships?.length) {
+        parts.push(
+            'Canonical relationships: ' +
+                d.relationships.map((r) => `${r.name} — ${r.nature}`).join('; ')
+        );
+    }
+    if (d.abilities?.trim()) parts.push(`Abilities: ${d.abilities.trim()}`);
+    return parts.join('\n');
+}
 
 interface LorebookConfig {
     scanDepth?: number;
@@ -276,6 +291,17 @@ export function buildSystemPrompt(
         excludePostHistory?: boolean;
         storyGuidance?: string;
         scratchpad?: string;
+        // Canon Codex: immutable dossiers for the NPCs currently active in the scene.
+        canonDossiers?: CanonDossier[];
+        // Per-character "in this RP" developments, layered ON TOP of canon (never overwrite).
+        rpJournal?: Record<string, string[]>;
+        // Full canonical arc outline (Director/GM meta-knowledge) + per-conversation cursor.
+        arc?: ArcCompass;
+        arcOutline?: string;
+        // Transient anti-stall directive for this turn.
+        momentumNudge?: string;
+        // Approx token budget for all injected canon dossiers (default 1200).
+        canonTokenBudget?: number;
     } = {}
 ): string {
     const promptTemplate = options.template || DEFAULT_SYSTEM_PROMPT_TEMPLATE;
@@ -318,6 +344,54 @@ export function buildSystemPrompt(
 
     if (options.storyGuidance) {
         prompt += `\n\n[Author's Note / Story Guidance: ${options.storyGuidance}]`;
+    }
+
+    // ===== Canon Codex: immutable ground truth for active NPCs (+ RP journal on top) =====
+    if (options.canonDossiers && options.canonDossiers.length > 0) {
+        const budget = options.canonTokenBudget ?? 1200;
+        let used = 0;
+        const blocks: string[] = [];
+        for (const d of options.canonDossiers) {
+            const body = formatCanonDossier(d);
+            const cost = countTokens(body);
+            if (used + cost > budget) continue;
+            used += cost;
+            blocks.push(
+                `[CANON — ${d.character} (ground truth, as of ${d.timelineCap}). This is who ${d.character} IS. ` +
+                    `RP events layer on top and never overwrite this. Never contradict this personality, voice, or canonical relationships, ` +
+                    `and never act on knowledge from beyond ${d.timelineCap}.]\n${body}`
+            );
+            const journal = options.rpJournal?.[d.character];
+            if (journal && journal.length > 0) {
+                blocks.push(
+                    `[IN THIS RP — ${d.character}: developments specific to this playthrough, layered on top of canon.]\n- ${journal.join(
+                        '\n- '
+                    )}`
+                );
+            }
+        }
+        if (blocks.length > 0) prompt += `\n\n${blocks.join('\n\n')}`;
+    }
+
+    // ===== Directed progression toward the next canonical arc beat =====
+    if (options.arc?.enabled) {
+        const arcParts: string[] = [];
+        if (options.arc.work) arcParts.push(`Work: ${options.arc.work}`);
+        if (options.arcOutline) arcParts.push(`Canonical arc map:\n${options.arcOutline}`);
+        if (options.arc.currentPosition)
+            arcParts.push(`Current position in the timeline: ${options.arc.currentPosition}`);
+        if (options.arc.nextBeat) arcParts.push(`Next beat to steer toward: ${options.arc.nextBeat}`);
+        if (arcParts.length > 0) {
+            prompt +=
+                `\n\n[NARRATIVE DIRECTOR — steer the story subtly toward the next canonical beat, ` +
+                `via foreshadowing and NPC goals. Never railroad, never spoil; respect the one-primary-beat rule.]\n` +
+                arcParts.join('\n');
+        }
+    }
+
+    // ===== Transient anti-stall nudge (consumed this turn) =====
+    if (options.momentumNudge) {
+        prompt += `\n\n[MOMENTUM — ${options.momentumNudge}]`;
     }
 
     if (options.scratchpad) {

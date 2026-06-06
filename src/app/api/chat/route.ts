@@ -31,6 +31,9 @@ export async function POST(req: NextRequest) {
             userPersona,
             enableReasoning,
             useFlexTier,
+            webSearch,
+            webMaxResults,
+            disableReasoning,
         } = await req.json();
 
         if (!apiKey) {
@@ -101,8 +104,27 @@ export async function POST(req: NextRequest) {
             if (repetitionPenalty) requestBody.repetition_penalty = repetitionPenalty;
             if (useFlexTier) requestBody.service_tier = 'flex';
 
+            // Web search server tool (for canon retrieval). OpenRouter runs the search
+            // loop server-side and grounds the model's answer with citations.
+            if (webSearch) {
+                requestBody.tools = [
+                    {
+                        type: 'openrouter:web_search',
+                        parameters: {
+                            engine: 'auto',
+                            max_results: webMaxResults ?? 5,
+                            max_total_results: 20,
+                        },
+                    },
+                ];
+            }
+
             // Add reasoning configuration per OpenRouter docs
-            if (enableReasoning) {
+            if (disableReasoning) {
+                // Structured/extraction calls (e.g. canon retrieval): turn thinking off so
+                // reasoning tokens don't eat the output budget and truncate the JSON.
+                requestBody.reasoning = { enabled: false };
+            } else if (enableReasoning) {
                 const isGeminiModel = effectiveModelId.toLowerCase().includes('gemini');
                 const isDeepSeekModel = effectiveModelId.toLowerCase().includes('deepseek');
                 const isAnthropicModel =
@@ -195,15 +217,16 @@ export async function POST(req: NextRequest) {
                             controller.enqueue(encoder.encode(delta.content));
                         }
 
-                        // Handle reasoning tokens from OpenRouter
+                        // Handle reasoning tokens from OpenRouter.
+                        // `reasoning` and `reasoning_details` can both be present in the same
+                        // delta (Gemini does this) — emit only one to avoid duplicating thinking.
                         const extendedDelta = delta as OpenRouterMessage;
                         if (extendedDelta?.reasoning) {
                             // Wrap reasoning in special tags for client-side parsing
                             controller.enqueue(
                                 encoder.encode(`<think>${extendedDelta.reasoning}</think>`)
                             );
-                        }
-                        if (extendedDelta?.reasoning_details) {
+                        } else if (extendedDelta?.reasoning_details) {
                             // Handle reasoning_details array format
                             const details = extendedDelta.reasoning_details;
                             if (Array.isArray(details)) {

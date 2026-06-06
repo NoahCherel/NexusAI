@@ -1,9 +1,10 @@
 import { openDB, DBSchema, IDBPDatabase } from 'idb';
 import type { CharacterCard, Conversation, Message, LorebookEntry } from '@/types';
 import type { VectorEntry, MemorySummary, WorldFact } from '@/types/rag';
+import type { CanonDossier, ArcOutline } from '@/types/canon';
 
 // Database version - increment when schema changes
-const DB_VERSION = 5;
+const DB_VERSION = 7;
 const DB_NAME = 'nexusai-db';
 
 // Lorebook history entry for blockchain-style tracking
@@ -61,6 +62,15 @@ interface NexusAIDB extends DBSchema {
         key: string;
         value: WorldFact;
         indexes: { 'by-conversation': string; 'by-category': string; 'by-importance': number };
+    };
+    canon: {
+        key: string; // `${work}::${character}` lowercased
+        value: CanonDossier;
+        indexes: { 'by-work': string };
+    };
+    arcOutlines: {
+        key: string; // `work` lowercased
+        value: ArcOutline;
     };
 }
 
@@ -215,6 +225,16 @@ export async function initDB(): Promise<IDBPDatabase<NexusAIDB>> {
                 factStore.createIndex('by-conversation', 'conversationId');
                 factStore.createIndex('by-category', 'category');
                 factStore.createIndex('by-importance', 'importance');
+            }
+
+            // Canon Codex stores (v6) — additive, no data transform.
+            // Out-of-line keys: canon = `${work}::${character}`, arcOutlines = `work`.
+            if (!db.objectStoreNames.contains('canon')) {
+                const canonStore = db.createObjectStore('canon');
+                canonStore.createIndex('by-work', 'work');
+            }
+            if (!db.objectStoreNames.contains('arcOutlines')) {
+                db.createObjectStore('arcOutlines');
             }
         },
     });
@@ -403,6 +423,46 @@ export async function deleteFactsByConversation(conversationId: string): Promise
         cursor = await cursor.continue();
     }
     await tx.done;
+}
+
+// ============ Canon Codex Operations ============
+
+/** Normalize a name fragment for use in storage keys (case-insensitive, trimmed). */
+export function canonKey(work: string, character: string): string {
+    return `${work.trim().toLowerCase()}::${character.trim().toLowerCase()}`;
+}
+
+export async function saveCanonDossier(dossier: CanonDossier): Promise<void> {
+    const db = await initDB();
+    await db.put('canon', dossier, canonKey(dossier.work, dossier.character));
+}
+
+export async function getCanonDossier(
+    work: string,
+    character: string
+): Promise<CanonDossier | undefined> {
+    const db = await initDB();
+    return db.get('canon', canonKey(work, character));
+}
+
+export async function getCanonDossiersByWork(work: string): Promise<CanonDossier[]> {
+    const db = await initDB();
+    return db.getAllFromIndex('canon', 'by-work', work.trim().toLowerCase());
+}
+
+export async function deleteCanonDossier(work: string, character: string): Promise<void> {
+    const db = await initDB();
+    await db.delete('canon', canonKey(work, character));
+}
+
+export async function saveArcOutline(outline: ArcOutline): Promise<void> {
+    const db = await initDB();
+    await db.put('arcOutlines', outline, outline.work.trim().toLowerCase());
+}
+
+export async function getArcOutline(work: string): Promise<ArcOutline | undefined> {
+    const db = await initDB();
+    return db.get('arcOutlines', work.trim().toLowerCase());
 }
 
 // Utility: Export all data (for backup)

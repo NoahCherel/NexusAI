@@ -438,7 +438,7 @@ export async function buildContextPreview(
     maxContextTokens: number,
     maxOutputTokens: number,
     activeLorebookEntries?: { keys: string[]; content: string }[],
-    worldState?: { location?: string; relationships?: Record<string, string>; inventory?: string[] }
+    worldState?: { location?: string; relationships?: Record<string, number>; inventory?: string[] }
 ): Promise<{
     sections: ContextSection[];
     totalTokens: number;

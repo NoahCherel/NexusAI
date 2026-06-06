@@ -25,8 +25,21 @@ export interface Conversation {
     notes?: string[]; // Conversation-scoped persona notes/memories
     storyGuidance?: string; // User-written memo to guide the AI's narrative direction
     scratchpad?: string; // AI's working memory from the previous turn
+    arc?: ArcCompass; // Directed progression toward the work's canonical arc
+    momentumNudge?: string; // Transient anti-stall directive, consumed next turn then cleared
+    rpJournal?: Record<string, string[]>; // Per-character "in this RP" developments, layered on canon
     createdAt: Date;
     updatedAt: Date;
+}
+
+// Directed progression toward the next canonical beat of the work.
+// The full arc outline lives in the `arcOutlines` store (keyed by `work`); this holds
+// only the per-conversation cursor and the next beat to steer toward.
+export interface ArcCompass {
+    enabled?: boolean;
+    work?: string;
+    currentPosition?: string; // auto-captured from the GM's trailing [timeline …]; = canon timelineCap
+    nextBeat?: string; // the specific canonical beat to steer toward, subtly
 }
 
 export interface WorldState {

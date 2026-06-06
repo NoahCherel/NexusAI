@@ -526,6 +526,13 @@ export function PresetEditor() {
                                         min={0}
                                         max={1}
                                     />
+                                    {(activePreset.minP ?? 0) > 0.3 && (
+                                        <p className="text-xs text-amber-500">
+                                            ⚠️ Min P élevé : proche d&apos;un décodage glouton, tue la
+                                            variété et donne des réponses répétitives. Valeur usuelle
+                                            0–0.1 (1 = quasi déterministe).
+                                        </p>
+                                    )}
                                 </div>
                             </div>
 
@@ -545,8 +552,15 @@ export function PresetEditor() {
                                                 })
                                             }
                                             step={0.01}
-                                            min={1}
+                                            min={0}
                                         />
+                                        {activePreset.repetitionPenalty < 1 && (
+                                            <p className="text-xs text-amber-500">
+                                                ⚠️ Sous 1.0, la repetition penalty <em>encourage</em>{' '}
+                                                la répétition (le neutre est 1.0). Pour pénaliser les
+                                                redites, vise ~1.05–1.15.
+                                            </p>
+                                        )}
                                     </div>
                                     <div className="grid grid-cols-2 gap-4">
                                         <div className="space-y-3">

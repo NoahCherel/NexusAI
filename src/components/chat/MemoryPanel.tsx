@@ -17,6 +17,8 @@ import {
     RefreshCw,
     Search,
     BrainCircuit,
+    Compass,
+    Globe,
 } from 'lucide-react';
 import { useCharacterStore } from '@/stores/character-store';
 import { useChatStore } from '@/stores/chat-store';
@@ -30,8 +32,16 @@ import {
     DialogDescription,
     DialogFooter,
 } from '@/components/ui/dialog';
-import { deleteFactsByConversation, saveFactsBatch } from '@/lib/db';
+import {
+    deleteFactsByConversation,
+    saveFactsBatch,
+    getArcOutline,
+    getCanonDossiersByWork,
+} from '@/lib/db';
 import { loadRagDataByConversation } from '@/lib/rag-data-loader';
+import { fetchArcOutline } from '@/lib/ai/canon-retrieval';
+import { resolveWork } from '@/lib/ai/canon-context';
+import type { CanonDossier } from '@/types/canon';
 import type { WorldFact, MemorySummary } from '@/types/rag';
 import { useSettingsStore } from '@/stores/settings-store';
 import { decryptApiKey } from '@/lib/crypto';
@@ -41,7 +51,7 @@ interface MemoryPanelProps {
     onClose: () => void;
 }
 
-type TabType = 'notes' | 'guidance' | 'scratchpad' | 'facts' | 'summaries';
+type TabType = 'notes' | 'guidance' | 'arc' | 'scratchpad' | 'facts' | 'summaries';
 
 export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
     const { getActiveCharacter, updateLongTermMemory } = useCharacterStore();
@@ -74,6 +84,13 @@ export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
     const [factSearchTerm, setFactSearchTerm] = useState('');
     const [summarySearchTerm, setSummarySearchTerm] = useState('');
 
+    // Arc Compass state
+    const [isFetchingArc, setIsFetchingArc] = useState(false);
+    const [arcStatus, setArcStatus] = useState('');
+    const [arcOutlineText, setArcOutlineText] = useState('');
+    const [castDossiers, setCastDossiers] = useState<CanonDossier[]>([]);
+    const [expandedDossier, setExpandedDossier] = useState<string | null>(null);
+
     // Load RAG data when tab changes
     const loadRagData = useCallback(async () => {
         if (!activeConversationId) return;
@@ -105,11 +122,72 @@ export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
         }
     }, [isOpen, activeTab, loadRagData]);
 
+    // Load the fetched arc outline + canon cast for the Arc tab. Reads state via getState()
+    // so it can live above the early return without referencing post-return consts.
+    const loadCanonView = useCallback(async () => {
+        const char = useCharacterStore.getState().getActiveCharacter();
+        if (!char) {
+            setArcOutlineText('');
+            setCastDossiers([]);
+            return;
+        }
+        const conv = useChatStore
+            .getState()
+            .conversations.find((c) => c.id === activeConversationId);
+        const work = conv?.arc?.work?.trim() || resolveWork(char);
+        if (!work) {
+            setArcOutlineText('');
+            setCastDossiers([]);
+            return;
+        }
+        try {
+            const [outline, dossiers] = await Promise.all([
+                getArcOutline(work),
+                getCanonDossiersByWork(work),
+            ]);
+            setArcOutlineText(outline?.outline || '');
+            setCastDossiers(dossiers);
+        } catch (e) {
+            console.error('[Canon] load view failed', e);
+        }
+    }, [activeConversationId]);
+
+    useEffect(() => {
+        if (isOpen && activeTab === 'arc') loadCanonView();
+    }, [isOpen, activeTab, loadCanonView]);
+
     if (!character) return null;
 
     // Use conversation-scoped notes (with fallback to character-level for backward compat)
     const conversation = conversations.find((c) => c.id === activeConversationId);
     const memories = conversation?.notes || [];
+
+    const arc = conversation?.arc;
+    const setArcField = (patch: Partial<NonNullable<typeof arc>>) => {
+        if (!activeConversationId) return;
+        useChatStore.getState().updateArc(activeConversationId, { ...(arc || {}), ...patch });
+    };
+    const handleFetchArcOutline = async () => {
+        if (!activeConversationId) return;
+        const work = arc?.work?.trim() || (character ? resolveWork(character) : '');
+        if (!work) {
+            setArcStatus('Renseigne d’abord l’œuvre.');
+            return;
+        }
+        setIsFetchingArc(true);
+        setArcStatus('Récupération de la carte des arcs (web)…');
+        try {
+            const outline = await fetchArcOutline(work, { force: true });
+            setArcStatus(
+                outline ? 'Carte des arcs récupérée ✓' : 'Échec (vérifie ta clé OpenRouter).'
+            );
+            await loadCanonView();
+        } catch {
+            setArcStatus('Échec de la récupération.');
+        } finally {
+            setIsFetchingArc(false);
+        }
+    };
 
     const handleAddMemory = async () => {
         if (!newMemory.trim() || !activeConversationId) return;
@@ -524,6 +602,7 @@ export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
     const tabs: { key: TabType; label: string; icon: typeof Brain; count?: number }[] = [
         { key: 'notes', label: 'Notes', icon: Brain, count: memories.length },
         { key: 'guidance', label: 'Guidance', icon: Sparkles },
+        { key: 'arc', label: 'Arc', icon: Compass },
         { key: 'scratchpad', label: 'Scratchpad', icon: BrainCircuit },
         { key: 'facts', label: 'Facts', icon: Database, count: facts.length },
         { key: 'summaries', label: 'Summaries', icon: Layers, count: summaries.length },
@@ -739,10 +818,10 @@ export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
                         <div className="flex flex-col flex-1 min-h-0 p-4 space-y-4">
                             <div className="flex items-center gap-2 text-sm font-medium text-primary">
                                 <Sparkles className="w-4 h-4" />
-                                Story Guidance (Author's Note)
+                                Story Guidance (Author&apos;s Note)
                             </div>
                             <p className="text-xs text-muted-foreground leading-relaxed">
-                                Write a memo to guide the AI's narrative direction. This will be injected directly into the system prompt to subtly (or overtly) nudge the story, character behavior, or upcoming events.
+                                Write a memo to guide the AI&apos;s narrative direction. This will be injected directly into the system prompt to subtly (or overtly) nudge the story, character behavior, or upcoming events.
                             </p>
                             <Textarea
                                 placeholder="e.g., 'Subtly nudge the player towards the old tavern', 'Act more suspicious of the player's motives', 'The weather is slowly turning into a thunderstorm...'"
@@ -757,6 +836,141 @@ export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
                         </div>
                     )}
 
+                    {/* === ARC TAB === */}
+                    {activeTab === 'arc' && (
+                        <div className="flex flex-col flex-1 min-h-0 p-4 space-y-4 overflow-y-auto">
+                            <div className="flex items-center gap-2 text-sm font-medium text-primary">
+                                <Compass className="w-4 h-4" />
+                                Arc Compass (progression dirigée)
+                            </div>
+                            <p className="text-xs text-muted-foreground leading-relaxed">
+                                Active la boussole pour que le GM amène subtilement l’histoire vers le
+                                prochain beat canonique de l’œuvre. Les personnages restent plafonnés à
+                                la position actuelle (pas de spoiler).
+                            </p>
+
+                            <label className="flex items-center gap-2 text-sm">
+                                <input
+                                    type="checkbox"
+                                    checked={!!arc?.enabled}
+                                    onChange={(e) => setArcField({ enabled: e.target.checked })}
+                                />
+                                Activer l’Arc Compass
+                            </label>
+
+                            <div className="space-y-1.5">
+                                <span className="text-xs font-medium text-muted-foreground">Œuvre</span>
+                                <Input
+                                    placeholder={
+                                        character ? resolveWork(character) || 'ex. Naruto' : 'ex. Naruto'
+                                    }
+                                    value={arc?.work || ''}
+                                    onChange={(e) => setArcField({ work: e.target.value })}
+                                    className="text-sm"
+                                />
+                            </div>
+
+                            <div className="space-y-1.5">
+                                <span className="text-xs font-medium text-muted-foreground">
+                                    Prochain beat à amener (subtilement)
+                                </span>
+                                <Textarea
+                                    placeholder="ex. La rencontre avec l’examen Chūnin approche…"
+                                    value={arc?.nextBeat || ''}
+                                    onChange={(e) => setArcField({ nextBeat: e.target.value })}
+                                    className="min-h-[60px] resize-none text-sm"
+                                />
+                            </div>
+
+                            <div className="space-y-1.5">
+                                <span className="text-xs font-medium text-muted-foreground">
+                                    Position actuelle (auto-capturée depuis le [timeline] du GM)
+                                </span>
+                                <Input
+                                    value={arc?.currentPosition || ''}
+                                    onChange={(e) => setArcField({ currentPosition: e.target.value })}
+                                    placeholder="ex. S1E5 — auto-rempli"
+                                    className="text-sm"
+                                />
+                            </div>
+
+                            <Button
+                                onClick={handleFetchArcOutline}
+                                disabled={isFetchingArc}
+                                variant="outline"
+                                size="sm"
+                                className="gap-2 self-start"
+                            >
+                                {isFetchingArc ? (
+                                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                ) : (
+                                    <Globe className="w-3.5 h-3.5" />
+                                )}
+                                Récupérer la carte des arcs (web)
+                            </Button>
+                            {arcStatus && (
+                                <p className="text-xs text-muted-foreground">{arcStatus}</p>
+                            )}
+
+                            {arcOutlineText && (
+                                <div className="space-y-1.5 border-t pt-3">
+                                    <span className="text-xs font-medium text-muted-foreground">
+                                        Carte des arcs (canon)
+                                    </span>
+                                    <pre className="text-xs text-muted-foreground whitespace-pre-wrap font-sans bg-muted/30 rounded-lg p-3 max-h-48 overflow-y-auto">
+                                        {arcOutlineText}
+                                    </pre>
+                                </div>
+                            )}
+
+                            <div className="space-y-2 border-t pt-3">
+                                <span className="text-xs font-medium text-muted-foreground">
+                                    Casting canon ({castDossiers.length}) — injecté quand le perso est
+                                    en scène
+                                </span>
+                                {castDossiers.length === 0 ? (
+                                    <p className="text-xs text-muted-foreground/70">
+                                        Aucun personnage canon récupéré. Utilise le bouton 🎬 Directeur
+                                        pour en faire entrer.
+                                    </p>
+                                ) : (
+                                    castDossiers.map((d) => (
+                                        <button
+                                            key={d.character}
+                                            onClick={() =>
+                                                setExpandedDossier(
+                                                    expandedDossier === d.character
+                                                        ? null
+                                                        : d.character
+                                                )
+                                            }
+                                            className="w-full text-left bg-muted/30 hover:bg-muted/50 rounded-lg p-2.5 transition-colors"
+                                        >
+                                            <div className="flex items-center justify-between gap-2">
+                                                <span className="text-sm font-medium">
+                                                    {d.character}
+                                                </span>
+                                                <span className="text-[10px] text-muted-foreground shrink-0">
+                                                    canon @ {d.timelineCap}
+                                                </span>
+                                            </div>
+                                            <p
+                                                className={cn(
+                                                    'text-xs text-muted-foreground mt-1',
+                                                    expandedDossier === d.character
+                                                        ? ''
+                                                        : 'line-clamp-2'
+                                                )}
+                                            >
+                                                {d.identity}
+                                            </p>
+                                        </button>
+                                    ))
+                                )}
+                            </div>
+                        </div>
+                    )}
+
                     {/* === SCRATCHPAD TAB === */}
                     {activeTab === 'scratchpad' && (
                         <div className="flex flex-col flex-1 min-h-0 p-4 space-y-4">
@@ -765,7 +979,7 @@ export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
                                 AI Scratchpad (Working Memory)
                             </div>
                             <p className="text-xs text-muted-foreground leading-relaxed">
-                                This is the AI's internal working memory from the previous turn. It uses this space to plan its next moves, track state, and maintain continuity. You can edit it to correct the AI's assumptions.
+                                This is the AI&apos;s internal working memory from the previous turn. It uses this space to plan its next moves, track state, and maintain continuity. You can edit it to correct the AI&apos;s assumptions.
                             </p>
                             <Textarea
                                 placeholder="The AI's scratchpad is currently empty."

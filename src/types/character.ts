@@ -15,6 +15,13 @@ export interface CharacterCard {
     creator_notes?: string;
     character_book?: Lorebook;
     longTermMemory?: string[];
+
+    // Canon Codex (for "whole-work RPG" cards like NarutoRPG / BLEACH RPG).
+    // `work` keys all canon retrieval (auto-derived from the card, user-overridable).
+    // `canonCast` is the roster of canonical characters instantiated within this card —
+    // their immutable dossiers live in the `canon` store (shared by `work`).
+    work?: string;
+    canonCast?: string[];
 }
 
 export interface Lorebook {
