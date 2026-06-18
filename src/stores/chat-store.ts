@@ -17,8 +17,6 @@ interface ChatState {
     loadedCharacterId: string | null;
 
     // Actions
-
-    // Actions
     loadConversations: (characterId: string) => Promise<void>;
     createConversation: (characterId: string, title: string) => Promise<string>;
     setActiveConversation: (id: string | null) => void;
@@ -60,8 +58,6 @@ export const useChatStore = create<ChatState>()((set, get) => ({
     isStreaming: false,
     isLoading: true,
     loadedCharacterId: null,
-
-    // Load all conversations for a character from IndexedDB (Metadata only)
 
     // Load all conversations for a character from IndexedDB (Metadata only)
     loadConversations: async (characterId) => {

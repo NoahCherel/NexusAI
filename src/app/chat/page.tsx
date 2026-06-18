@@ -144,7 +144,6 @@ export default function ChatPage() {
         conversations,
         activeConversationId,
         createConversation,
-        // updateWorldState,
         addMessage,
         updateMessage,
         getActiveBranchMessages,

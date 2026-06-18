@@ -13,7 +13,6 @@ interface TreeVisualizationProps {
     onClose: () => void;
 }
 
-// Visual Constants
 // Visual Constants (Responsive)
 const getConstants = (isMobile: boolean) => ({
     NODE_WIDTH: isMobile ? 160 : 200,

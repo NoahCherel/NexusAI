@@ -1,7 +1,11 @@
 export { ChatBubble } from './ChatBubble';
 export { ChatInput } from './ChatInput';
+export { ChatFormatter } from './ChatFormatter';
 export { RelationshipPanel } from './RelationshipPanel';
 export { PersonaSelector } from './PersonaSelector';
 export { ModelSelector } from './ModelSelector';
 export { ThinkingModeToggle } from './ThinkingModeToggle';
 export { ContextPreviewPanel } from './ContextPreviewPanel';
+export { MemoryPanel } from './MemoryPanel';
+export { LandingPage } from './LandingPage';
+export { TreeVisualization } from './TreeVisualization';

@@ -1,1 +1,1 @@
-export * from './LorebookEditor';
+export { LorebookEditor } from './LorebookEditor';

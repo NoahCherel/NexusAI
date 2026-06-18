@@ -13,16 +13,15 @@ import { decryptApiKey } from '@/lib/crypto';
 import { backgroundAICall } from '@/lib/ai/background-ai';
 import { fetchCharacterDossier, fetchCastRoster } from '@/lib/ai/canon-retrieval';
 import { resolveWork } from '@/lib/ai/canon-context';
-import { getCanonDossiersByWork } from '@/lib/db';
+import { getCanonDossiersByWork, getArcOutline } from '@/lib/db';
+import type { CharacterCard } from '@/types/character';
+import type { Conversation } from '@/types/chat';
+import type { CanonDossier } from '@/types/canon';
 
 function isAutoFetchAllowed(): boolean {
     const s = useSettingsStore.getState();
     return s.useCanonCodex && s.useCanonAutoFetch;
 }
-import { getArcOutline } from '@/lib/db';
-import type { CharacterCard } from '@/types/character';
-import type { Conversation } from '@/types/chat';
-import type { CanonDossier } from '@/types/canon';
 
 async function getModelConfig(): Promise<{ apiKey: string; model: string } | null> {
     const { apiKeys, activeModel, backgroundModel } = useSettingsStore.getState();
