@@ -14,6 +14,7 @@ import { CharacterEditor } from '@/components/character/CharacterEditor';
 import { buildCharacterGroups } from '@/lib/character-folders';
 import { useCharacterStore, useChatStore } from '@/stores';
 import { exportToJson } from '@/lib/export-utils';
+import { useCharacterFolderDrag } from '@/hooks/useCharacterFolderDrag';
 import type { CharacterCard as CharacterCardType } from '@/types';
 
 interface MobileSidebarProps {
@@ -50,6 +51,8 @@ export function MobileSidebar({ onCharacterSelect, onSettingsClick }: MobileSide
     const [editingCharacter, setEditingCharacter] = useState<CharacterCardType | null>(null);
     const { characters, activeCharacterId, setActiveCharacter, removeCharacter } =
         useCharacterStore();
+    const { DragOverlay, draggedCharacterId, isDragging, startCharacterDrag, targetFolder } =
+        useCharacterFolderDrag();
 
     const characterGroups = buildCharacterGroups(characters, { sort: 'name' });
 
@@ -210,6 +213,10 @@ export function MobileSidebar({ onCharacterSelect, onSettingsClick }: MobileSide
                                                     onEdit={handleEdit}
                                                     onDelete={removeCharacter}
                                                     onExport={handleExport}
+                                                    onCharacterDragStart={startCharacterDrag}
+                                                    draggedCharacterId={draggedCharacterId}
+                                                    isDropTargetActive={isDragging}
+                                                    isDropTargetOver={targetFolder === group.name}
                                                 />
                                             ) : (
                                                 <CharacterCard
@@ -225,6 +232,10 @@ export function MobileSidebar({ onCharacterSelect, onSettingsClick }: MobileSide
                                                         removeCharacter(group.character.id)
                                                     }
                                                     onExport={() => handleExport(group.character)}
+                                                    onDragHandlePointerDown={startCharacterDrag}
+                                                    isDragging={
+                                                        draggedCharacterId === group.character.id
+                                                    }
                                                 />
                                             )}
                                         </motion.div>
@@ -259,6 +270,7 @@ export function MobileSidebar({ onCharacterSelect, onSettingsClick }: MobileSide
                 onClose={handleCloseEditor}
                 character={editingCharacter}
             />
+            {DragOverlay}
         </Sheet>
     );
 }

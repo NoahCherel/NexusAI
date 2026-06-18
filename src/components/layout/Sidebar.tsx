@@ -16,6 +16,7 @@ import { CharacterImporter } from '@/components/character/CharacterImporter';
 import { cn } from '@/lib/utils';
 import { exportToJson } from '@/lib/export-utils';
 import { useChatStore } from '@/stores/chat-store';
+import { useCharacterFolderDrag } from '@/hooks/useCharacterFolderDrag';
 import type { CharacterCard as CharacterCardType } from '@/types';
 
 interface SidebarProps {
@@ -30,6 +31,8 @@ export function Sidebar({ isCollapsed, onToggle }: SidebarProps) {
     const [searchTerm, setSearchTerm] = useState('');
     const [isEditorOpen, setIsEditorOpen] = useState(false);
     const [editingCharacter, setEditingCharacter] = useState<CharacterCardType | null>(null);
+    const { DragOverlay, draggedCharacterId, isDragging, startCharacterDrag, targetFolder } =
+        useCharacterFolderDrag();
 
     const filteredCharacters = characters.filter(
         (c) =>
@@ -229,18 +232,32 @@ export function Sidebar({ isCollapsed, onToggle }: SidebarProps) {
                                                   onEdit={handleEdit}
                                                   onDelete={removeCharacter}
                                                   onExport={handleExport}
+                                                  onCharacterDragStart={startCharacterDrag}
+                                                  draggedCharacterId={draggedCharacterId}
+                                                  isDropTargetActive={isDragging}
+                                                  isDropTargetOver={targetFolder === group.name}
                                                   isCollapsed={isCollapsed}
                                               />
                                           ) : (
                                               <CharacterCard
                                                   character={group.character}
-                                                  isActive={group.character.id === activeCharacterId}
+                                                  isActive={
+                                                      group.character.id === activeCharacterId
+                                                  }
                                                   onClick={() =>
                                                       setActiveCharacterId(group.character.id)
                                                   }
                                                   onEdit={() => handleEdit(group.character)}
-                                                  onDelete={() => removeCharacter(group.character.id)}
+                                                  onDelete={() =>
+                                                      removeCharacter(group.character.id)
+                                                  }
                                                   onExport={() => handleExport(group.character)}
+                                                  onDragHandlePointerDown={
+                                                      isCollapsed ? undefined : startCharacterDrag
+                                                  }
+                                                  isDragging={
+                                                      draggedCharacterId === group.character.id
+                                                  }
                                                   isCollapsed={isCollapsed}
                                               />
                                           )}
@@ -257,6 +274,7 @@ export function Sidebar({ isCollapsed, onToggle }: SidebarProps) {
                 onClose={handleCloseEditor}
                 character={editingCharacter}
             />
+            {DragOverlay}
         </>
     );
 }

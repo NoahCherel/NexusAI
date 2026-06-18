@@ -1,7 +1,7 @@
 'use client';
 
 import { motion } from 'framer-motion';
-import { MoreVertical, Trash2, Edit, Download, Clock } from 'lucide-react';
+import { MoreVertical, Trash2, Edit, Download, Clock, GripVertical } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import {
@@ -21,6 +21,11 @@ interface CharacterCardProps {
     onEdit?: () => void;
     onDelete?: () => void;
     onExport?: () => void;
+    onDragHandlePointerDown?: (
+        character: CharacterCardType,
+        event: React.PointerEvent<HTMLElement>
+    ) => void;
+    isDragging?: boolean;
     lastPlayed?: string | null;
 }
 
@@ -32,6 +37,8 @@ export function CharacterCard({
     onEdit,
     onDelete,
     onExport,
+    onDragHandlePointerDown,
+    isDragging = false,
     lastPlayed,
 }: CharacterCardProps) {
     if (isCollapsed) {
@@ -44,7 +51,8 @@ export function CharacterCard({
                     'relative cursor-pointer rounded-xl flex items-center justify-center transition-all duration-200 aspect-square w-12 mx-auto border-2',
                     isActive
                         ? 'border-primary bg-primary/10 shadow-[0_0_15px_rgba(var(--primary),0.2)]'
-                        : 'border-transparent hover:border-border/60 bg-transparent'
+                        : 'border-transparent hover:border-border/60 bg-transparent',
+                    isDragging && 'opacity-40'
                 )}
                 onClick={onClick}
             >
@@ -78,7 +86,8 @@ export function CharacterCard({
                 'relative group cursor-pointer rounded-xl border-2 transition-all duration-200 box-border',
                 isActive
                     ? 'border-primary/60 bg-primary/10 shadow-sm'
-                    : 'border-border/30 hover:border-border/60 bg-card/40 hover:bg-card/60 backdrop-blur-sm'
+                    : 'border-border/30 hover:border-border/60 bg-card/40 hover:bg-card/60 backdrop-blur-sm',
+                isDragging && 'opacity-40'
             )}
             onClick={onClick}
             style={{ width: '100%', maxWidth: '100%' }}
@@ -145,7 +154,18 @@ export function CharacterCard({
                 </div>
 
                 {/* Hover Actions */}
-                <div className="shrink-0 flex items-start">
+                <div className="shrink-0 flex items-start gap-0.5">
+                    {onDragHandlePointerDown && (
+                        <button
+                            type="button"
+                            className="flex h-7 w-7 touch-none items-center justify-center rounded-md text-muted-foreground opacity-100 transition-opacity hover:bg-muted/60 hover:text-foreground sm:opacity-0 sm:group-hover:opacity-100"
+                            title="Drag to folder"
+                            onPointerDown={(e) => onDragHandlePointerDown(character, e)}
+                            onClick={(e) => e.stopPropagation()}
+                        >
+                            <GripVertical className="h-3.5 w-3.5" />
+                        </button>
+                    )}
                     <DropdownMenu>
                         <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
                             <Button

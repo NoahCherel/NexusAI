@@ -14,6 +14,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { CharacterCard } from '@/components/character/CharacterCard';
 import type { CharacterWithMemory } from '@/lib/db';
+import type { CharacterCard as CharacterCardType } from '@/types';
 import { cn } from '@/lib/utils';
 
 interface CharacterFolderProps {
@@ -24,6 +25,13 @@ interface CharacterFolderProps {
     onEdit: (character: CharacterWithMemory) => void;
     onDelete: (id: string) => void;
     onExport?: (character: CharacterWithMemory) => void;
+    onCharacterDragStart?: (
+        character: CharacterCardType,
+        event: React.PointerEvent<HTMLElement>
+    ) => void;
+    draggedCharacterId?: string | null;
+    isDropTargetActive?: boolean;
+    isDropTargetOver?: boolean;
     getLastPlayed?: (id: string) => string | null;
     isCollapsed?: boolean;
 }
@@ -33,7 +41,13 @@ function initials(c: CharacterWithMemory) {
 }
 
 /** Up to 3 overlapping member avatars used as the folder's "cover". */
-function AvatarStack({ members, size = 'md' }: { members: CharacterWithMemory[]; size?: 'sm' | 'md' }) {
+function AvatarStack({
+    members,
+    size = 'md',
+}: {
+    members: CharacterWithMemory[];
+    size?: 'sm' | 'md';
+}) {
     const dim = size === 'sm' ? 'w-9 h-9' : 'w-10 h-10';
     return (
         <div className="flex -space-x-3 shrink-0">
@@ -63,6 +77,10 @@ export function CharacterFolder({
     onEdit,
     onDelete,
     onExport,
+    onCharacterDragStart,
+    draggedCharacterId,
+    isDropTargetActive = false,
+    isDropTargetOver = false,
     getLastPlayed,
     isCollapsed = false,
 }: CharacterFolderProps) {
@@ -78,11 +96,14 @@ export function CharacterFolder({
             <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                     <button
+                        data-character-folder-drop-target={name}
                         className={cn(
                             'relative mx-auto flex aspect-square w-12 items-center justify-center rounded-xl border-2 transition-all duration-200',
                             containsActive
                                 ? 'border-primary bg-primary/10 shadow-[0_0_15px_rgba(var(--primary),0.2)]'
-                                : 'border-transparent hover:border-border/60'
+                                : 'border-transparent hover:border-border/60',
+                            isDropTargetOver &&
+                                'border-primary bg-primary/15 ring-2 ring-primary/40'
                         )}
                         title={`${name} (${members.length})`}
                     >
@@ -118,7 +139,14 @@ export function CharacterFolder({
     }
 
     return (
-        <div className="w-full">
+        <div
+            className={cn(
+                'w-full rounded-xl transition-all duration-150',
+                isDropTargetActive && 'ring-1 ring-primary/10',
+                isDropTargetOver && 'bg-primary/5 ring-2 ring-primary/50'
+            )}
+            data-character-folder-drop-target={name}
+        >
             {/* Folder header (toggles the openable widget) */}
             <motion.button
                 whileTap={{ scale: 0.99 }}
@@ -178,6 +206,8 @@ export function CharacterFolder({
                                     onEdit={() => onEdit(m)}
                                     onDelete={() => onDelete(m.id)}
                                     onExport={onExport ? () => onExport(m) : undefined}
+                                    onDragHandlePointerDown={onCharacterDragStart}
+                                    isDragging={draggedCharacterId === m.id}
                                     isCollapsed={false}
                                     lastPlayed={getLastPlayed?.(m.id) ?? null}
                                 />

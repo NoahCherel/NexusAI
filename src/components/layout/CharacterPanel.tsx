@@ -22,6 +22,7 @@ import {
     DropdownMenuLabel,
 } from '@/components/ui/dropdown-menu';
 import { useChatStore } from '@/stores/chat-store';
+import { useCharacterFolderDrag } from '@/hooks/useCharacterFolderDrag';
 import { getConversationsByCharacter } from '@/lib/db';
 import type { CharacterCard as CharacterCardType } from '@/types';
 
@@ -37,6 +38,8 @@ export function CharacterPanel({ trigger }: CharacterPanelProps) {
     const [isEditorOpen, setIsEditorOpen] = useState(false);
     const [editingCharacter, setEditingCharacter] = useState<CharacterCardType | null>(null);
     const [sortOption, setSortOption] = useState<'name' | 'recent'>('recent');
+    const { DragOverlay, draggedCharacterId, isDragging, startCharacterDrag, targetFolder } =
+        useCharacterFolderDrag();
 
     const { getConversationMessages, conversations: allConversations } = useChatStore();
 
@@ -274,6 +277,10 @@ export function CharacterPanel({ trigger }: CharacterPanelProps) {
                                                 onEdit={handleEdit}
                                                 onDelete={removeCharacter}
                                                 onExport={handleExport}
+                                                onCharacterDragStart={startCharacterDrag}
+                                                draggedCharacterId={draggedCharacterId}
+                                                isDropTargetActive={isDragging}
+                                                isDropTargetOver={targetFolder === group.name}
                                                 getLastPlayed={formatLastPlayed}
                                             />
                                         ) : (
@@ -286,6 +293,10 @@ export function CharacterPanel({ trigger }: CharacterPanelProps) {
                                                 onEdit={() => handleEdit(group.character)}
                                                 onDelete={() => removeCharacter(group.character.id)}
                                                 onExport={() => handleExport(group.character)}
+                                                onDragHandlePointerDown={startCharacterDrag}
+                                                isDragging={
+                                                    draggedCharacterId === group.character.id
+                                                }
                                                 isCollapsed={false}
                                                 lastPlayed={formatLastPlayed(group.character.id)}
                                             />
@@ -303,6 +314,7 @@ export function CharacterPanel({ trigger }: CharacterPanelProps) {
                 onClose={handleCloseEditor}
                 character={editingCharacter}
             />
+            {DragOverlay}
         </>
     );
 }
