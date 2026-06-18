@@ -11,6 +11,7 @@ import {
     Settings2,
     Bot,
     ChevronDown,
+    RefreshCw,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -24,9 +25,10 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Separator } from '@/components/ui/separator';
 import { useSettingsStore } from '@/stores';
-import { DEFAULT_MODELS } from '@/stores/settings-store';
-import { encryptApiKey, validateApiKey } from '@/lib/crypto';
+import { DEFAULT_MODELS, type CustomModel } from '@/stores/settings-store';
+import { encryptApiKey, decryptApiKey, validateApiKey } from '@/lib/crypto';
 import { type Provider } from '@/lib/ai';
+import { NanoGPTUsagePanel } from '@/components/layout/NanoGPTUsage';
 import { PresetEditor } from '@/components/settings/PresetEditor';
 import {
     DropdownMenu,
@@ -68,6 +70,8 @@ export function SettingsPanel({ open, onOpenChange }: SettingsPanelProps) {
         useCanonAutoFetch,
         setUseCanonAutoFetch,
         activeProvider,
+        nanogptModels,
+        setNanogptModels,
     } = useSettingsStore();
 
     const allModels = [...DEFAULT_MODELS, ...customModels];
@@ -76,6 +80,40 @@ export function SettingsPanel({ open, onOpenChange }: SettingsPanelProps) {
     const [selectedProvider, setSelectedProvider] = useState<Provider>('openrouter');
     const [isValidating, setIsValidating] = useState(false);
     const [showKey, setShowKey] = useState(false);
+    const [isFetchingModels, setIsFetchingModels] = useState(false);
+
+    // Fetch the models included in the user's NanoGPT subscription and store them.
+    const fetchNanogptModels = async (apiKey: string) => {
+        setIsFetchingModels(true);
+        try {
+            const res = await fetch('/api/nanogpt/models', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ apiKey }),
+            });
+            if (!res.ok) return;
+            const data = await res.json();
+            if (Array.isArray(data.models)) {
+                setNanogptModels(data.models as CustomModel[]);
+            }
+        } catch (error) {
+            console.error('Failed to fetch NanoGPT models:', error);
+        } finally {
+            setIsFetchingModels(false);
+        }
+    };
+
+    // Manual refresh: decrypt the stored NanoGPT key and refetch the subscription model list.
+    const refreshNanogptModels = async () => {
+        const cfg = apiKeys.find((k) => k.provider === 'nanogpt');
+        if (!cfg) return;
+        try {
+            const apiKey = await decryptApiKey(cfg.encryptedKey);
+            if (apiKey) await fetchNanogptModels(apiKey);
+        } catch (error) {
+            console.error('Failed to decrypt NanoGPT key:', error);
+        }
+    };
 
     const handleSaveKey = async () => {
         if (!newKey.trim()) return;
@@ -94,6 +132,11 @@ export function SettingsPanel({ open, onOpenChange }: SettingsPanelProps) {
             setNewKey('');
             if (isValid) {
                 setActiveProvider(selectedProvider);
+                // For NanoGPT, populate the subscription model list right away (we still have the
+                // plaintext key here, before it's cleared).
+                if (selectedProvider === 'nanogpt') {
+                    void fetchNanogptModels(newKey);
+                }
             }
         } catch (error) {
             console.error('Failed to save API key:', error);
@@ -147,37 +190,41 @@ export function SettingsPanel({ open, onOpenChange }: SettingsPanelProps) {
                                 {/* Provider Selection */}
                                 <div className="space-y-4">
                                     <label className="text-sm font-medium">Provider</label>
-                                    <div className="flex gap-3">
-                                        {(['openrouter', 'openai', 'anthropic'] as Provider[]).map(
-                                            (provider) => {
-                                                const key = getKeyForProvider(provider);
-                                                return (
-                                                    <Button
-                                                        key={provider}
-                                                        variant={
-                                                            selectedProvider === provider
-                                                                ? 'default'
-                                                                : 'outline'
-                                                        }
-                                                        size="sm"
-                                                        onClick={() =>
-                                                            setSelectedProvider(provider)
-                                                        }
-                                                        className="flex-1 gap-2 h-10"
-                                                    >
-                                                        {provider === 'openrouter' && 'OpenRouter'}
-                                                        {provider === 'openai' && 'OpenAI'}
-                                                        {provider === 'anthropic' && 'Anthropic'}
-                                                        {key &&
-                                                            (key.isValid ? (
-                                                                <Check className="h-3 w-3 text-green-500" />
-                                                            ) : (
-                                                                <X className="h-3 w-3 text-red-500" />
-                                                            ))}
-                                                    </Button>
-                                                );
-                                            }
-                                        )}
+                                    <div className="flex flex-wrap gap-3">
+                                        {(
+                                            [
+                                                'openrouter',
+                                                'openai',
+                                                'anthropic',
+                                                'nanogpt',
+                                            ] as Provider[]
+                                        ).map((provider) => {
+                                            const key = getKeyForProvider(provider);
+                                            return (
+                                                <Button
+                                                    key={provider}
+                                                    variant={
+                                                        selectedProvider === provider
+                                                            ? 'default'
+                                                            : 'outline'
+                                                    }
+                                                    size="sm"
+                                                    onClick={() => setSelectedProvider(provider)}
+                                                    className="flex-1 min-w-[120px] gap-2 h-10"
+                                                >
+                                                    {provider === 'openrouter' && 'OpenRouter'}
+                                                    {provider === 'openai' && 'OpenAI'}
+                                                    {provider === 'anthropic' && 'Anthropic'}
+                                                    {provider === 'nanogpt' && 'NanoGPT'}
+                                                    {key &&
+                                                        (key.isValid ? (
+                                                            <Check className="h-3 w-3 text-green-500" />
+                                                        ) : (
+                                                            <X className="h-3 w-3 text-red-500" />
+                                                        ))}
+                                                </Button>
+                                            );
+                                        })}
                                     </div>
                                 </div>
 
@@ -223,6 +270,38 @@ export function SettingsPanel({ open, onOpenChange }: SettingsPanelProps) {
                                         sent to our servers.
                                     </p>
                                 </div>
+
+                                {/* NanoGPT subscription: model list + monthly/weekly quota */}
+                                {selectedProvider === 'nanogpt' && (
+                                    <div className="space-y-4">
+                                        <div className="flex items-center justify-between">
+                                            <label className="text-sm font-medium">
+                                                Modèles d&apos;abonnement
+                                            </label>
+                                            <Button
+                                                variant="outline"
+                                                size="sm"
+                                                className="h-8 gap-2"
+                                                onClick={refreshNanogptModels}
+                                                disabled={
+                                                    isFetchingModels ||
+                                                    !getKeyForProvider('nanogpt')
+                                                }
+                                            >
+                                                <RefreshCw
+                                                    className={`h-3.5 w-3.5 ${isFetchingModels ? 'animate-spin' : ''}`}
+                                                />
+                                                Rafraîchir
+                                            </Button>
+                                        </div>
+                                        <p className="text-xs text-muted-foreground">
+                                            {nanogptModels.length > 0
+                                                ? `${nanogptModels.length} modèles inclus, disponibles dans le sélecteur (groupe « NanoGPT (Abonnement) »).`
+                                                : 'Aucun modèle chargé. Enregistrez une clé NanoGPT valide, ou cliquez sur Rafraîchir.'}
+                                        </p>
+                                        <NanoGPTUsagePanel />
+                                    </div>
+                                )}
                             </div>
                         </TabsContent>
 

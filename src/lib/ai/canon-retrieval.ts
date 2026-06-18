@@ -39,12 +39,13 @@ export function deriveWorkFromName(cardName: string): string {
 
 /** Resolve an OpenRouter API key + a grounding-capable model from settings. */
 async function getRetrievalConfig(): Promise<{ apiKey: string; model: string } | null> {
-    const { apiKeys, activeModel, backgroundModel } = useSettingsStore.getState();
-    // Prefer an OpenRouter-labelled key, but fall back to any stored key (web search needs
-    // OpenRouter, and the user's key is an OpenRouter key regardless of which slot it's in).
-    const keyConfig = apiKeys.find((k) => k.provider === 'openrouter') || apiKeys[0];
+    const { apiKeys, activeProvider, activeModel, backgroundModel } = useSettingsStore.getState();
+    // Background canon/web tasks REQUIRE an OpenRouter key (they hit the OpenRouter endpoint and
+    // use its web plugin). Do NOT fall back to apiKeys[0]: with only a NanoGPT key, that key would
+    // be sent to OpenRouter — a wrong-provider call that also leaks the key.
+    const keyConfig = apiKeys.find((k) => k.provider === 'openrouter');
     if (!keyConfig) {
-        console.warn('[Canon] No API key configured — web canon retrieval unavailable.');
+        console.warn('[Canon] No OpenRouter key — web canon retrieval requires one.');
         return null;
     }
     try {
@@ -53,11 +54,13 @@ async function getRetrievalConfig(): Promise<{ apiKey: string; model: string } |
             console.warn('[Canon] API key failed to decrypt — web canon retrieval unavailable.');
             return null;
         }
-        // Use the configured background model first (these are background tasks); then the
-        // active model if it's an OpenRouter slug; else a capable default.
+        // Use the configured background model first (these are background tasks); then the active
+        // model only if it's an OpenRouter slug (don't reuse a NanoGPT model id here); else a default.
         const model =
             backgroundModel ||
-            (activeModel && activeModel.includes('/') ? activeModel : 'google/gemini-3-flash-preview');
+            (activeProvider === 'openrouter' && activeModel && activeModel.includes('/')
+                ? activeModel
+                : 'google/gemini-3-flash-preview');
         return { apiKey, model };
     } catch (e) {
         console.warn('[Canon] API key decryption error:', e);

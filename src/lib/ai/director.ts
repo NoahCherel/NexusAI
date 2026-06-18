@@ -24,10 +24,12 @@ function isAutoFetchAllowed(): boolean {
 }
 
 async function getModelConfig(): Promise<{ apiKey: string; model: string } | null> {
-    const { apiKeys, activeModel, backgroundModel } = useSettingsStore.getState();
-    const keyConfig = apiKeys.find((k) => k.provider === 'openrouter') || apiKeys[0];
+    const { apiKeys, activeProvider, activeModel, backgroundModel } = useSettingsStore.getState();
+    // Director background tasks require an OpenRouter key — never fall back to a non-OpenRouter key
+    // (e.g. NanoGPT), which would be sent to the OpenRouter endpoint.
+    const keyConfig = apiKeys.find((k) => k.provider === 'openrouter');
     if (!keyConfig) {
-        console.warn('[Director] No API key configured.');
+        console.warn('[Director] No OpenRouter key — Director requires one.');
         return null;
     }
     try {
@@ -35,7 +37,9 @@ async function getModelConfig(): Promise<{ apiKey: string; model: string } | nul
         if (!apiKey) return null;
         const model =
             backgroundModel ||
-            (activeModel && activeModel.includes('/') ? activeModel : 'google/gemini-3-flash-preview');
+            (activeProvider === 'openrouter' && activeModel && activeModel.includes('/')
+                ? activeModel
+                : 'google/gemini-3-flash-preview');
         return { apiKey, model };
     } catch {
         return null;

@@ -18,8 +18,16 @@ import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 
 export function ModelSelector() {
-    const { activeModel, setActiveModel, customModels, addCustomModel, removeCustomModel } =
-        useSettingsStore();
+    const {
+        activeModel,
+        setActiveModel,
+        activeProvider,
+        setActiveProvider,
+        customModels,
+        nanogptModels,
+        addCustomModel,
+        removeCustomModel,
+    } = useSettingsStore();
 
     const [open, setOpen] = useState(false);
     const [searchQuery, setSearchQuery] = useState('');
@@ -32,9 +40,13 @@ export function ModelSelector() {
     const [newModelConfigId, setNewModelConfigId] = useState('');
     const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
 
-    // Combine default and custom models
-    const allModels = [...DEFAULT_MODELS, ...customModels];
-    const currentActiveModel = allModels.find((m) => m.modelId === activeModel);
+    // Combine default, custom, and NanoGPT subscription models
+    const allModels = [...DEFAULT_MODELS, ...customModels, ...nanogptModels];
+    // Resolve by the {provider, modelId} pair — NanoGPT and OpenRouter can share IDs (e.g.
+    // "openai/gpt-4o"), so matching modelId alone would pick the wrong entry.
+    const isActiveModel = (m: (typeof allModels)[number]) =>
+        m.modelId === activeModel && m.provider === activeProvider;
+    const currentActiveModel = allModels.find(isActiveModel);
 
     useEffect(() => {
         const checkMobile = () => setIsMobile(window.innerWidth < 1024);
@@ -73,18 +85,19 @@ export function ModelSelector() {
                 isFree: configId.includes(':free'),
             });
             setIsCreatingModel(false);
-            setSelectedModelId(configId);
+            setSelectedModelId(newId);
             toast.success('Custom model added successfully');
         }
     };
 
     const confirmDelete = () => {
         if (selectedModelId) {
-            const customModel = customModels.find((m) => m.modelId === selectedModelId);
+            const customModel = customModels.find((m) => m.id === selectedModelId);
             if (customModel) {
                 removeCustomModel(customModel.id);
-                if (activeModel === selectedModelId) {
+                if (activeModel === customModel.modelId && activeProvider === customModel.provider) {
                     setActiveModel(DEFAULT_MODELS[0].modelId);
+                    setActiveProvider(DEFAULT_MODELS[0].provider);
                 }
                 setSelectedModelId(null);
                 setConfirmDeleteOpen(false);
@@ -101,7 +114,7 @@ export function ModelSelector() {
             m.modelId.toLowerCase().includes(searchQuery.toLowerCase())
     );
 
-    const autoSelectedModel = allModels.find((m) => m.modelId === selectedModelId);
+    const autoSelectedModel = allModels.find((m) => m.id === selectedModelId);
     const showEditorOnMobile = isMobile && (selectedModelId !== null || isCreatingModel);
 
     // Render grouped lists
@@ -118,35 +131,35 @@ export function ModelSelector() {
                         role="button"
                         tabIndex={0}
                         onClick={() => {
-                            setSelectedModelId(model.modelId);
+                            setSelectedModelId(model.id);
                             setIsCreatingModel(false);
                         }}
                         onKeyDown={(e) => {
                             if (e.key === 'Enter' || e.key === ' ') {
-                                setSelectedModelId(model.modelId);
+                                setSelectedModelId(model.id);
                                 setIsCreatingModel(false);
                             }
                         }}
                         className={cn(
                             'text-left p-2 rounded-lg text-xs transition-all flex items-center justify-between group h-11 shrink-0 cursor-pointer',
-                            selectedModelId === model.modelId && !isCreatingModel
+                            selectedModelId === model.id && !isCreatingModel
                                 ? 'bg-primary/90 text-primary-foreground shadow-md shadow-primary/20 translate-x-1'
                                 : 'hover:bg-muted/80 text-muted-foreground hover:text-foreground'
                         )}
                     >
                         <div className="flex items-center gap-2 min-w-0 flex-1 pl-1">
                             {model.isFree ? (
-                                <Sparkles className={cn("w-4 h-4 shrink-0", selectedModelId === model.modelId && !isCreatingModel ? "text-primary-foreground" : "text-green-500")} />
+                                <Sparkles className={cn("w-4 h-4 shrink-0", selectedModelId === model.id && !isCreatingModel ? "text-primary-foreground" : "text-green-500")} />
                             ) : (
-                                <Zap className={cn("w-4 h-4 shrink-0", selectedModelId === model.modelId && !isCreatingModel ? "text-primary-foreground" : "text-yellow-500")} />
+                                <Zap className={cn("w-4 h-4 shrink-0", selectedModelId === model.id && !isCreatingModel ? "text-primary-foreground" : "text-yellow-500")} />
                             )}
                             <span className="font-semibold truncate">
                                 {model.name}
                             </span>
                         </div>
-                        {activeModel === model.modelId && (
+                        {isActiveModel(model) && (
                             <div className="shrink-0 flex items-center mr-2">
-                                <Check className={cn("w-4 h-4", selectedModelId === model.modelId && !isCreatingModel ? "text-primary-foreground" : "text-primary")} />
+                                <Check className={cn("w-4 h-4", selectedModelId === model.id && !isCreatingModel ? "text-primary-foreground" : "text-primary")} />
                             </div>
                         )}
                     </div>
@@ -246,9 +259,10 @@ export function ModelSelector() {
 
                             <ScrollArea className="flex-1 min-h-0 custom-scrollbar">
                                 <div className="flex flex-col p-2 gap-1.5 pt-3 pb-8">
-                                    {renderModelGroup('Free Models', filteredModels.filter(m => m.isFree))}
-                                    {renderModelGroup('Premium Models', filteredModels.filter(m => !m.isFree && !isCustomModel(m.modelId)))}
-                                    {renderModelGroup('Custom Models', filteredModels.filter(m => isCustomModel(m.modelId) && !m.isFree))}
+                                    {renderModelGroup('Free Models', filteredModels.filter(m => m.isFree && m.provider !== 'nanogpt'))}
+                                    {renderModelGroup('Premium Models', filteredModels.filter(m => !m.isFree && !isCustomModel(m.modelId) && m.provider !== 'nanogpt'))}
+                                    {renderModelGroup('NanoGPT (Abonnement)', filteredModels.filter(m => m.provider === 'nanogpt'))}
+                                    {renderModelGroup('Custom Models', filteredModels.filter(m => isCustomModel(m.modelId) && !m.isFree && m.provider !== 'nanogpt'))}
 
                                     {filteredModels.length === 0 && (
                                         <div className="text-center py-12 px-6">
@@ -347,20 +361,23 @@ export function ModelSelector() {
                                                 <Button
                                                     size="sm"
                                                     variant={
-                                                        activeModel === autoSelectedModel.modelId
+                                                        isActiveModel(autoSelectedModel)
                                                             ? 'secondary'
                                                             : 'default'
                                                     }
                                                     className="text-xs h-7 px-3 w-fit"
                                                     onClick={() => {
+                                                        // Keep provider in sync with the model, else a
+                                                        // NanoGPT model would be sent to OpenRouter.
+                                                        setActiveProvider(autoSelectedModel.provider);
                                                         setActiveModel(autoSelectedModel.modelId);
                                                         toast.success(
                                                             `Active model set to ${autoSelectedModel.name}`
                                                         );
                                                     }}
-                                                    disabled={activeModel === autoSelectedModel.modelId}
+                                                    disabled={isActiveModel(autoSelectedModel)}
                                                 >
-                                                    {activeModel === autoSelectedModel.modelId ? (
+                                                    {isActiveModel(autoSelectedModel) ? (
                                                         <>
                                                             <Check className="w-3.5 h-3.5 mr-1" />{' '}
                                                             Active

@@ -188,6 +188,24 @@ export async function POST(req: NextRequest) {
                 top_p: topP,
                 stop: stoppingStrings,
             };
+        } else if (provider === 'nanogpt') {
+            // NanoGPT is OpenAI-compatible. Model IDs are namespaced (e.g. "openai/gpt-5.2") and
+            // MUST be passed through intact — the truncation above (line ~69) only runs for
+            // openai/anthropic, so `effectiveModelId` is already the untouched id here.
+            client = new OpenAI({
+                baseURL: 'https://nano-gpt.com/api/v1',
+                apiKey,
+            });
+            requestBody = {
+                model: effectiveModelId,
+                messages: fullMessages,
+                temperature: temperature ?? 0.8,
+                max_tokens: maxTokens ?? 4096,
+                top_p: topP,
+                frequency_penalty: frequencyPenalty,
+                presence_penalty: presencePenalty,
+                stop: stoppingStrings,
+            };
         } else {
             throw new Error('Invalid provider');
         }

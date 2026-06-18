@@ -17,12 +17,18 @@ export async function POST(req: NextRequest) {
             openrouter: 'https://openrouter.ai/api/v1/models',
             openai: 'https://api.openai.com/v1/models',
             anthropic: 'https://api.anthropic.com/v1/messages', // Different check for Anthropic
+            // Use the PROTECTED subscription endpoint: it returns 401 without a key, so a bad key
+            // actually fails. The public .../api/v1/models endpoint answers 200 even without a key
+            // and would validate anything (false positive). Side effect: a NanoGPT key without an
+            // active subscription will fail validation, which is fine — the feature targets Pro.
+            nanogpt: 'https://nano-gpt.com/api/subscription/v1/usage',
         };
 
         const headers: Record<string, string> = {
             openrouter: `Bearer ${apiKey}`,
             openai: `Bearer ${apiKey}`,
             anthropic: apiKey,
+            nanogpt: `Bearer ${apiKey}`,
         };
 
         let response;

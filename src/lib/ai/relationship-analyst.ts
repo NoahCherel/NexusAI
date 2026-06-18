@@ -74,15 +74,19 @@ export function parseRelationshipDeltas(text: string): RawChange[] {
 }
 
 async function getConfig(): Promise<{ apiKey: string; model: string } | null> {
-    const { apiKeys, activeModel, backgroundModel } = useSettingsStore.getState();
-    const keyConfig = apiKeys.find((k) => k.provider === 'openrouter') || apiKeys[0];
+    const { apiKeys, activeProvider, activeModel, backgroundModel } = useSettingsStore.getState();
+    // Requires an OpenRouter key (background task on the OpenRouter endpoint). Don't fall back to
+    // a non-OpenRouter key (e.g. NanoGPT) — it would be sent to the wrong provider.
+    const keyConfig = apiKeys.find((k) => k.provider === 'openrouter');
     if (!keyConfig) return null;
     try {
         const apiKey = await decryptApiKey(keyConfig.encryptedKey);
         if (!apiKey) return null;
         const model =
             backgroundModel ||
-            (activeModel && activeModel.includes('/') ? activeModel : 'google/gemini-3-flash-preview');
+            (activeProvider === 'openrouter' && activeModel && activeModel.includes('/')
+                ? activeModel
+                : 'google/gemini-3-flash-preview');
         return { apiKey, model };
     } catch {
         return null;

@@ -1,4 +1,6 @@
 // Chat and conversation types
+import type { Provider } from '@/lib/ai/providers';
+
 export interface Message {
     id: string;
     conversationId: string;
@@ -89,7 +91,7 @@ export interface WorldState {
 }
 
 export interface ChatSettings {
-    provider: 'openrouter' | 'openai' | 'anthropic';
+    provider: Provider;
     model: string;
     temperature: number;
     maxTokens: number;

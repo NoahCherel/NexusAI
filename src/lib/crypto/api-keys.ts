@@ -1,6 +1,8 @@
 // API Key encryption using Web Crypto API (AES-GCM)
 // Keys are stored encrypted in localStorage, never sent to our servers
 
+import type { Provider } from '@/lib/ai/providers';
+
 const ENCRYPTION_KEY_NAME = 'nexusai-master-key';
 const DB_NAME = 'nexusai-crypto';
 const STORE_NAME = 'keys';
@@ -86,10 +88,7 @@ export async function decryptApiKey(encryptedKey: string): Promise<string> {
     return new TextDecoder().decode(decrypted);
 }
 
-export async function validateApiKey(
-    provider: 'openrouter' | 'openai' | 'anthropic',
-    apiKey: string
-): Promise<boolean> {
+export async function validateApiKey(provider: Provider, apiKey: string): Promise<boolean> {
     try {
         const response = await fetch('/api/validate', {
             method: 'POST',

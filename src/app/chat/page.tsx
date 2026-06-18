@@ -33,6 +33,7 @@ import {
     ContextPreviewPanel,
 } from '@/components/chat';
 import { SettingsPanel, CharacterPanel } from '@/components/layout';
+import { NanoGPTUsageBadge, NANOGPT_USAGE_REFRESH_EVENT } from '@/components/layout/NanoGPTUsage';
 import { CharacterEditor } from '@/components/character';
 import { useCharacterStore, useSettingsStore, useChatStore, useLorebookStore } from '@/stores';
 import { useNotificationStore } from '@/components/ui/api-notification';
@@ -317,6 +318,15 @@ export default function ChatPage() {
 
             isSummarizingRef.current = true;
             try {
+                // Background summaries run on the OpenRouter endpoint (backgroundAICall forces
+                // provider:'openrouter'), so they need an OpenRouter key — NOT currentApiKey, which
+                // may be a NanoGPT key when NanoGPT is the active RP provider.
+                const orCfg = useSettingsStore
+                    .getState()
+                    .apiKeys.find((k) => k.provider === 'openrouter');
+                const orKey = orCfg ? await decryptApiKey(orCfg.encryptedKey) : null;
+                if (!orKey) return;
+
                 const existingSummaries = await getSummariesByConversation(activeConversationId);
                 const activePersona = personas.find((p) => p.id === activePersonaId);
                 const userName = activePersona?.name || 'You';
@@ -354,7 +364,7 @@ export default function ChatPage() {
                         const result = await backgroundAICall({
                             systemPrompt: SUMMARIZATION_PROMPT_L0,
                             userPrompt: prompt,
-                            apiKey: currentApiKey,
+                            apiKey: orKey,
                             temperature: 0.3,
                             backgroundModel,
                         });
@@ -441,7 +451,7 @@ export default function ChatPage() {
                         const result = await backgroundAICall({
                             systemPrompt: SUMMARIZATION_PROMPT_L1,
                             userPrompt: prompt,
-                            apiKey: currentApiKey,
+                            apiKey: orKey,
                             temperature: 0.3,
                             backgroundModel,
                         });
@@ -486,7 +496,7 @@ export default function ChatPage() {
                         const result = await backgroundAICall({
                             systemPrompt: SUMMARIZATION_PROMPT_L2,
                             userPrompt: prompt,
-                            apiKey: currentApiKey,
+                            apiKey: orKey,
                             temperature: 0.3,
                             backgroundModel,
                         });
@@ -809,6 +819,12 @@ export default function ChatPage() {
                 });
             }
 
+            // NanoGPT quota was just consumed by this generation — ask the usage badge/panel to
+            // refetch (no-op for other providers; the badge only renders for NanoGPT).
+            if (activeProvider === 'nanogpt') {
+                window.dispatchEvent(new Event(NANOGPT_USAGE_REFRESH_EVENT));
+            }
+
             // Final parse
             const finalResult = normalizeCoT(fullContent, activeProvider);
             // Check if we need to preserve thought accumulated vs returned?
@@ -925,16 +941,16 @@ export default function ChatPage() {
                                     activePersona?.name || 'User'
                                 );
 
-                                const openRouterKey = await (async () => {
-                                    const orConfig = apiKeys.find(
-                                        (k) => k.provider === 'openrouter'
-                                    );
-                                    if (!orConfig) return currentApiKey;
-                                    return (
-                                        (await decryptApiKey(orConfig.encryptedKey)) ||
-                                        currentApiKey
-                                    );
-                                })();
+                                // Fact extraction is a background task on the OpenRouter endpoint,
+                                // so it needs an OpenRouter key. Don't fall back to currentApiKey:
+                                // with NanoGPT active, that would send a NanoGPT key to OpenRouter.
+                                const orConfig = apiKeys.find(
+                                    (k) => k.provider === 'openrouter'
+                                );
+                                const openRouterKey = orConfig
+                                    ? await decryptApiKey(orConfig.encryptedKey)
+                                    : null;
+                                if (!openRouterKey) return; // no OpenRouter key → skip extraction
 
                                 const { customFactCategories, backgroundModel: bgModel } =
                                     useSettingsStore.getState();
@@ -946,7 +962,7 @@ export default function ChatPage() {
                                 const factResult = await backgroundAICall({
                                     systemPrompt: factSystemPrompt,
                                     userPrompt: factPrompt,
-                                    apiKey: openRouterKey || currentApiKey || '',
+                                    apiKey: openRouterKey,
                                     temperature: 0.2,
                                     backgroundModel: bgModel,
                                 });
@@ -1855,6 +1871,7 @@ export default function ChatPage() {
                                     <div className="flex items-center gap-1 sm:gap-2 overflow-x-auto no-scrollbar pb-1">
                                         <PersonaSelector />
                                         <ModelSelector />
+                                        <NanoGPTUsageBadge />
 
                                         <Button
                                             variant="ghost"

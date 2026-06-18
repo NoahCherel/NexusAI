@@ -2,9 +2,10 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { APIPreset } from '@/types/preset';
 import { DEFAULT_PRESETS, DEFAULT_SYSTEM_PROMPT_TEMPLATE } from '@/types/preset';
+import type { Provider } from '@/lib/ai/providers';
 
 export interface ApiKeyConfig {
-    provider: 'openrouter' | 'openai' | 'anthropic';
+    provider: Provider;
     encryptedKey: string;
     isValid?: boolean;
 }
@@ -21,7 +22,7 @@ export interface CustomModel {
     id: string;
     name: string;
     modelId: string;
-    provider: 'openrouter' | 'openai' | 'anthropic';
+    provider: Provider;
     isFree: boolean;
 }
 
@@ -139,11 +140,14 @@ export const DEFAULT_MODELS: CustomModel[] = [
 interface SettingsState {
     // API Keys (encrypted)
     apiKeys: ApiKeyConfig[];
-    activeProvider: 'openrouter' | 'openai' | 'anthropic';
+    activeProvider: Provider;
 
     // Model settings
     activeModel: string;
     customModels: CustomModel[];
+    // NanoGPT subscription models, fetched dynamically from the user's subscription
+    // (GET /api/subscription/v1/models). Empty until a valid NanoGPT key is saved.
+    nanogptModels: CustomModel[];
     temperature: number;
     maxTokens: number;
     enableReasoning: boolean;
@@ -185,10 +189,11 @@ interface SettingsState {
     // Actions
     setApiKey: (config: ApiKeyConfig) => void;
     removeApiKey: (provider: string) => void;
-    setActiveProvider: (provider: 'openrouter' | 'openai' | 'anthropic') => void;
+    setActiveProvider: (provider: Provider) => void;
     setActiveModel: (model: string) => void;
     addCustomModel: (model: CustomModel) => void;
     removeCustomModel: (id: string) => void;
+    setNanogptModels: (models: CustomModel[]) => void;
     setTemperature: (temp: number) => void;
     setMaxTokens: (tokens: number) => void;
     setEnableReasoning: (enabled: boolean) => void;
@@ -231,6 +236,7 @@ export const useSettingsStore = create<SettingsState>()(
             activeProvider: 'openrouter',
             activeModel: 'deepseek/deepseek-r1-0528:free',
             customModels: [],
+            nanogptModels: [],
             temperature: 0.8,
             maxTokens: 2048,
             enableReasoning: false,
@@ -278,6 +284,7 @@ export const useSettingsStore = create<SettingsState>()(
                 set((state) => ({
                     customModels: state.customModels.filter((m) => m.id !== id),
                 })),
+            setNanogptModels: (models) => set({ nanogptModels: models }),
 
             setTemperature: (temperature) => set({ temperature }),
             setMaxTokens: (maxTokens) => set({ maxTokens }),
