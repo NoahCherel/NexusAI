@@ -5,9 +5,10 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
-import { Save, User, FileText, MessageSquare, Tags, Sparkles } from 'lucide-react';
+import { Save, User, FileText, MessageSquare, Tags, Sparkles, Folder } from 'lucide-react';
 import { useCharacterStore } from '@/stores/character-store';
 import { populateCanonRoster } from '@/lib/ai/director';
+import { listFolders } from '@/lib/character-folders';
 import type { CharacterCard } from '@/types';
 import {
     Dialog,
@@ -24,12 +25,14 @@ interface CharacterEditorProps {
 }
 
 export function CharacterEditor({ isOpen, onClose, character }: CharacterEditorProps) {
-    const { addCharacter, updateCharacter } = useCharacterStore();
+    const { addCharacter, updateCharacter, characters } = useCharacterStore();
     const isEditing = !!character;
+    const existingFolders = listFolders(characters);
 
     const [formData, setFormData] = useState({
         name: '',
         displayName: '',
+        folder: '',
         description: '',
         personality: '',
         scenario: '',
@@ -49,6 +52,7 @@ export function CharacterEditor({ isOpen, onClose, character }: CharacterEditorP
             setFormData({
                 name: character.name || '',
                 displayName: character.displayName || '',
+                folder: character.folder || '',
                 description: character.description || '',
                 personality: character.personality || '',
                 scenario: character.scenario || '',
@@ -64,6 +68,7 @@ export function CharacterEditor({ isOpen, onClose, character }: CharacterEditorP
             setFormData({
                 name: '',
                 displayName: '',
+                folder: '',
                 description: '',
                 personality: '',
                 scenario: '',
@@ -88,6 +93,7 @@ export function CharacterEditor({ isOpen, onClose, character }: CharacterEditorP
                 .filter((t) => t.length > 0);
 
             const workNow = formData.work.trim();
+            const folderNow = formData.folder.trim() || undefined;
             const workChanged = isEditing ? workNow !== (character?.work || '') : !!workNow;
             let savedCard: CharacterCard;
 
@@ -97,6 +103,7 @@ export function CharacterEditor({ isOpen, onClose, character }: CharacterEditorP
                     ...character,
                     name: formData.name,
                     displayName: formData.displayName,
+                    folder: folderNow,
                     description: formData.description,
                     personality: formData.personality,
                     scenario: formData.scenario,
@@ -110,6 +117,7 @@ export function CharacterEditor({ isOpen, onClose, character }: CharacterEditorP
                 await updateCharacter(character.id, {
                     name: savedCard.name,
                     displayName: savedCard.displayName,
+                    folder: savedCard.folder,
                     description: savedCard.description,
                     personality: savedCard.personality,
                     scenario: savedCard.scenario,
@@ -126,6 +134,7 @@ export function CharacterEditor({ isOpen, onClose, character }: CharacterEditorP
                     id: crypto.randomUUID(),
                     name: formData.name,
                     displayName: formData.displayName,
+                    folder: folderNow,
                     description: formData.description,
                     personality: formData.personality,
                     scenario: formData.scenario,
@@ -216,6 +225,33 @@ export function CharacterEditor({ isOpen, onClose, character }: CharacterEditorP
                                 placeholder="UI label (e.g. 'Goku (Super)') - Only visible to you"
                                 className="bg-background/50"
                             />
+                        </div>
+
+                        {/* Folder */}
+                        <div className="space-y-2">
+                            <Label
+                                htmlFor="folder"
+                                className="flex items-center gap-2 text-sm font-medium"
+                            >
+                                <Folder className="w-4 h-4" /> Dossier (Optional)
+                            </Label>
+                            <Input
+                                id="folder"
+                                list="folder-suggestions"
+                                value={formData.folder}
+                                onChange={(e) =>
+                                    setFormData((prev) => ({ ...prev, folder: e.target.value }))
+                                }
+                                placeholder="Regroupe les variantes (ex. 'Goku') dans un widget ouvrable"
+                                className="bg-background/50"
+                            />
+                            {existingFolders.length > 0 && (
+                                <datalist id="folder-suggestions">
+                                    {existingFolders.map((f) => (
+                                        <option key={f} value={f} />
+                                    ))}
+                                </datalist>
+                            )}
                         </div>
 
                         {/* Description */}

@@ -3,6 +3,7 @@ export interface CharacterCard {
     id: string;
     name: string;
     displayName?: string; // For UI demarcation
+    folder?: string; // Optional group label: cards sharing a folder are bundled into one openable widget
     description: string;
     personality: string;
     scenario: string;

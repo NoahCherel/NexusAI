@@ -3,8 +3,10 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useCharacterStore } from '@/stores';
 import { CharacterCard } from '@/components/character/CharacterCard';
+import { CharacterFolder } from '@/components/character/CharacterFolder';
 import { CharacterEditor } from '@/components/character/CharacterEditor';
 import { CharacterImporter } from '@/components/character/CharacterImporter';
+import { buildCharacterGroups } from '@/lib/character-folders';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -87,21 +89,18 @@ export function CharacterPanel({ trigger }: CharacterPanelProps) {
         return new Date(ts).toLocaleDateString();
     };
 
-    const filteredCharacters = characters
-        .filter(
-            (c) =>
-                c.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                c.displayName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                c.tags?.some((t) => t.toLowerCase().includes(searchTerm.toLowerCase()))
-        )
-        .sort((a, b) => {
-            if (sortOption === 'recent') {
-                const timeA = getLastActivity(a.id);
-                const timeB = getLastActivity(b.id);
-                if (timeA !== timeB) return timeB - timeA;
-            }
-            return a.name.localeCompare(b.name);
-        });
+    const filteredCharacters = characters.filter(
+        (c) =>
+            c.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            c.displayName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            c.folder?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            c.tags?.some((t) => t.toLowerCase().includes(searchTerm.toLowerCase()))
+    );
+
+    const characterGroups = buildCharacterGroups(filteredCharacters, {
+        sort: sortOption,
+        getActivity: getLastActivity,
+    });
 
     const handleEdit = (character: CharacterCardType) => {
         setEditingCharacter(character);
@@ -254,28 +253,43 @@ export function CharacterPanel({ trigger }: CharacterPanelProps) {
 
                     <ScrollArea className="flex-1 w-full">
                         <div className="px-4 pb-6 space-y-2 w-full max-w-full">
-                            {filteredCharacters.length === 0 ? (
+                            {characterGroups.length === 0 ? (
                                 <div className="text-center py-12 px-4">
                                     <p className="text-muted-foreground text-sm">
                                         No characters found
                                     </p>
                                 </div>
                             ) : (
-                                filteredCharacters.map((char) => (
+                                characterGroups.map((group) => (
                                     <div
-                                        key={char.id}
+                                        key={group.key}
                                         className="w-full max-w-full overflow-hidden"
                                     >
-                                        <CharacterCard
-                                            character={char}
-                                            isActive={char.id === activeCharacterId}
-                                            onClick={() => handleSelectCharacter(char.id)}
-                                            onEdit={() => handleEdit(char)}
-                                            onDelete={() => removeCharacter(char.id)}
-                                            onExport={() => handleExport(char)}
-                                            isCollapsed={false}
-                                            lastPlayed={formatLastPlayed(char.id)}
-                                        />
+                                        {group.type === 'folder' ? (
+                                            <CharacterFolder
+                                                name={group.name}
+                                                members={group.members}
+                                                activeCharacterId={activeCharacterId}
+                                                onSelect={handleSelectCharacter}
+                                                onEdit={handleEdit}
+                                                onDelete={removeCharacter}
+                                                onExport={handleExport}
+                                                getLastPlayed={formatLastPlayed}
+                                            />
+                                        ) : (
+                                            <CharacterCard
+                                                character={group.character}
+                                                isActive={group.character.id === activeCharacterId}
+                                                onClick={() =>
+                                                    handleSelectCharacter(group.character.id)
+                                                }
+                                                onEdit={() => handleEdit(group.character)}
+                                                onDelete={() => removeCharacter(group.character.id)}
+                                                onExport={() => handleExport(group.character)}
+                                                isCollapsed={false}
+                                                lastPlayed={formatLastPlayed(group.character.id)}
+                                            />
+                                        )}
                                     </div>
                                 ))
                             )}

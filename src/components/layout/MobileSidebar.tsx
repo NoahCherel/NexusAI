@@ -8,8 +8,10 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
 import { CharacterCard } from '@/components/character/CharacterCard';
+import { CharacterFolder } from '@/components/character/CharacterFolder';
 import { CharacterImporter } from '@/components/character/CharacterImporter';
 import { CharacterEditor } from '@/components/character/CharacterEditor';
+import { buildCharacterGroups } from '@/lib/character-folders';
 import { useCharacterStore, useChatStore } from '@/stores';
 import { exportToJson } from '@/lib/export-utils';
 import type { CharacterCard as CharacterCardType } from '@/types';
@@ -48,6 +50,8 @@ export function MobileSidebar({ onCharacterSelect, onSettingsClick }: MobileSide
     const [editingCharacter, setEditingCharacter] = useState<CharacterCardType | null>(null);
     const { characters, activeCharacterId, setActiveCharacter, removeCharacter } =
         useCharacterStore();
+
+    const characterGroups = buildCharacterGroups(characters, { sort: 'name' });
 
     const handleCharacterClick = (characterId: string) => {
         setActiveCharacter(characterId);
@@ -191,20 +195,38 @@ export function MobileSidebar({ onCharacterSelect, onSettingsClick }: MobileSide
                                         </p>
                                     </motion.div>
                                 ) : (
-                                    characters.map((character, index) => (
+                                    characterGroups.map((group, index) => (
                                         <motion.div
-                                            key={character.id}
+                                            key={group.key}
                                             variants={itemVariants}
                                             custom={index + 1}
                                         >
-                                            <CharacterCard
-                                                character={character}
-                                                isActive={activeCharacterId === character.id}
-                                                onClick={() => handleCharacterClick(character.id)}
-                                                onEdit={() => handleEdit(character)}
-                                                onDelete={() => removeCharacter(character.id)}
-                                                onExport={() => handleExport(character)}
-                                            />
+                                            {group.type === 'folder' ? (
+                                                <CharacterFolder
+                                                    name={group.name}
+                                                    members={group.members}
+                                                    activeCharacterId={activeCharacterId}
+                                                    onSelect={handleCharacterClick}
+                                                    onEdit={handleEdit}
+                                                    onDelete={removeCharacter}
+                                                    onExport={handleExport}
+                                                />
+                                            ) : (
+                                                <CharacterCard
+                                                    character={group.character}
+                                                    isActive={
+                                                        activeCharacterId === group.character.id
+                                                    }
+                                                    onClick={() =>
+                                                        handleCharacterClick(group.character.id)
+                                                    }
+                                                    onEdit={() => handleEdit(group.character)}
+                                                    onDelete={() =>
+                                                        removeCharacter(group.character.id)
+                                                    }
+                                                    onExport={() => handleExport(group.character)}
+                                                />
+                                            )}
                                         </motion.div>
                                     ))
                                 )}

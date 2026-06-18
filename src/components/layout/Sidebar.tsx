@@ -3,7 +3,9 @@
 import { useState } from 'react';
 import { useCharacterStore } from '@/stores';
 import { CharacterCard } from '@/components/character/CharacterCard';
+import { CharacterFolder } from '@/components/character/CharacterFolder';
 import { CharacterEditor } from '@/components/character/CharacterEditor';
+import { buildCharacterGroups } from '@/lib/character-folders';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -33,8 +35,11 @@ export function Sidebar({ isCollapsed, onToggle }: SidebarProps) {
         (c) =>
             c.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
             c.displayName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            c.folder?.toLowerCase().includes(searchTerm.toLowerCase()) ||
             c.tags?.some((t) => t.toLowerCase().includes(searchTerm.toLowerCase()))
     );
+
+    const characterGroups = buildCharacterGroups(filteredCharacters, { sort: 'name' });
 
     const handleEdit = (character: CharacterCardType) => {
         setEditingCharacter(character);
@@ -202,7 +207,7 @@ export function Sidebar({ isCollapsed, onToggle }: SidebarProps) {
                                 isCollapsed ? 'px-2 pt-4' : 'px-4 pt-4'
                             )}
                         >
-                            {filteredCharacters.length === 0
+                            {characterGroups.length === 0
                                 ? !isCollapsed && (
                                       <div className="text-center py-12 px-4">
                                           <p className="text-muted-foreground text-sm">
@@ -210,20 +215,35 @@ export function Sidebar({ isCollapsed, onToggle }: SidebarProps) {
                                           </p>
                                       </div>
                                   )
-                                : filteredCharacters.map((char) => (
+                                : characterGroups.map((group) => (
                                       <div
-                                          key={char.id}
+                                          key={group.key}
                                           className="w-full max-w-full overflow-hidden"
                                       >
-                                          <CharacterCard
-                                              character={char}
-                                              isActive={char.id === activeCharacterId}
-                                              onClick={() => setActiveCharacterId(char.id)}
-                                              onEdit={() => handleEdit(char)}
-                                              onDelete={() => removeCharacter(char.id)}
-                                              onExport={() => handleExport(char)}
-                                              isCollapsed={isCollapsed}
-                                          />
+                                          {group.type === 'folder' ? (
+                                              <CharacterFolder
+                                                  name={group.name}
+                                                  members={group.members}
+                                                  activeCharacterId={activeCharacterId}
+                                                  onSelect={setActiveCharacterId}
+                                                  onEdit={handleEdit}
+                                                  onDelete={removeCharacter}
+                                                  onExport={handleExport}
+                                                  isCollapsed={isCollapsed}
+                                              />
+                                          ) : (
+                                              <CharacterCard
+                                                  character={group.character}
+                                                  isActive={group.character.id === activeCharacterId}
+                                                  onClick={() =>
+                                                      setActiveCharacterId(group.character.id)
+                                                  }
+                                                  onEdit={() => handleEdit(group.character)}
+                                                  onDelete={() => removeCharacter(group.character.id)}
+                                                  onExport={() => handleExport(group.character)}
+                                                  isCollapsed={isCollapsed}
+                                              />
+                                          )}
                                       </div>
                                   ))}
                         </div>
