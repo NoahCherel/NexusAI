@@ -51,6 +51,100 @@ const serializeMessages = (messages: Message[]): Message[] =>
         createdAt: new Date(m.createdAt),
     }));
 
+const getMessageTime = (message: Message) => new Date(message.createdAt).getTime();
+
+const sortByTimeline = (a: Message, b: Message) => {
+    const orderDelta = a.messageOrder - b.messageOrder;
+    if (orderDelta !== 0) return orderDelta;
+    return getMessageTime(a) - getMessageTime(b);
+};
+
+const getDescendantIds = (messages: Message[], parentId: string): Set<string> => {
+    const descendants = new Set<string>();
+    const queue = messages.filter((m) => m.parentId === parentId).map((m) => m.id);
+
+    while (queue.length > 0) {
+        const id = queue.shift()!;
+        if (descendants.has(id)) continue;
+        descendants.add(id);
+        queue.push(...messages.filter((m) => m.parentId === id).map((m) => m.id));
+    }
+
+    return descendants;
+};
+
+const getMessagePath = (messages: Message[], leafId: string): Message[] => {
+    const byId = new Map(messages.map((m) => [m.id, m]));
+    const path: Message[] = [];
+    let current = byId.get(leafId);
+
+    while (current) {
+        path.push(current);
+        current = current.parentId ? byId.get(current.parentId) : undefined;
+    }
+
+    return path.reverse();
+};
+
+const chooseBranchLeaf = (messages: Message[]): Message | undefined => {
+    if (messages.length === 0) return undefined;
+
+    const activeMessages = messages.filter((m) => m.isActiveBranch);
+    const candidates = activeMessages.length > 0 ? activeMessages : messages;
+    const parentIds = new Set(
+        candidates
+            .map((m) => m.parentId)
+            .filter((parentId): parentId is string => Boolean(parentId))
+    );
+    const leaves = candidates.filter((m) => !parentIds.has(m.id));
+    const leafCandidates = leaves.length > 0 ? leaves : candidates;
+
+    return [...leafCandidates].sort((a, b) => {
+        const timeDelta = getMessageTime(a) - getMessageTime(b);
+        if (timeDelta !== 0) return timeDelta;
+        return a.messageOrder - b.messageOrder;
+    })[leafCandidates.length - 1];
+};
+
+const getBranchPathThroughMessage = (messages: Message[], targetMessage: Message): Message[] => {
+    const ancestorPath = getMessagePath(messages, targetMessage.id);
+    const subtreeIds = getDescendantIds(messages, targetMessage.id);
+    const subtreeMessages = messages.filter((m) => subtreeIds.has(m.id));
+
+    if (subtreeMessages.length === 0) return ancestorPath;
+
+    const leaf = chooseBranchLeaf(subtreeMessages);
+    if (!leaf) return ancestorPath;
+
+    const descendantPath = getMessagePath(messages, leaf.id).filter(
+        (m) => m.id !== targetMessage.id && subtreeIds.has(m.id)
+    );
+
+    return [...ancestorPath, ...descendantPath];
+};
+
+export const getActiveBranchPath = (messages: Message[]): Message[] => {
+    const leaf = chooseBranchLeaf(messages);
+    if (!leaf) return [];
+
+    const path = getMessagePath(messages, leaf.id);
+    const root = path[0];
+    if (!root) return path;
+
+    const pathIds = new Set(path.map((m) => m.id));
+    const legacyFlatPrefix = messages
+        .filter(
+            (m) =>
+                m.isActiveBranch &&
+                !pathIds.has(m.id) &&
+                !m.parentId &&
+                m.messageOrder < root.messageOrder
+        )
+        .sort(sortByTimeline);
+
+    return [...legacyFlatPrefix, ...path];
+};
+
 export const useChatStore = create<ChatState>()((set, get) => ({
     conversations: [],
     activeConversationId: null,
@@ -169,6 +263,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
         // Calculate messageOrder and regenerationIndex
         const state = get();
         const messages = state.messages;
+        let changedExistingMessages: Message[] = [];
 
         // Calculate messageOrder by finding parent chain depth
         let messageOrder = 1;
@@ -191,17 +286,36 @@ export const useChatStore = create<ChatState>()((set, get) => ({
         };
 
         set((state) => {
-            // Deactivate siblings (same parent) to ensure only the new message is active in this branch
+            const messagesInConversation = state.messages.filter(
+                (m) => m.conversationId === enrichedMessage.conversationId
+            );
+            const siblingIds = messagesInConversation
+                .filter((m) => m.parentId === enrichedMessage.parentId)
+                .map((m) => m.id);
+            const idsToDeactivate = new Set<string>(siblingIds);
+            siblingIds.forEach((siblingId) => {
+                getDescendantIds(messagesInConversation, siblingId).forEach((id) =>
+                    idsToDeactivate.add(id)
+                );
+            });
+
+            // Selecting a new sibling invalidates the old sibling branches below that parent.
             const newMessages = state.messages.map((m) => {
-                if (m.parentId === enrichedMessage.parentId && m.isActiveBranch) {
+                if (idsToDeactivate.has(m.id) && m.isActiveBranch) {
                     return { ...m, isActiveBranch: false };
                 }
                 return m;
             });
+
+            changedExistingMessages = newMessages.filter((newMsg, idx) => {
+                const oldMsg = state.messages[idx];
+                return oldMsg && oldMsg.isActiveBranch !== newMsg.isActiveBranch;
+            });
+
             return { messages: [...newMessages, enrichedMessage] };
         });
 
-        // Persist message
+        changedExistingMessages.forEach((msg) => saveMessage(msg).catch(console.error));
         saveMessage(enrichedMessage).catch(console.error);
     },
 
@@ -287,10 +401,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
 
         if (messages.length === 0) return [];
 
-        // Filter by isActiveBranch manually
-        return messages
-            .filter((m) => m.isActiveBranch)
-            .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+        return getActiveBranchPath(messages);
     },
 
     setStreaming: (isStreaming) => set({ isStreaming }),
@@ -517,31 +628,18 @@ export const useChatStore = create<ChatState>()((set, get) => ({
             if (targetIndex < 0 || targetIndex >= siblings.length) return state;
 
             const targetMsg = siblings[targetIndex];
-
-            // Helper: Get all descendants of a message (recursive)
-            const getDescendants = (parentId: string): string[] => {
-                const children = state.messages.filter((m) => m.parentId === parentId);
-                const result: string[] = children.map((c) => c.id);
-                children.forEach((c) => {
-                    result.push(...getDescendants(c.id));
-                });
-                return result;
-            };
-
-            // Get all descendants of current message (to deactivate)
-            const currentDescendants = getDescendants(currentMsg.id);
-
-            // Get all descendants of target message (to activate)
-            const targetDescendants = getDescendants(targetMsg.id);
+            const messagesInConversation = state.messages.filter(
+                (m) => m.conversationId === currentMsg.conversationId
+            );
+            const targetPathIds = new Set(
+                getBranchPathThroughMessage(messagesInConversation, targetMsg).map((m) => m.id)
+            );
 
             const newMessages = state.messages.map((m) => {
-                // Deactivate current message and all its descendants
-                if (m.id === currentMessageId || currentDescendants.includes(m.id)) {
-                    return { ...m, isActiveBranch: false };
-                }
-                // Activate target message and all its descendants
-                if (m.id === targetMsg.id || targetDescendants.includes(m.id)) {
-                    return { ...m, isActiveBranch: true };
+                if (m.conversationId !== currentMsg.conversationId) return m;
+                const shouldBeActive = targetPathIds.has(m.id);
+                if (m.isActiveBranch !== shouldBeActive) {
+                    return { ...m, isActiveBranch: shouldBeActive };
                 }
                 return m;
             });
@@ -586,39 +684,13 @@ export const useChatStore = create<ChatState>()((set, get) => ({
                 iterator = state.messages.find((m) => m.id === iterator?.parentId);
             }
 
-            // Helper: Get all descendants of a message (recursive)
-            const getDescendants = (parentId: string): string[] => {
-                const children = state.messages.filter((m) => m.parentId === parentId);
-                const result: string[] = children.map((c) => c.id);
-                children.forEach((c) => {
-                    result.push(...getDescendants(c.id));
-                });
-                return result;
-            };
-
-            // Build set of all descendants of messages NOT on path
-            const toDeactivate = new Set<string>();
-            state.messages.forEach((m) => {
-                // If this message is not on the path but has a sibling that IS
-                // Then this message and ALL its descendants should be deactivated
-                const siblingOnPath = state.messages.find(
-                    (sib) => sib.parentId === m.parentId && pathIds.has(sib.id)
-                );
-
-                if (siblingOnPath && !pathIds.has(m.id)) {
-                    toDeactivate.add(m.id);
-                    getDescendants(m.id).forEach((descId) => toDeactivate.add(descId));
-                }
-            });
-
             // 2. Update branch flags
             const newMessages = state.messages.map((m) => {
-                // Activate path messages
-                if (pathIds.has(m.id)) return { ...m, isActiveBranch: true };
-
-                // Deactivate non-path messages and their descendants
-                if (toDeactivate.has(m.id)) return { ...m, isActiveBranch: false };
-
+                if (m.conversationId !== targetMessage.conversationId) return m;
+                const shouldBeActive = pathIds.has(m.id);
+                if (m.isActiveBranch !== shouldBeActive) {
+                    return { ...m, isActiveBranch: shouldBeActive };
+                }
                 return m;
             });
 

@@ -9,7 +9,7 @@
 import { useSettingsStore } from '@/stores/settings-store';
 import { decryptApiKey } from '@/lib/crypto';
 
-export type UsageUnit = 'tokens' | 'unités';
+export type UsageUnit = 'tokens' | 'images' | 'unités';
 
 export interface NanoGPTUsageWindow {
     key: string; // raw window key, e.g. 'weekly' | 'monthly' | 'daily'
@@ -30,16 +30,28 @@ export interface NanoGPTUsage {
     raw: unknown;
 }
 
-const WINDOW_PRIORITY = ['weekly', 'week', 'monthly', 'month', 'daily', 'day'] as const;
+interface WindowDef {
+    key: string;
+    label: string; // time-window descriptor only; the unit noun is shown separately
+    unit?: UsageUnit; // explicit unit; omitted defs infer it
+}
 
-const WINDOW_LABELS: Record<string, string> = {
-    weekly: 'cette semaine',
-    week: 'cette semaine',
-    monthly: 'ce mois',
-    month: 'ce mois',
-    daily: "aujourd'hui",
-    day: "aujourd'hui",
-};
+// Real NanoGPT subscription usage keys (confirmed against the live endpoint, June 2026):
+//   limits/values are `weeklyInputTokens`, `dailyInputTokens` (may be null), `dailyImages`.
+// The generic weekly/monthly/daily names are kept as a fallback for the older doc-style schema.
+// Order = priority: the headline token quota (weekly) is the badge's primary window.
+const WINDOW_DEFS: WindowDef[] = [
+    { key: 'weeklyInputTokens', label: 'semaine', unit: 'tokens' },
+    { key: 'dailyInputTokens', label: 'jour', unit: 'tokens' },
+    { key: 'monthlyInputTokens', label: 'mois', unit: 'tokens' },
+    { key: 'dailyImages', label: 'images / jour', unit: 'images' },
+    { key: 'weekly', label: 'semaine' },
+    { key: 'week', label: 'semaine' },
+    { key: 'monthly', label: 'mois' },
+    { key: 'month', label: 'mois' },
+    { key: 'daily', label: 'jour' },
+    { key: 'day', label: 'jour' },
+];
 
 function num(v: unknown): number | null {
     return typeof v === 'number' && Number.isFinite(v) ? v : null;
@@ -49,14 +61,23 @@ function asRecord(v: unknown): Record<string, unknown> | null {
     return v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : null;
 }
 
+function inferUnit(w: Record<string, unknown>, limit: number | null): UsageUnit {
+    const hint = JSON.stringify(w).toLowerCase();
+    return hint.includes('token') || (limit ?? 0) >= 1_000_000 ? 'tokens' : 'unités';
+}
+
 /** Build a normalized window from a raw window object + the top-level limits map. */
-function buildWindow(key: string, raw: unknown, limits: Record<string, unknown> | null): NanoGPTUsageWindow | null {
+function buildWindow(
+    def: WindowDef,
+    raw: unknown,
+    limits: Record<string, unknown> | null
+): NanoGPTUsageWindow | null {
     const w = asRecord(raw);
-    if (!w) return null;
+    if (!w) return null; // null/absent windows (e.g. dailyInputTokens:null) are skipped
 
     let used = num(w.used);
     let remaining = num(w.remaining);
-    let limit = num(w.limit) ?? (limits ? num(limits[key]) : null);
+    let limit = num(w.limit) ?? (limits ? num(limits[def.key]) : null);
     let percentUsed = num(w.percentUsed);
 
     if (limit == null && used != null && remaining != null) limit = used + remaining;
@@ -64,21 +85,15 @@ function buildWindow(key: string, raw: unknown, limits: Record<string, unknown> 
     if (used == null && limit != null && remaining != null) used = limit - remaining;
     if (percentUsed == null && limit && used != null) percentUsed = limit > 0 ? used / limit : 0;
 
-    // Unit inference: token-based if a field/key hints "token" or the magnitude is large
-    // (the weekly Pro quota is tens of millions, far above any per-day operation count).
-    const hint = JSON.stringify(w).toLowerCase();
-    const unit: UsageUnit =
-        hint.includes('token') || (limit ?? 0) >= 1_000_000 ? 'tokens' : 'unités';
-
     return {
-        key,
-        label: WINDOW_LABELS[key] ?? key,
+        key: def.key,
+        label: def.label,
         used,
         remaining,
         limit,
         percentUsed,
         resetAt: num(w.resetAt) ?? num(w.reset) ?? num(w.resetsAt) ?? null,
-        unit,
+        unit: def.unit ?? inferUnit(w, limit),
     };
 }
 
@@ -92,12 +107,12 @@ export function pickUsageWindow(json: unknown): { primary: NanoGPTUsageWindow | 
 
     // Detect windows by the known keys, in priority order, deduping.
     const seen = new Set<string>();
-    for (const key of WINDOW_PRIORITY) {
-        if (seen.has(key)) continue;
-        const built = buildWindow(key, root[key], limits);
+    for (const def of WINDOW_DEFS) {
+        if (seen.has(def.key)) continue;
+        const built = buildWindow(def, root[def.key], limits);
         if (built) {
             windows.push(built);
-            seen.add(key);
+            seen.add(def.key);
         }
     }
 
@@ -165,13 +180,43 @@ export function invalidateNanoGPTUsage(): void {
     cache = null;
 }
 
-/** Format a count for display, compacting large token counts (e.g. 58_200_000 → "58,2 M"). */
+/**
+ * Compact count for the tight header badge. Keeps 2 significant decimals in the millions so the
+ * value visibly tracks consumption (59_968_354 → "59,97 M", not a misleading "60,0 M").
+ */
 export function formatUsageCount(n: number | null, unit: UsageUnit): string {
     if (n == null) return '—';
     if (unit === 'tokens') {
-        if (Math.abs(n) >= 1_000_000) return `${(n / 1_000_000).toFixed(1).replace('.', ',')} M`;
-        if (Math.abs(n) >= 1_000) return `${Math.round(n / 1_000)} k`;
+        if (Math.abs(n) >= 1_000_000) return `${(n / 1_000_000).toFixed(2).replace('.', ',')} M`;
+        if (Math.abs(n) >= 1_000) return `${(n / 1_000).toFixed(1).replace('.', ',')} k`;
         return `${n}`;
     }
     return n.toLocaleString('fr-FR');
+}
+
+/** Exact, grouped count for the detail panel (e.g. 59_968_354 → "59 968 354"). No rounding. */
+export function formatUsageExact(n: number | null): string {
+    if (n == null) return '—';
+    return n.toLocaleString('fr-FR');
+}
+
+/**
+ * Percent-used string with adaptive precision so small-but-nonzero usage is visible
+ * (0.000527 → "0,05 %", not "0 %"). Prefers the API's percentUsed; falls back to used/limit.
+ */
+export function formatUsagePercent(
+    used: number | null,
+    limit: number | null,
+    percentUsed: number | null
+): string {
+    const p =
+        percentUsed != null
+            ? percentUsed * 100
+            : limit && used != null
+              ? (used / limit) * 100
+              : 0;
+    if (!Number.isFinite(p) || p <= 0) return '0 %';
+    if (p < 0.01) return '< 0,01 %';
+    const decimals = p < 1 ? 2 : p < 10 ? 1 : 0;
+    return `${p.toFixed(decimals).replace('.', ',')} %`;
 }

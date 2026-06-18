@@ -7,6 +7,8 @@ import { useSettingsStore } from '@/stores';
 import {
     fetchNanoGPTUsage,
     formatUsageCount,
+    formatUsageExact,
+    formatUsagePercent,
     type NanoGPTUsage,
     type NanoGPTUsageWindow,
 } from '@/lib/ai/nanogpt-usage';
@@ -37,9 +39,10 @@ function useNanoGPTUsage() {
     return { usage, loading, refresh: () => load(true) };
 }
 
+// Float percentage (0..100) for the bar width — not rounded, so the bar tracks usage faithfully.
 function usedPercent(w: NanoGPTUsageWindow): number {
-    if (w.percentUsed != null) return Math.min(100, Math.max(0, Math.round(w.percentUsed * 100)));
-    if (w.limit && w.used != null) return Math.min(100, Math.round((w.used / w.limit) * 100));
+    if (w.percentUsed != null) return Math.min(100, Math.max(0, w.percentUsed * 100));
+    if (w.limit && w.used != null) return Math.min(100, Math.max(0, (w.used / w.limit) * 100));
     return 0;
 }
 
@@ -77,7 +80,7 @@ export function NanoGPTUsageBadge() {
     return (
         <div
             className="flex items-center gap-1.5 h-8 px-2 rounded-md text-xs font-medium text-muted-foreground shrink-0 border border-border/40 bg-muted/20"
-            title={`NanoGPT — ${w.label}${w.limit != null ? ` : ${formatUsageCount(w.used, w.unit)} / ${formatUsageCount(w.limit, w.unit)} ${w.unit}` : ''}`}
+            title={`NanoGPT — ${w.label} : ${formatUsageExact(w.used)} / ${formatUsageExact(w.limit)} ${w.unit} utilisés (${formatUsagePercent(w.used, w.limit, w.percentUsed)})`}
         >
             <Gauge
                 className={`w-3.5 h-3.5 shrink-0 ${usedPct > 95 ? 'text-red-500' : usedPct > 80 ? 'text-yellow-500' : 'text-green-500'}`}
@@ -136,13 +139,9 @@ export function NanoGPTUsagePanel() {
                             <span className="capitalize text-muted-foreground">{w.label}</span>
                             <span className="font-mono">
                                 <span className="text-foreground">
-                                    {formatUsageCount(w.remaining, w.unit)}
+                                    {formatUsageExact(w.remaining)}
                                 </span>
-                                <span className="text-muted-foreground">
-                                    {' '}
-                                    restants{w.limit != null && ` / ${formatUsageCount(w.limit, w.unit)}`}{' '}
-                                    {w.unit}
-                                </span>
+                                <span className="text-muted-foreground"> {w.unit} restants</span>
                             </span>
                         </div>
                         <div className="h-2 bg-white/5 rounded-full overflow-hidden">
@@ -152,8 +151,12 @@ export function NanoGPTUsagePanel() {
                             />
                         </div>
                         <div className="flex items-center justify-between text-[10px] text-muted-foreground">
-                            <span>{usedPct}% utilisé</span>
-                            {reset && <span>réinitialisation : {reset}</span>}
+                            <span className="font-mono">
+                                {formatUsageExact(w.used)}
+                                {w.limit != null && ` / ${formatUsageExact(w.limit)}`} {w.unit} ·{' '}
+                                {formatUsagePercent(w.used, w.limit, w.percentUsed)} utilisé
+                            </span>
+                            {reset && <span>réinit. : {reset}</span>}
                         </div>
                     </div>
                 );

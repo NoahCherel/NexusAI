@@ -6,29 +6,43 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { pickUsageWindow, normalizeUsage, formatUsageCount } from '@/lib/ai/nanogpt-usage';
+import {
+    pickUsageWindow,
+    normalizeUsage,
+    formatUsageCount,
+    formatUsageExact,
+    formatUsagePercent,
+} from '@/lib/ai/nanogpt-usage';
 
 describe('pickUsageWindow', () => {
-    it('prefers a weekly token window and infers the tokens unit', () => {
+    it('parses the real live schema (weeklyInputTokens + dailyImages, dailyInputTokens:null)', () => {
+        // Captured verbatim from GET /api/subscription/v1/usage on a live Pro key (June 2026).
         const json = {
             active: true,
-            limits: { weekly: 60_000_000 },
-            weekly: {
-                used: 1_800_000,
-                remaining: 58_200_000,
-                percentUsed: 0.03,
-                resetAt: 1_750_000_000_000,
+            limits: { weeklyInputTokens: 60_000_000, dailyInputTokens: null, dailyImages: 100 },
+            dailyImages: { used: 0, remaining: 100, percentUsed: 0, resetAt: 1_781_827_200_000 },
+            dailyInputTokens: null,
+            weeklyInputTokens: {
+                used: 31_646,
+                remaining: 59_968_354,
+                percentUsed: 0.0005274333,
+                resetAt: 1_782_086_400_000,
             },
             state: 'active',
         };
         const { primary, windows } = pickUsageWindow(json);
-        expect(primary?.key).toBe('weekly');
-        expect(primary?.label).toBe('cette semaine');
+        // Primary window = the headline weekly token quota.
+        expect(primary?.key).toBe('weeklyInputTokens');
+        expect(primary?.label).toBe('semaine');
         expect(primary?.unit).toBe('tokens');
-        expect(primary?.remaining).toBe(58_200_000);
-        expect(primary?.limit).toBe(60_000_000);
-        expect(primary?.resetAt).toBe(1_750_000_000_000);
-        expect(windows).toHaveLength(1);
+        expect(primary?.remaining).toBe(59_968_354);
+        expect(primary?.limit).toBe(60_000_000); // sourced from limits.weeklyInputTokens
+        expect(primary?.resetAt).toBe(1_782_086_400_000);
+        // dailyInputTokens is null → skipped; dailyImages kept as a separate images window.
+        expect(windows.map((w) => w.key)).toEqual(['weeklyInputTokens', 'dailyImages']);
+        const images = windows.find((w) => w.key === 'dailyImages');
+        expect(images?.unit).toBe('images');
+        expect(images?.remaining).toBe(100);
     });
 
     it('falls back to monthly (over daily) for the stale operations schema', () => {
@@ -89,15 +103,44 @@ describe('normalizeUsage', () => {
     });
 });
 
-describe('formatUsageCount', () => {
-    it('compacts large token counts', () => {
-        expect(formatUsageCount(58_200_000, 'tokens')).toBe('58,2 M');
-        expect(formatUsageCount(4995, 'tokens')).toBe('5 k');
+describe('formatUsageCount (compact badge)', () => {
+    it('keeps 2 decimals in the millions so it tracks consumption', () => {
+        // 59_968_354 must NOT collapse to "60,0 M" — that hid real usage in the first version.
+        expect(formatUsageCount(59_968_354, 'tokens')).toBe('59,97 M');
+        expect(formatUsageCount(58_200_000, 'tokens')).toBe('58,20 M');
+        expect(formatUsageCount(4995, 'tokens')).toBe('5,0 k');
         expect(formatUsageCount(420, 'tokens')).toBe('420');
     });
 
     it('renders a dash for null', () => {
         expect(formatUsageCount(null, 'tokens')).toBe('—');
         expect(formatUsageCount(null, 'unités')).toBe('—');
+    });
+});
+
+describe('formatUsageExact', () => {
+    it('groups the full integer with no rounding', () => {
+        // fr-FR groups with a narrow no-break space (U+202F); assert via digit-only comparison.
+        expect(formatUsageExact(59_968_354).replace(/\D/g, '')).toBe('59968354');
+        expect(formatUsageExact(0)).toBe('0');
+        expect(formatUsageExact(null)).toBe('—');
+    });
+});
+
+describe('formatUsagePercent', () => {
+    it('shows small-but-nonzero usage instead of a flat 0%', () => {
+        expect(formatUsagePercent(31_646, 60_000_000, 0.0005274333)).toBe('0,05 %');
+    });
+
+    it('adapts decimals to magnitude and floors tiny values', () => {
+        expect(formatUsagePercent(null, null, 0)).toBe('0 %');
+        expect(formatUsagePercent(1, 1_000_000, null)).toBe('< 0,01 %');
+        expect(formatUsagePercent(null, null, 0.053)).toBe('5,3 %'); // 1–10% → 1 decimal
+        expect(formatUsagePercent(null, null, 0.123)).toBe('12 %'); // ≥10% → integer
+        expect(formatUsagePercent(null, null, 0.5)).toBe('50 %');
+    });
+
+    it('derives the percent from used/limit when percentUsed is absent', () => {
+        expect(formatUsagePercent(30, 100, null)).toBe('30 %');
     });
 });

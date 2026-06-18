@@ -14,11 +14,12 @@ import {
     AlertTriangle,
     ArrowRight,
 } from 'lucide-react';
-import { useState, useRef, useEffect, memo } from 'react';
+import { useState, useRef, useEffect, memo, useMemo } from 'react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { ActionTooltip } from '@/components/ui/action-tooltip';
 import { ChatFormatter } from '@/components/chat/ChatFormatter';
+import { normalizeCoT } from '@/lib/ai/cot-middleware';
 import {
     Dialog,
     DialogContent,
@@ -105,6 +106,13 @@ export const ChatBubble = memo(function ChatBubble({
     const [showPreview, setShowPreview] = useState(false);
     const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
     const isUser = role === 'user';
+    const normalized = useMemo(
+        () => (isUser ? { content, thought: null } : normalizeCoT(content)),
+        [content, isUser]
+    );
+    const displayContent = normalized.content;
+    const displayThought = [thought, normalized.thought].filter(Boolean).join('\n\n');
+    const previewContent = isUser ? editContent : normalizeCoT(editContent).content;
 
     const handleStartEdit = () => {
         setEditContent(content);
@@ -154,7 +162,7 @@ export const ChatBubble = memo(function ChatBubble({
                 <div className="flex items-center gap-2 px-1">
                     {name && <span className="text-sm font-bold text-foreground/90">{name}</span>}
                     {/* Thought Button */}
-                    {thought && showThoughts && (
+                    {displayThought && showThoughts && (
                         <button
                             aria-label="Toggle thoughts"
                             onClick={() => setIsThoughtOpen(!isThoughtOpen)}
@@ -170,7 +178,7 @@ export const ChatBubble = memo(function ChatBubble({
                 </div>
 
                 <AnimatePresence>
-                    {isThoughtOpen && thought && showThoughts && (
+                    {isThoughtOpen && displayThought && showThoughts && (
                         <motion.div
                             initial={{ height: 0, opacity: 0 }}
                             animate={{ height: 'auto', opacity: 1 }}
@@ -179,7 +187,7 @@ export const ChatBubble = memo(function ChatBubble({
                             className="overflow-hidden w-full"
                         >
                             <div className="text-sm bg-muted/30 border-l-2 border-primary/30 pl-3 py-1 italic text-muted-foreground mb-2">
-                                {thought}
+                                {displayThought}
                             </div>
                         </motion.div>
                     )}
@@ -204,7 +212,10 @@ export const ChatBubble = memo(function ChatBubble({
                                     Preview
                                 </span>
                                 <div className="text-sm text-foreground/90 bg-white/5 p-3 rounded-lg border border-white/5">
-                                    <ChatFormatter content={editContent || '...'} isUser={isUser} />
+                                    <ChatFormatter
+                                        content={previewContent || '...'}
+                                        isUser={isUser}
+                                    />
                                 </div>
                             </div>
                         )}
@@ -246,14 +257,14 @@ export const ChatBubble = memo(function ChatBubble({
                             isUser ? 'text-foreground' : 'text-foreground/90 font-medium'
                         }`}
                     >
-                        {!content && !isUser ? (
+                        {!displayContent && !isUser ? (
                             <div className="flex gap-1 py-1">
                                 <span className="w-1 h-1 bg-foreground/40 rounded-full" />
                                 <span className="w-1 h-1 bg-foreground/40 rounded-full opacity-60" />
                                 <span className="w-1 h-1 bg-foreground/40 rounded-full opacity-30" />
                             </div>
                         ) : (
-                            <ChatFormatter content={content} isUser={isUser} />
+                            <ChatFormatter content={displayContent} isUser={isUser} />
                         )}
                     </motion.div>
                 )}

@@ -23,6 +23,8 @@ const THOUGHT_PATTERNS: Record<string, RegExp> = {
     anthropic: /<thinking>([\s\S]*?)<\/thinking>/gi,
     openai: /<reasoning>([\s\S]*?)<\/reasoning>/gi,
     generic: /<(?:think(?:ing)?|reasoning)>([\s\S]*?)<\/(?:think(?:ing)?|reasoning)>/gi,
+    llmThinkingDiv:
+        /<div\b(?=[^>]*\bclass=(["'])(?=[^"']*\bllm\b)(?=[^"']*\bthinking\b)[^"']*\1)[^>]*>([\s\S]*?)<\/div>/gi,
 };
 
 /**
@@ -33,7 +35,7 @@ export function normalizeCoT(response: string, provider?: string): CoTResult {
         return { thought: null, content: '', hasThoughts: false };
     }
 
-    let thought: string | null = null;
+    const thoughts: string[] = [];
     let content = response;
 
     // Try provider-specific pattern first
@@ -43,21 +45,27 @@ export function normalizeCoT(response: string, provider?: string): CoTResult {
 
         if (matches.length > 0) {
             // Collect all thought blocks
-            thought = matches.map((m) => m[1].trim()).join('\n\n');
+            thoughts.push(...matches.map((m) => m[1].trim()));
             // Remove thought tags from content
             content = response.replace(pattern, '').trim();
         }
     }
 
-    // If no provider-specific match, try generic pattern
-    if (!thought) {
-        const genericPattern = THOUGHT_PATTERNS.generic;
-        const matches = [...response.matchAll(genericPattern)];
+    // Always run generic cleanup too: providers can mix formats, and old messages may
+    // already contain hidden LLM thinking divs in the saved content.
+    const genericPatterns = [THOUGHT_PATTERNS.generic, THOUGHT_PATTERNS.llmThinkingDiv];
+    const genericMatches = genericPatterns.flatMap((pattern) =>
+        [...content.matchAll(pattern)].map((match) => ({
+            pattern,
+            text: match[2] ?? match[1] ?? '',
+        }))
+    );
 
-        if (matches.length > 0) {
-            thought = matches.map((m) => m[1].trim()).join('\n\n');
-            content = response.replace(genericPattern, '').trim();
-        }
+    if (genericMatches.length > 0) {
+        thoughts.push(...genericMatches.map((m) => m.text.trim()));
+        content = genericPatterns
+            .reduce((current, pattern) => current.replace(pattern, ''), content)
+            .trim();
     }
 
     // Clean up content - remove extra whitespace (preserve single newlines/spaces)
@@ -66,6 +74,8 @@ export function normalizeCoT(response: string, provider?: string): CoTResult {
     // Only trim if specifically requested or if it's the full final response?
     // For safety in streaming, we should NOT trim here.
     // Let the calling code trim if it wants the final result trimmed.
+
+    const thought = thoughts.filter(Boolean).join('\n\n') || null;
 
     return {
         thought,
