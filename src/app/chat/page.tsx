@@ -692,6 +692,7 @@ export default function ChatPage() {
                     ragBudget,
                     {
                         worldState,
+                        recentMessages: history as CAMessage[],
                         activeBranchMessageIds: activeBranchIds,
                         minConfidence: minRAGConfidence,
                     }
@@ -1221,6 +1222,7 @@ export default function ChatPage() {
             const { minRAGConfidence: previewMinConf } = useSettingsStore.getState();
             ragSections = await retrieveRelevantContext(lastMsg, activeConversationId, ragBudget, {
                 worldState,
+                recentMessages: simulatedMessages as CAMessage[],
                 activeBranchMessageIds: simulatedMessages.map((m) => m.id),
                 minConfidence: previewMinConf,
             });

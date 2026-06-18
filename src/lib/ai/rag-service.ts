@@ -6,19 +6,23 @@
  * with importance scoring and temporal decay.
  */
 
-import type { RAGResult, WorldFact, MemorySummary, VectorEntry, ContextSection } from '@/types/rag';
+import type { WorldFact, VectorEntry, ContextSection } from '@/types/rag';
 import type { Message, WorldState } from '@/types/chat';
 import type { LorebookEntry } from '@/types/character';
 import {
     getFactsByConversation,
-    getSummariesByConversation,
     getVectorsByConversation,
     updateFact,
     saveVector,
 } from '@/lib/db';
-import { embedText, cosineSimilarity, findTopK } from './embedding-service';
+import { embedText, cosineSimilarity } from './embedding-service';
 import { countTokens } from '@/lib/tokenizer';
 import { getBestContextSummary } from './hierarchical-summarizer';
+import {
+    buildRetrievalQueryText,
+    extractSearchTerms,
+    lexicalOverlapScore,
+} from './rag-ranking';
 
 // ============================================
 // Temporal Decay
@@ -93,6 +97,7 @@ export async function retrieveRelevantContext(
         topKChunks?: number;
         includeSummary?: boolean;
         worldState?: WorldState;
+        recentMessages?: Message[]; // Recent active-branch messages for richer low-cost retrieval
         activeBranchMessageIds?: string[]; // Active branch message IDs for filtering
         minConfidence?: number; // Minimum confidence threshold (0–1)
     } = {}
@@ -101,6 +106,8 @@ export async function retrieveRelevantContext(
         topKFacts = 10,
         topKChunks = 5,
         includeSummary = true,
+        worldState,
+        recentMessages,
         activeBranchMessageIds,
         minConfidence = 0,
     } = options;
@@ -108,8 +115,14 @@ export async function retrieveRelevantContext(
     const sections: ContextSection[] = [];
     let remainingBudget = tokenBudget;
 
-    // 1. Get query embedding
-    const queryEmbedding = await embedText(queryText);
+    // 1. Build a richer retrieval query, then embed it once. This is cheaper than
+    // upgrading providers and gives vector search better scene anchors.
+    const retrievalQueryText = buildRetrievalQueryText(queryText, {
+        recentMessages,
+        worldState,
+    });
+    const queryTerms = extractSearchTerms(retrievalQueryText);
+    const queryEmbedding = await embedText(retrievalQueryText || queryText);
 
     // 2. Hierarchical summary (always included if available — very compact)
     if (includeSummary) {
@@ -146,7 +159,7 @@ export async function retrieveRelevantContext(
     }
 
     if (activeFacts.length > 0 && remainingBudget > 50) {
-        const factResults = retrieveRelevantFacts(queryEmbedding, activeFacts, topKFacts);
+        const factResults = retrieveRelevantFacts(queryEmbedding, queryTerms, activeFacts, topKFacts);
 
         if (factResults.length > 0) {
             // Update access stats for retrieved facts
@@ -203,7 +216,12 @@ export async function retrieveRelevantContext(
     }
 
     if (filteredChunks.length > 0 && remainingBudget > 50) {
-        const chunkResults = findTopK(queryEmbedding, filteredChunks, topKChunks, 0.2);
+        const chunkResults = retrieveRelevantChunks(
+            queryEmbedding,
+            queryTerms,
+            filteredChunks,
+            topKChunks
+        );
 
         if (chunkResults.length > 0) {
             const avgChunkConfidence =
@@ -237,6 +255,7 @@ export async function retrieveRelevantContext(
  */
 function retrieveRelevantFacts(
     queryEmbedding: number[],
+    queryTerms: Set<string>,
     facts: WorldFact[],
     topK: number
 ): Array<{ item: WorldFact; score: number }> {
@@ -244,18 +263,58 @@ function retrieveRelevantFacts(
         .filter((f) => f.embedding && f.embedding.length > 0)
         .map((f) => {
             const sim = cosineSimilarity(queryEmbedding, f.embedding!);
+            const lexical = lexicalOverlapScore(queryTerms, f.fact, [
+                f.category,
+                ...f.relatedEntities,
+            ]);
             const score = combinedScore(
                 sim,
                 f.importance,
                 f.timestamp,
                 f.lastAccessedAt,
                 f.accessCount
-            );
+            ) + lexical * 0.25;
             return { item: f, score };
         })
         .sort((a, b) => b.score - a.score)
         .slice(0, topK)
-        .filter((r) => r.score > 0.25);
+        .filter((r) => {
+            const sim = cosineSimilarity(queryEmbedding, r.item.embedding!);
+            const lexical = lexicalOverlapScore(queryTerms, r.item.fact, [
+                r.item.category,
+                ...r.item.relatedEntities,
+            ]);
+
+            return (
+                r.score > 0.25 &&
+                (sim >= 0.18 || lexical >= 0.2 || (r.item.importance >= 8 && sim >= 0.12))
+            );
+        });
+}
+
+function retrieveRelevantChunks(
+    queryEmbedding: number[],
+    queryTerms: Set<string>,
+    chunks: VectorEntry[],
+    topK: number
+): Array<{ item: VectorEntry; score: number }> {
+    return chunks
+        .filter((chunk) => chunk.embedding && chunk.embedding.length > 0)
+        .map((chunk) => {
+            const sim = cosineSimilarity(queryEmbedding, chunk.embedding);
+            const lexical = lexicalOverlapScore(queryTerms, chunk.text, [
+                ...chunk.metadata.characters,
+                chunk.metadata.location,
+                ...chunk.metadata.tags,
+            ]);
+            const importance = Math.max(0, Math.min(1, chunk.metadata.importance / 10));
+            const score = sim * 0.7 + lexical * 0.2 + importance * 0.1;
+            return { item: chunk, score, sim, lexical };
+        })
+        .filter((result) => result.score >= 0.2 && (result.sim >= 0.18 || result.lexical >= 0.2))
+        .sort((a, b) => b.score - a.score)
+        .slice(0, topK)
+        .map(({ item, score }) => ({ item, score }));
 }
 
 // ============================================

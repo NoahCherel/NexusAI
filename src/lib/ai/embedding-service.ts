@@ -17,6 +17,9 @@ let loadError: Error | null = null;
 // Simple in-memory cache for recently computed embeddings
 const embeddingCache = new Map<string, number[]>();
 const MAX_CACHE_SIZE = 500;
+const EMBEDDING_MODEL_ID = 'Xenova/all-MiniLM-L6-v2';
+const EMBEDDING_MODEL_REVISION = 'local-minilm-v2';
+const MAX_MODEL_INPUT_CHARS = 2000;
 
 /**
  * Initialize the embedder (lazy load).
@@ -37,7 +40,7 @@ export async function initEmbedder(): Promise<boolean> {
     try {
         const transformers = await import('@xenova/transformers');
         pipeline = transformers.pipeline;
-        embedderInstance = await pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2', {
+        embedderInstance = await pipeline('feature-extraction', EMBEDDING_MODEL_ID, {
             // Use quantized model for faster loading (~6MB vs ~23MB)
             quantized: true,
         });
@@ -61,7 +64,8 @@ export async function embedText(text: string): Promise<number[]> {
     }
 
     // Check cache
-    const cacheKey = text.slice(0, 200); // Use first 200 chars as key
+    const normalizedText = normalizeEmbeddingInput(text);
+    const cacheKey = getEmbeddingCacheKey(normalizedText);
     if (embeddingCache.has(cacheKey)) {
         return embeddingCache.get(cacheKey)!;
     }
@@ -72,8 +76,9 @@ export async function embedText(text: string): Promise<number[]> {
 
     if (modelReady && embedderInstance) {
         try {
-            // Truncate input to ~128 tokens (~512 chars) for MiniLM
-            const truncated = text.slice(0, 512);
+            // MiniLM is a short-text encoder. Keep enough scene detail for retrieval while
+            // avoiding very large browser-side tokenization work.
+            const truncated = normalizedText.slice(0, MAX_MODEL_INPUT_CHARS);
             const output = await embedderInstance(truncated, {
                 pooling: 'mean',
                 normalize: true,
@@ -81,10 +86,10 @@ export async function embedText(text: string): Promise<number[]> {
             embedding = Array.from(output.data as Float32Array);
         } catch (error) {
             console.error('[Embedder] ML embedding failed, using fallback:', error);
-            embedding = tfidfEmbed(text);
+            embedding = tfidfEmbed(normalizedText);
         }
     } else {
-        embedding = tfidfEmbed(text);
+        embedding = tfidfEmbed(normalizedText);
     }
 
     // Cache the result
@@ -95,6 +100,18 @@ export async function embedText(text: string): Promise<number[]> {
     embeddingCache.set(cacheKey, embedding);
 
     return embedding;
+}
+
+function normalizeEmbeddingInput(text: string): string {
+    return text.replace(/\s+/g, ' ').trim();
+}
+
+function getEmbeddingCacheKey(text: string): string {
+    return `${EMBEDDING_MODEL_REVISION}:${text.length}:${simpleHash(text)}`;
+}
+
+export function getEmbeddingModelSignature(): string {
+    return EMBEDDING_MODEL_REVISION;
 }
 
 /**
