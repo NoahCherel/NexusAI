@@ -39,12 +39,8 @@ import { useCharacterStore, useSettingsStore, useChatStore, useLorebookStore } f
 import { useNotificationStore } from '@/components/ui/api-notification';
 import { decryptApiKey } from '@/lib/crypto';
 import { parseStreamingChunk, normalizeCoT } from '@/lib/ai/cot-middleware';
-import {
-    buildSystemPrompt,
-    getActiveLorebookEntries,
-    buildRAGEnhancedPayload,
-} from '@/lib/ai/context-builder';
-import { buildEngineSystemBlock, buildEnginePostHistory } from '@/lib/ai/rp-engine';
+import { getActiveLorebookEntries } from '@/lib/ai/context-builder';
+import { buildConversationPayload } from '@/lib/ai/payload-builder';
 import { LorebookEditor } from '@/components/lorebook';
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import {
@@ -69,7 +65,6 @@ import {
     buildContextPreview,
 } from '@/lib/ai/rag-service';
 import { embedText } from '@/lib/ai/embedding-service';
-import { countTokens } from '@/lib/tokenizer';
 import {
     shouldCreateL0Summary,
     shouldCreateL1Summary,
@@ -194,8 +189,15 @@ export default function ChatPage() {
         immersiveMode,
         getActivePreset,
         getActiveEngine,
+        initializeDefaultPresets,
     } = useSettingsStore();
     const character = getActiveCharacter();
+
+    // Seed/reconcile built-in presets on load so new built-ins (e.g. "Immersive RP")
+    // appear without needing to open the Presets tab first.
+    useEffect(() => {
+        initializeDefaultPresets();
+    }, [initializeDefaultPresets]);
 
     // Get current world state from active conversation
     const currentConversation = conversations.find((c) => c.id === activeConversationId);
@@ -563,25 +565,7 @@ export default function ChatPage() {
 
         const activePreset = getActivePreset();
         const activePersona = personas.find((p) => p.id === activePersonaId);
-
-        // RP Engine (behavioral layer). Generation gets the full engine; impersonation
-        // uses its own inverted contract below, so it gets no engine block here.
         const activeEngine = getActiveEngine();
-        const isImp = options.isImpersonation === true;
-        const engineSystemBlock =
-            activeEngine && !isImp
-                ? buildEngineSystemBlock(activeEngine, { userName: activePersona?.name })
-                : undefined;
-        const enginePostHistory =
-            activeEngine && !isImp
-                ? buildEnginePostHistory(activeEngine, 'generate', {
-                      userName: activePersona?.name,
-                  })
-                : undefined;
-        const effectivePostHistory =
-            [enginePostHistory, activePreset?.postHistoryInstructions]
-                .filter(Boolean)
-                .join('\n\n') || undefined;
 
         // 1. Calculate Active Lorebook Entries (hybrid: keyword + semantic)
         const useLorebooks = activePreset?.useLorebooks ?? true;
@@ -656,8 +640,8 @@ export default function ChatPage() {
                 : [];
         }
 
-        // 2. Build Enhanced System Prompt
-        // Combine conversation-scoped notes with character-level memory
+        // 2-4. Assemble the payload (system prompt + RP engine + contract + RAG budgeting)
+        // in one place, shared with preview and impersonation.
         const currentConv = conversations.find((c) => c.id === activeConversationId);
         const combinedMemory = [...(currentConv?.notes || []), ...(character.longTermMemory || [])];
         // Canon Codex (immutable identity) + Arc + momentum + relationships, over RP memory.
@@ -667,81 +651,52 @@ export default function ChatPage() {
             history,
             activePersona?.name || 'the player'
         );
-        let systemPrompt = buildSystemPrompt(character, worldState, activeEntries, {
-            template: activePreset?.systemPromptTemplate,
-            preHistory: activePreset?.preHistoryInstructions,
-            postHistory: activePreset?.postHistoryInstructions,
-            userPersona: activePersona,
-            longTermMemory: combinedMemory,
-            recentMessages: history,
-            excludePostHistory: true,
-            storyGuidance: currentConv?.storyGuidance,
-            scratchpad: currentConv?.scratchpad,
-            engineSystemBlock,
-            ...canonOptions,
-        });
+
+        const { enableRAGRetrieval, enableFactExtraction, minRAGConfidence } =
+            useSettingsStore.getState();
+        const maxContextTokens = activePreset?.maxContextTokens ?? 16384;
+        const maxOutputTokens = activePreset?.maxOutputTokens ?? 2048;
+
+        const { messagesPayload, includedMessageCount, droppedMessageCount, tokenBreakdown } =
+            await buildConversationPayload({
+                mode: options.isImpersonation ? 'impersonate' : 'generate',
+                character,
+                worldState,
+                activeEntries,
+                history: history as CAMessage[],
+                recentMessages: history as CAMessage[],
+                activePreset,
+                activeEngine,
+                userPersona: activePersona,
+                longTermMemory: combinedMemory,
+                storyGuidance: currentConv?.storyGuidance,
+                scratchpad: currentConv?.scratchpad,
+                canonOptions,
+                assistantPrefill: options.prefill,
+                activeProvider,
+                maxContextTokens,
+                maxOutputTokens,
+                retrieveRag:
+                    enableRAGRetrieval && activeConversationId
+                        ? (ragBudget) =>
+                              retrieveRelevantContext(
+                                  lastUserMsg,
+                                  activeConversationId,
+                                  ragBudget,
+                                  {
+                                      worldState,
+                                      recentMessages: history as CAMessage[],
+                                      activeBranchMessageIds: messages.map((m) => m.id),
+                                      minConfidence: minRAGConfidence,
+                                  }
+                              )
+                        : undefined,
+            });
 
         // The momentum nudge is one-shot: it has now been injected, so clear it.
         if (currentConv?.momentumNudge && activeConversationId) {
             useChatStore.getState().setMomentumNudge(activeConversationId, undefined);
         }
-
-        // Handle Impersonation System Prompt Override
-        if (options.isImpersonation) {
-            const impersonationInstruction =
-                activePreset?.impersonationPrompt ||
-                'Write the next message for {{user}}. Stay in character as {{user}}. Do not respond as the AI/Assistant.';
-
-            const resolvedImpersonation = impersonationInstruction.replace(
-                /{{user}}/gi,
-                activePersona?.name || 'User'
-            );
-
-            systemPrompt += `\n\n[SYSTEM: ${resolvedImpersonation}]`;
-        }
-
-        // 3. RAG: Retrieve relevant context
-        const { enableRAGRetrieval, enableFactExtraction, minRAGConfidence } =
-            useSettingsStore.getState();
-        const maxContextTokens = activePreset?.maxContextTokens ?? 16384;
-        const maxOutputTokens = activePreset?.maxOutputTokens ?? 2048;
-        const systemTokens = countTokens(systemPrompt);
-        const proportionalBudget = Math.floor(
-            (maxContextTokens - systemTokens - maxOutputTokens) * 0.25
-        );
-        const minimumBudget = Math.floor(maxContextTokens * 0.15);
-        const ragBudget = Math.max(proportionalBudget, minimumBudget);
-
-        let ragSections: ContextSection[] = [];
-        if (enableRAGRetrieval && activeConversationId && ragBudget > 50) {
-            try {
-                // Pass active branch message IDs for branch-aware filtering
-                const activeBranchIds = messages.map((m) => m.id);
-                ragSections = await retrieveRelevantContext(
-                    lastUserMsg,
-                    activeConversationId,
-                    ragBudget,
-                    {
-                        worldState,
-                        recentMessages: history as CAMessage[],
-                        activeBranchMessageIds: activeBranchIds,
-                        minConfidence: minRAGConfidence,
-                    }
-                );
-            } catch (err) {
-                console.warn('[RAG] Context retrieval failed:', err);
-            }
-        }
-
-        // 4. Build RAG-enhanced payload with proper token budgeting
-        const { messagesPayload, includedMessageCount, droppedMessageCount, tokenBreakdown } =
-            buildRAGEnhancedPayload(systemPrompt, ragSections, history as CAMessage[], {
-                maxContextTokens,
-                maxOutputTokens,
-                postHistoryInstructions: effectivePostHistory,
-                assistantPrefill: options.prefill,
-                activeProvider,
-            });
 
         if (droppedMessageCount > 0) {
             console.log(
@@ -1178,22 +1133,7 @@ export default function ChatPage() {
         const activePreset = getActivePreset();
         const activePersona = personas.find((p) => p.id === activePersonaId);
 
-        // RP Engine (preview simulates a normal generation → 'generate' contract).
         const activeEngine = getActiveEngine();
-        const engineSystemBlock = activeEngine
-            ? buildEngineSystemBlock(activeEngine, { userName: activePersona?.name })
-            : undefined;
-        const effectivePostHistory =
-            [
-                activeEngine
-                    ? buildEnginePostHistory(activeEngine, 'generate', {
-                          userName: activePersona?.name,
-                      })
-                    : undefined,
-                activePreset?.postHistoryInstructions,
-            ]
-                .filter(Boolean)
-                .join('\n\n') || undefined;
 
         // Simulate what would be sent, including any draft message in the input
         const draftText = draftMessageRef.current?.trim() || '';
@@ -1246,53 +1186,43 @@ export default function ChatPage() {
             simulatedMessages,
             activePersona?.name || 'the player'
         );
-        const systemPrompt = buildSystemPrompt(character, worldState, activeEntries, {
-            template: activePreset?.systemPromptTemplate,
-            preHistory: activePreset?.preHistoryInstructions,
-            postHistory: activePreset?.postHistoryInstructions,
-            userPersona: activePersona,
-            longTermMemory: combinedMem,
-            recentMessages: simulatedMessages,
-            excludePostHistory: true,
-            storyGuidance: conv?.storyGuidance,
-            scratchpad: conv?.scratchpad,
-            engineSystemBlock,
-            ...previewCanonOptions,
-        });
-
         const maxContextTokens = activePreset?.maxContextTokens ?? 16384;
         const maxOutputTokens = activePreset?.maxOutputTokens ?? 2048;
-
-        // Get RAG sections
-        const systemTokens = countTokens(systemPrompt);
-        const proportionalBudget = Math.floor(
-            (maxContextTokens - systemTokens - maxOutputTokens) * 0.25
-        );
-        const minimumBudget = Math.floor(maxContextTokens * 0.15);
-        const ragBudget = Math.max(proportionalBudget, minimumBudget);
+        const { minRAGConfidence: previewMinConf } = useSettingsStore.getState();
         const lastMsg = simulatedMessages[simulatedMessages.length - 1]?.content || '';
 
-        let ragSections: ContextSection[] = [];
-        try {
-            const { minRAGConfidence: previewMinConf } = useSettingsStore.getState();
-            ragSections = await retrieveRelevantContext(lastMsg, activeConversationId, ragBudget, {
-                worldState,
-                recentMessages: simulatedMessages as CAMessage[],
-                activeBranchMessageIds: simulatedMessages.map((m) => m.id),
-                minConfidence: previewMinConf,
-            });
-        } catch (err) {
-            console.warn('[Preview] RAG retrieval failed:', err);
-        }
-
-        // Build payload
-        const { messagesPayload, includedMessageCount, droppedMessageCount, tokenBreakdown } =
-            buildRAGEnhancedPayload(systemPrompt, ragSections, simulatedMessages as CAMessage[], {
-                maxContextTokens,
-                maxOutputTokens,
-                postHistoryInstructions: effectivePostHistory,
-                activeProvider,
-            });
+        const {
+            systemPrompt,
+            effectivePostHistory,
+            ragSections,
+            messagesPayload,
+            includedMessageCount,
+            droppedMessageCount,
+        } = await buildConversationPayload({
+            mode: 'preview',
+            character,
+            worldState,
+            activeEntries,
+            history: simulatedMessages as CAMessage[],
+            recentMessages: simulatedMessages as CAMessage[],
+            activePreset,
+            activeEngine,
+            userPersona: activePersona,
+            longTermMemory: combinedMem,
+            storyGuidance: conv?.storyGuidance,
+            scratchpad: conv?.scratchpad,
+            canonOptions: previewCanonOptions,
+            activeProvider,
+            maxContextTokens,
+            maxOutputTokens,
+            retrieveRag: (ragBudget) =>
+                retrieveRelevantContext(lastMsg, activeConversationId, ragBudget, {
+                    worldState,
+                    recentMessages: simulatedMessages as CAMessage[],
+                    activeBranchMessageIds: simulatedMessages.map((m) => m.id),
+                    minConfidence: previewMinConf,
+                }),
+        });
 
         // Build preview sections
         // Pass original systemPrompt (without RAG) so preview shows sections separately without duplication
@@ -1361,41 +1291,29 @@ export default function ChatPage() {
 
             const impConv = conversations.find((c) => c.id === activeConversationId);
             const impMem = [...(impConv?.notes || []), ...(character.longTermMemory || [])];
-            let systemPrompt = buildSystemPrompt(character, worldState, activeEntries, {
-                template: activePreset?.systemPromptTemplate,
-                preHistory: activePreset?.preHistoryInstructions,
-                postHistory: activePreset?.postHistoryInstructions,
+
+            // Unified assembly with the INVERTED contract (mode: 'impersonate'): the builder
+            // strips "Do not speak for <user>" and asserts the write-only-the-player contract
+            // after history. Kept context-light (no canon/RAG) as before. The system prompt is
+            // already messages[0] — we do NOT also pass top-level systemPrompt/userPersona,
+            // which previously made the route inject the system prompt twice.
+            const { messagesPayload } = await buildConversationPayload({
+                mode: 'impersonate',
+                character,
+                worldState,
+                activeEntries,
+                history: messages,
+                recentMessages: messages,
+                activePreset,
+                activeEngine: getActiveEngine(),
                 userPersona: activePersona,
                 longTermMemory: impMem,
-                recentMessages: messages, // Pass current messages for context
-                excludePostHistory: true,
                 storyGuidance: impConv?.storyGuidance,
                 scratchpad: impConv?.scratchpad,
+                activeProvider,
+                maxContextTokens: activePreset?.maxContextTokens ?? 16384,
+                maxOutputTokens: activePreset?.maxOutputTokens ?? 2048,
             });
-
-            // Impersonation Override
-            const impersonationInstruction =
-                activePreset?.impersonationPrompt ||
-                'Write the next message for {{user}}. Stay in character as {{user}}. Do not respond as the AI/Assistant.';
-            const resolvedImpersonation = impersonationInstruction.replace(
-                /{{user}}/gi,
-                activePersona?.name || 'User'
-            );
-            systemPrompt += `\n\n[SYSTEM: ${resolvedImpersonation}]`;
-
-            // Prepare messages
-            const messagesPayload = messages.map(({ role, content }) => ({ role, content }));
-
-            // Inject Post-History as a separate System Message
-            if (activePreset?.postHistoryInstructions) {
-                messagesPayload.push({
-                    role: 'system',
-                    content: activePreset.postHistoryInstructions,
-                });
-            }
-
-            // Insert System Message at the beginning
-            messagesPayload.unshift({ role: 'system', content: systemPrompt });
 
             // 2. API Call
             const response = await fetch('/api/chat', {
@@ -1415,8 +1333,6 @@ export default function ChatPage() {
                     repetitionPenalty: activePreset?.repetitionPenalty,
                     minP: activePreset?.minP,
                     stoppingStrings: activePreset?.stoppingStrings,
-                    systemPrompt,
-                    userPersona: activePersona,
                     enableReasoning: activePreset?.enableReasoning ?? enableReasoning,
                     useFlexTier: activePreset?.useFlexTier ?? useFlexTier,
                 }),

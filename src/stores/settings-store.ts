@@ -343,7 +343,13 @@ export const useSettingsStore = create<SettingsState>()(
 
             updatePreset: (id, updates) =>
                 set((state) => ({
-                    presets: state.presets.map((p) => (p.id === id ? { ...p, ...updates } : p)),
+                    presets: state.presets.map((p) =>
+                        p.id === id
+                            ? // Editing a built-in marks it userModified so the reconciler
+                              // never silently overwrites the user's changes on a version bump.
+                              { ...p, ...updates, userModified: p.builtinKey ? true : p.userModified }
+                            : p
+                    ),
                 })),
 
             deletePreset: (id) =>
@@ -379,6 +385,14 @@ export const useSettingsStore = create<SettingsState>()(
                         };
                     }
 
+                    // Map the original seeded ids to stable keys (the order BEFORE "Immersive
+                    // RP" was inserted), so a renamed preset still gets matched by id and isn't
+                    // duplicated. Name is only a fallback for installs that lost the ids.
+                    const idToKey: Record<string, string> = {
+                        'default-0': 'balanced',
+                        'default-1': 'creative',
+                        'default-2': 'precise',
+                    };
                     const nameToKey: Record<string, string> = {
                         Balanced: 'balanced',
                         Creative: 'creative',
@@ -388,9 +402,12 @@ export const useSettingsStore = create<SettingsState>()(
 
                     let changed = false;
                     const reconciled = state.presets.map((p) => {
-                        if (!p.builtinKey && p.isDefault && nameToKey[p.name]) {
-                            changed = true;
-                            return { ...p, builtinKey: nameToKey[p.name], builtinVersion: 1 };
+                        if (!p.builtinKey && p.isDefault) {
+                            const key = idToKey[p.id] || nameToKey[p.name];
+                            if (key) {
+                                changed = true;
+                                return { ...p, builtinKey: key, builtinVersion: 1 };
+                            }
                         }
                         return p;
                     });

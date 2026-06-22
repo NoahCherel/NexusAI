@@ -278,6 +278,8 @@ export function buildSystemPrompt(
         // discipline, ban list). Injected before the scene-specific blocks. Already resolved
         // (no {{user}} left). Omitted for impersonation, which uses its own contract.
         engineSystemBlock?: string;
+        // When true, the trailing "emit a <scratchpad>" instruction is omitted (impersonation).
+        suppressScratchpadInstruction?: boolean;
     } = {}
 ): string {
     const promptTemplate = options.template || DEFAULT_SYSTEM_PROMPT_TEMPLATE;
@@ -393,7 +395,11 @@ export function buildSystemPrompt(
         prompt += `\n\n<scratchpad>\n${options.scratchpad}\n</scratchpad>`;
     }
 
-    prompt += `\n\nAt the end of your response, you must output a <scratchpad> block containing your working memory, thoughts, and plans for the next turn. This will be provided to you in the next turn.`;
+    // Impersonation returns the generated text straight into the user's message, so it must
+    // NOT be asked to emit a <scratchpad> (it would leak into the player's line).
+    if (!options.suppressScratchpadInstruction) {
+        prompt += `\n\nAt the end of your response, you must output a <scratchpad> block containing your working memory, thoughts, and plans for the next turn. This will be provided to you in the next turn.`;
+    }
 
     // Add reinforcement if not already present and custom template not used (heuristic)
     if (!prompt.includes('Stay in character') && !options.template) {
