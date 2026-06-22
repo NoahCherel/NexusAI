@@ -44,6 +44,7 @@ import {
     getActiveLorebookEntries,
     buildRAGEnhancedPayload,
 } from '@/lib/ai/context-builder';
+import { buildEngineSystemBlock, buildEnginePostHistory } from '@/lib/ai/rp-engine';
 import { LorebookEditor } from '@/components/lorebook';
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import {
@@ -192,6 +193,7 @@ export default function ChatPage() {
         useFlexTier,
         immersiveMode,
         getActivePreset,
+        getActiveEngine,
     } = useSettingsStore();
     const character = getActiveCharacter();
 
@@ -562,6 +564,25 @@ export default function ChatPage() {
         const activePreset = getActivePreset();
         const activePersona = personas.find((p) => p.id === activePersonaId);
 
+        // RP Engine (behavioral layer). Generation gets the full engine; impersonation
+        // uses its own inverted contract below, so it gets no engine block here.
+        const activeEngine = getActiveEngine();
+        const isImp = options.isImpersonation === true;
+        const engineSystemBlock =
+            activeEngine && !isImp
+                ? buildEngineSystemBlock(activeEngine, { userName: activePersona?.name })
+                : undefined;
+        const enginePostHistory =
+            activeEngine && !isImp
+                ? buildEnginePostHistory(activeEngine, 'generate', {
+                      userName: activePersona?.name,
+                  })
+                : undefined;
+        const effectivePostHistory =
+            [enginePostHistory, activePreset?.postHistoryInstructions]
+                .filter(Boolean)
+                .join('\n\n') || undefined;
+
         // 1. Calculate Active Lorebook Entries (hybrid: keyword + semantic)
         const useLorebooks = activePreset?.useLorebooks ?? true;
         const lorebookTokenBudget = activePreset?.lorebookTokenBudget ?? 2000;
@@ -656,6 +677,7 @@ export default function ChatPage() {
             excludePostHistory: true,
             storyGuidance: currentConv?.storyGuidance,
             scratchpad: currentConv?.scratchpad,
+            engineSystemBlock,
             ...canonOptions,
         });
 
@@ -716,7 +738,7 @@ export default function ChatPage() {
             buildRAGEnhancedPayload(systemPrompt, ragSections, history as CAMessage[], {
                 maxContextTokens,
                 maxOutputTokens,
-                postHistoryInstructions: activePreset?.postHistoryInstructions,
+                postHistoryInstructions: effectivePostHistory,
                 assistantPrefill: options.prefill,
                 activeProvider,
             });
@@ -1156,6 +1178,23 @@ export default function ChatPage() {
         const activePreset = getActivePreset();
         const activePersona = personas.find((p) => p.id === activePersonaId);
 
+        // RP Engine (preview simulates a normal generation → 'generate' contract).
+        const activeEngine = getActiveEngine();
+        const engineSystemBlock = activeEngine
+            ? buildEngineSystemBlock(activeEngine, { userName: activePersona?.name })
+            : undefined;
+        const effectivePostHistory =
+            [
+                activeEngine
+                    ? buildEnginePostHistory(activeEngine, 'generate', {
+                          userName: activePersona?.name,
+                      })
+                    : undefined,
+                activePreset?.postHistoryInstructions,
+            ]
+                .filter(Boolean)
+                .join('\n\n') || undefined;
+
         // Simulate what would be sent, including any draft message in the input
         const draftText = draftMessageRef.current?.trim() || '';
         const simulatedMessages = draftText
@@ -1217,6 +1256,7 @@ export default function ChatPage() {
             excludePostHistory: true,
             storyGuidance: conv?.storyGuidance,
             scratchpad: conv?.scratchpad,
+            engineSystemBlock,
             ...previewCanonOptions,
         });
 
@@ -1250,7 +1290,7 @@ export default function ChatPage() {
             buildRAGEnhancedPayload(systemPrompt, ragSections, simulatedMessages as CAMessage[], {
                 maxContextTokens,
                 maxOutputTokens,
-                postHistoryInstructions: activePreset?.postHistoryInstructions,
+                postHistoryInstructions: effectivePostHistory,
                 activeProvider,
             });
 
@@ -1260,7 +1300,7 @@ export default function ChatPage() {
             systemPrompt,
             ragSections,
             messagesPayload.filter((m) => m.role !== 'system'),
-            activePreset?.postHistoryInstructions,
+            effectivePostHistory,
             maxContextTokens,
             maxOutputTokens,
             activeEntries,

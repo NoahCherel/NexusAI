@@ -274,6 +274,10 @@ export function buildSystemPrompt(
         momentumNudge?: string;
         // Approx token budget for all injected canon dossiers (default 1200).
         canonTokenBudget?: number;
+        // RP Engine behavioral rules (player autonomy, knowledge limits, dialogue/narration
+        // discipline, ban list). Injected before the scene-specific blocks. Already resolved
+        // (no {{user}} left). Omitted for impersonation, which uses its own contract.
+        engineSystemBlock?: string;
     } = {}
 ): string {
     const promptTemplate = options.template || DEFAULT_SYSTEM_PROMPT_TEMPLATE;
@@ -312,6 +316,13 @@ export function buildSystemPrompt(
         const desc = options.userPersona.description || bio;
         const personaText = desc !== bio ? `${bio} ${desc}` : bio;
         prompt += `\n\nAbout ${options.userPersona.name || 'User'}: ${personaText}`;
+    }
+
+    // ===== RP Engine: how to write this scene (player autonomy, knowledge limits,
+    // dialogue & narration discipline, anti-cliché). Before the scene-specific blocks so
+    // canon/relationships/director stay closest to the live history. =====
+    if (options.engineSystemBlock) {
+        prompt += `\n\n${options.engineSystemBlock}`;
     }
 
     if (options.storyGuidance) {

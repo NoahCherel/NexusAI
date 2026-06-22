@@ -30,6 +30,7 @@ import { encryptApiKey, decryptApiKey, validateApiKey } from '@/lib/crypto';
 import { type Provider } from '@/lib/ai';
 import { NanoGPTUsagePanel } from '@/components/layout/NanoGPTUsage';
 import { PresetEditor } from '@/components/settings/PresetEditor';
+import { BUILTIN_ENGINES } from '@/lib/ai/rp-engine';
 import {
     DropdownMenu,
     DropdownMenuContent,
@@ -72,9 +73,14 @@ export function SettingsPanel({ open, onOpenChange }: SettingsPanelProps) {
         activeProvider,
         nanogptModels,
         setNanogptModels,
+        activeEngineId,
+        setActiveEngineId,
+        customEngines,
     } = useSettingsStore();
 
     const allModels = [...DEFAULT_MODELS, ...customModels];
+    const allEngines = [...BUILTIN_ENGINES, ...customEngines];
+    const activeEngine = allEngines.find((e) => e.id === activeEngineId) || null;
 
     const [newKey, setNewKey] = useState('');
     const [selectedProvider, setSelectedProvider] = useState<Provider>('openrouter');
@@ -530,6 +536,52 @@ export function SettingsPanel({ open, onOpenChange }: SettingsPanelProps) {
                                             </DropdownMenuContent>
                                         </DropdownMenu>
                                     </div>
+                                </div>
+
+                                <Separator />
+
+                                {/* RP Engine */}
+                                <div className="space-y-4">
+                                    <div>
+                                        <label className="text-sm font-medium">RP Engine</label>
+                                        <p className="text-xs text-muted-foreground mt-1">
+                                            Behavioral rules that shape how the AI writes — player
+                                            autonomy, NPC knowledge limits, natural dialogue,
+                                            disciplined prose, anti-cliché. Chosen independently of
+                                            the API preset.
+                                        </p>
+                                    </div>
+                                    <div className="flex flex-wrap gap-2">
+                                        <Button
+                                            variant={
+                                                activeEngineId === null ? 'default' : 'secondary'
+                                            }
+                                            size="sm"
+                                            onClick={() => setActiveEngineId(null)}
+                                        >
+                                            Off
+                                        </Button>
+                                        {allEngines.map((engine) => (
+                                            <Button
+                                                key={engine.id}
+                                                variant={
+                                                    activeEngineId === engine.id
+                                                        ? 'default'
+                                                        : 'secondary'
+                                                }
+                                                size="sm"
+                                                onClick={() => setActiveEngineId(engine.id)}
+                                            >
+                                                {engine.name}
+                                                {engine.experimental ? ' (exp.)' : ''}
+                                            </Button>
+                                        ))}
+                                    </div>
+                                    {activeEngine && (
+                                        <p className="text-xs text-muted-foreground p-3 border rounded-lg bg-card/50">
+                                            {activeEngine.description}
+                                        </p>
+                                    )}
                                 </div>
 
                                 <Separator />

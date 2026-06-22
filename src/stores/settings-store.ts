@@ -2,6 +2,8 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { APIPreset } from '@/types/preset';
 import { DEFAULT_PRESETS, DEFAULT_SYSTEM_PROMPT_TEMPLATE } from '@/types/preset';
+import type { RPEngine } from '@/types/engine';
+import { IMMERSIVE_NEXUS_KEY, getEngineById } from '@/lib/ai/rp-engine';
 import type { Provider } from '@/lib/ai/providers';
 
 export interface ApiKeyConfig {
@@ -161,6 +163,10 @@ interface SettingsState {
     presets: APIPreset[];
     activePresetId: string | null;
 
+    // RP Engine — behavioral/writing layer, chosen independently of the API preset.
+    activeEngineId: string | null; // null = off (legacy behaviour, no engine block)
+    customEngines: RPEngine[]; // user-created engines (built-ins live as code constants)
+
     // UI Settings
     theme: 'dark' | 'light' | 'system';
     showThoughts: boolean;
@@ -226,6 +232,13 @@ interface SettingsState {
     setActivePreset: (id: string | null) => void;
     getActivePreset: () => APIPreset | null;
     initializeDefaultPresets: () => void;
+
+    // RP Engine Actions
+    setActiveEngineId: (id: string | null) => void;
+    addCustomEngine: (engine: RPEngine) => void;
+    updateCustomEngine: (id: string, updates: Partial<RPEngine>) => void;
+    deleteCustomEngine: (id: string) => void;
+    getActiveEngine: () => RPEngine | null;
 }
 
 export const useSettingsStore = create<SettingsState>()(
@@ -245,6 +258,8 @@ export const useSettingsStore = create<SettingsState>()(
             activePersonaId: null,
             presets: [],
             activePresetId: null,
+            activeEngineId: IMMERSIVE_NEXUS_KEY,
+            customEngines: [],
             theme: 'dark',
             showThoughts: true,
             showWorldState: true,
@@ -345,22 +360,76 @@ export const useSettingsStore = create<SettingsState>()(
                 return state.presets.find((p) => p.id === state.activePresetId) || null;
             },
 
+            // Seeds built-in presets on first run, and on later runs reconciles by
+            // stable `builtinKey`: back-fills the key onto legacy presets (id `default-N`,
+            // no key) by name, then appends any built-in the user is missing — without
+            // ever overwriting a preset the user has edited or touching their custom ones.
             initializeDefaultPresets: () =>
                 set((state) => {
-                    // Only initialize if no presets exist
-                    if (state.presets.length > 0) return {};
+                    if (state.presets.length === 0) {
+                        const seeded: APIPreset[] = DEFAULT_PRESETS.map((p, i) => ({
+                            ...p,
+                            id: `default-${i}`,
+                            createdAt: new Date(),
+                        }));
+                        const balanced = seeded.find((p) => p.builtinKey === 'balanced');
+                        return {
+                            presets: seeded,
+                            activePresetId: balanced?.id || seeded[0]?.id || null,
+                        };
+                    }
 
-                    const newPresets: APIPreset[] = DEFAULT_PRESETS.map((p, i) => ({
-                        ...p,
-                        id: `default-${i}`,
+                    const nameToKey: Record<string, string> = {
+                        Balanced: 'balanced',
+                        Creative: 'creative',
+                        Precise: 'precise',
+                        'Immersive RP': 'immersive-rp',
+                    };
+
+                    let changed = false;
+                    const reconciled = state.presets.map((p) => {
+                        if (!p.builtinKey && p.isDefault && nameToKey[p.name]) {
+                            changed = true;
+                            return { ...p, builtinKey: nameToKey[p.name], builtinVersion: 1 };
+                        }
+                        return p;
+                    });
+
+                    const existingKeys = new Set(
+                        reconciled.map((p) => p.builtinKey).filter(Boolean)
+                    );
+                    const toAdd: APIPreset[] = DEFAULT_PRESETS.filter(
+                        (d) => d.builtinKey && !existingKeys.has(d.builtinKey)
+                    ).map((d) => ({
+                        ...d,
+                        id: `builtin-${d.builtinKey}`,
                         createdAt: new Date(),
                     }));
 
-                    return {
-                        presets: newPresets,
-                        activePresetId: newPresets[0]?.id || null,
-                    };
+                    if (!changed && toAdd.length === 0) return {};
+                    return { presets: [...reconciled, ...toAdd] };
                 }),
+
+            // RP Engine Actions
+            setActiveEngineId: (activeEngineId) => set({ activeEngineId }),
+            addCustomEngine: (engine) =>
+                set((state) => ({ customEngines: [...state.customEngines, engine] })),
+            updateCustomEngine: (id, updates) =>
+                set((state) => ({
+                    customEngines: state.customEngines.map((e) =>
+                        e.id === id ? { ...e, ...updates } : e
+                    ),
+                })),
+            deleteCustomEngine: (id) =>
+                set((state) => ({
+                    customEngines: state.customEngines.filter((e) => e.id !== id),
+                    activeEngineId:
+                        state.activeEngineId === id ? IMMERSIVE_NEXUS_KEY : state.activeEngineId,
+                })),
+            getActiveEngine: () => {
+                const state = get();
+                return getEngineById(state.activeEngineId, state.customEngines) || null;
+            },
         }),
         {
             name: 'nexusai-settings',

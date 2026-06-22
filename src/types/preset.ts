@@ -43,6 +43,12 @@ export interface APIPreset {
     matchWholeWords?: boolean;
 
     isDefault?: boolean;
+    // Stable identity for built-in presets, so we can reconcile/upgrade them across
+    // releases without matching on the (user-editable) name or the array index.
+    builtinKey?: string;
+    builtinVersion?: number;
+    // Set when the user edits a built-in preset — the reconciler then leaves it alone.
+    userModified?: boolean;
     createdAt: Date;
 }
 
@@ -86,6 +92,32 @@ export const DEFAULT_PRESETS: Omit<APIPreset, 'id' | 'createdAt'>[] = [
         useAutoSummarization: true,
         useFlexTier: false,
         isDefault: true,
+        builtinKey: 'balanced',
+        builtinVersion: 1,
+    },
+    {
+        name: 'Immersive RP',
+        description:
+            'Sampling tuned for immersive roleplay (high creativity, no penalties — anti-repetition is handled by the RP engine ban list). Best paired with the Immersive Nexus engine.',
+        temperature: 1,
+        maxOutputTokens: 2048,
+        maxContextTokens: 16384,
+        topP: 0.95,
+        topK: 0,
+        repetitionPenalty: 1,
+        frequencyPenalty: 0,
+        presencePenalty: 0,
+        stoppingStrings: [],
+        systemPromptTemplate: DEFAULT_SYSTEM_PROMPT_TEMPLATE,
+        enableReasoning: false,
+        includeNames: true,
+        banEmojis: true,
+        useLorebooks: true,
+        useAutoSummarization: true,
+        useFlexTier: false,
+        isDefault: true,
+        builtinKey: 'immersive-rp',
+        builtinVersion: 1,
     },
     {
         name: 'Creative',
@@ -107,6 +139,8 @@ export const DEFAULT_PRESETS: Omit<APIPreset, 'id' | 'createdAt'>[] = [
         useAutoSummarization: true,
         useFlexTier: false,
         isDefault: true,
+        builtinKey: 'creative',
+        builtinVersion: 1,
     },
     {
         name: 'Precise',
@@ -128,5 +162,7 @@ export const DEFAULT_PRESETS: Omit<APIPreset, 'id' | 'createdAt'>[] = [
         useAutoSummarization: true,
         useFlexTier: false,
         isDefault: true,
+        builtinKey: 'precise',
+        builtinVersion: 1,
     },
 ];
