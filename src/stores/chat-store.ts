@@ -34,6 +34,8 @@ interface ChatState {
     appendRpJournal: (conversationId: string, character: string, note: string) => void;
     setRpJournalForCharacter: (conversationId: string, character: string, notes: string[]) => void;
     setMomentumNudge: (conversationId: string, nudge: string | undefined) => void;
+    setBanList: (conversationId: string, banList: string[]) => void;
+    getActiveBranchBanList: (conversationId: string) => string[];
     setRelationships: (conversationId: string, relationships: DirectedRelationship[]) => void;
     clearConversation: (conversationId: string) => void;
     navigateToSibling: (messageId: string, direction: 'prev' | 'next') => void;
@@ -587,6 +589,49 @@ export const useChatStore = create<ChatState>()((set, get) => ({
             }),
         }));
         if (conversationToUpdate) saveConversation(conversationToUpdate).catch(console.error);
+    },
+
+    // The Style Guard ban list is branch-aware: it is snapshotted onto the active branch
+    // tip (like worldStateSnapshot) so swiping/regenerating doesn't carry one branch's
+    // learned rules into an unrelated one. conversation.banList remains only as a fallback
+    // for branches without a snapshot (legacy chats, or a conversation with no messages yet).
+    setBanList: (conversationId, banList) => {
+        const convMessages = get().messages.filter((m) => m.conversationId === conversationId);
+        const path = getActiveBranchPath(convMessages);
+        const leaf = path[path.length - 1];
+
+        if (leaf) {
+            const updatedLeaf: Message = { ...leaf, banListSnapshot: banList };
+            set((state) => ({
+                messages: state.messages.map((m) => (m.id === leaf.id ? updatedLeaf : m)),
+            }));
+            saveMessage(updatedLeaf).catch(console.error);
+            return;
+        }
+
+        // No messages on this conversation yet — fall back to conversation-level storage.
+        let conversationToUpdate: Conversation | undefined;
+        set((state) => ({
+            conversations: state.conversations.map((c) => {
+                if (c.id === conversationId) {
+                    conversationToUpdate = { ...c, banList, updatedAt: new Date() };
+                    return conversationToUpdate;
+                }
+                return c;
+            }),
+        }));
+        if (conversationToUpdate) saveConversation(conversationToUpdate).catch(console.error);
+    },
+
+    getActiveBranchBanList: (conversationId) => {
+        const state = get();
+        const convMessages = state.messages.filter((m) => m.conversationId === conversationId);
+        const path = getActiveBranchPath(convMessages);
+        for (let i = path.length - 1; i >= 0; i--) {
+            const snapshot = path[i].banListSnapshot;
+            if (snapshot) return snapshot;
+        }
+        return state.conversations.find((c) => c.id === conversationId)?.banList ?? [];
     },
 
     setRelationships: (conversationId, relationships) => {

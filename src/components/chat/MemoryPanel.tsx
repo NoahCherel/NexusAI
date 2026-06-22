@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Input } from '@/components/ui/input';
@@ -17,10 +17,12 @@ import {
     RefreshCw,
     Search,
     BrainCircuit,
+    Feather,
 } from 'lucide-react';
 import { useCharacterStore } from '@/stores/character-store';
 import { useChatStore } from '@/stores/chat-store';
 import { generateMemorySummary, formatMemoryEntry } from '@/lib/memory-summarizer';
+import { extractRepeatedPhrases, isAnalysisStale } from '@/lib/ai/style-analyzer';
 import { cn } from '@/lib/utils';
 import {
     Dialog,
@@ -41,15 +43,17 @@ interface MemoryPanelProps {
     onClose: () => void;
 }
 
-type TabType = 'notes' | 'guidance' | 'scratchpad' | 'facts' | 'summaries';
+type TabType = 'notes' | 'guidance' | 'scratchpad' | 'style' | 'facts' | 'summaries';
 
 export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
     const { getActiveCharacter, updateLongTermMemory } = useCharacterStore();
     const {
         getActiveBranchMessages,
+        getActiveBranchBanList,
         conversations,
         activeConversationId,
         updateConversationNotes,
+        messages: storeMessages, // subscribe so the branch-aware ban list re-renders on snapshot writes
     } = useChatStore();
 
     const character = getActiveCharacter();
@@ -73,6 +77,14 @@ export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
     const [mergeResult, setMergeResult] = useState('');
     const [factSearchTerm, setFactSearchTerm] = useState('');
     const [summarySearchTerm, setSummarySearchTerm] = useState('');
+
+    // Style Guard state
+    const [styleSuggestions, setStyleSuggestions] = useState<string[]>([]);
+    const [isAnalyzingStyle, setIsAnalyzingStyle] = useState(false);
+    const [newBanRule, setNewBanRule] = useState('');
+    // Monotonic token: any newer analysis OR any conversation/branch-tip change bumps it,
+    // invalidating in-flight results (covers swiping away and back to the same tip).
+    const analysisRunIdRef = useRef(0);
 
     // Load RAG data when tab changes
     const loadRagData = useCallback(async () => {
@@ -105,11 +117,136 @@ export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
         }
     }, [isOpen, activeTab, loadRagData]);
 
+    // The active branch's ban list (snapshot on the branch tip, falling back to the
+    // conversation-level list). Re-derived whenever messages/conversations change.
+    const activeBanList = useMemo(
+        () => (activeConversationId ? getActiveBranchBanList(activeConversationId) : []),
+        [activeConversationId, getActiveBranchBanList, storeMessages, conversations]
+    );
+
+    // The id of the active branch tip. A swipe keeps activeConversationId but moves this,
+    // so it — not the conversation id — is what scopes a Style Guard analysis to its branch.
+    const activeBranchTipId = useMemo(() => {
+        if (!activeConversationId) return null;
+        const path = getActiveBranchMessages(activeConversationId);
+        return path.length ? path[path.length - 1].id : null;
+    }, [activeConversationId, getActiveBranchMessages, storeMessages]);
+
+    // Style suggestions are local, per-analysis state — never let one branch's suggestions
+    // bleed into another. Switching conversation OR moving the branch tip (swipe / new turn)
+    // invalidates any in-flight analysis and clears stale suggestions.
+    useEffect(() => {
+        analysisRunIdRef.current += 1;
+        setStyleSuggestions([]);
+        setIsAnalyzingStyle(false);
+        setNewBanRule('');
+    }, [activeConversationId, activeBranchTipId]);
+
     if (!character) return null;
 
     // Use conversation-scoped notes (with fallback to character-level for backward compat)
     const conversation = conversations.find((c) => c.id === activeConversationId);
     const memories = conversation?.notes || [];
+
+    // Read the live active branch tip straight from the store (not React state, which may
+    // not have flushed yet when an async result lands).
+    const liveBranchTipId = (convId: string): string | null => {
+        const path = useChatStore.getState().getActiveBranchMessages(convId);
+        return path.length ? path[path.length - 1].id : null;
+    };
+
+    // --- Style Guard handlers ---
+    const handleAnalyzeStyle = async () => {
+        if (!activeConversationId) return;
+        // Pin the run to a (runId, conversation, branch tip) key. A swipe keeps the
+        // conversation but moves the tip, so the tip is essential to scope the result.
+        const started = {
+            runId: (analysisRunIdRef.current += 1),
+            conversationId: activeConversationId,
+            branchTipId: activeBranchTipId,
+        };
+        setIsAnalyzingStyle(true);
+        try {
+            const assistantText = getActiveBranchMessages(started.conversationId)
+                .filter((m) => m.role === 'assistant')
+                .map((m) => m.content);
+            const rules = await extractRepeatedPhrases(assistantText);
+
+            const store = useChatStore.getState();
+            const current = {
+                runId: analysisRunIdRef.current,
+                conversationId: store.activeConversationId ?? '',
+                branchTipId: liveBranchTipId(started.conversationId),
+            };
+            // Discard if the user switched conversation, swiped to another branch, or kicked
+            // off a newer analysis while this one was running.
+            if (isAnalysisStale(started, current)) return;
+
+            const existing = new Set(
+                store.getActiveBranchBanList(started.conversationId).map((b) => b.toLowerCase())
+            );
+            setStyleSuggestions(rules.filter((r) => !existing.has(r.toLowerCase())));
+        } catch (err) {
+            console.error('[Style] Analysis failed:', err);
+        } finally {
+            // Only this run owns the spinner; if it was superseded, the newer run (or the
+            // reset effect) controls it.
+            if (analysisRunIdRef.current === started.runId) setIsAnalyzingStyle(false);
+        }
+    };
+
+    // Append a single rule, reading the CURRENT branch list fresh from the store (never a
+    // stale render-time copy) so successive adds don't clobber each other.
+    const addBanRule = (rule: string) => {
+        const trimmed = rule.trim();
+        if (!activeConversationId || !trimmed) return;
+        const store = useChatStore.getState();
+        const current = store.getActiveBranchBanList(activeConversationId);
+        if (current.some((b) => b.toLowerCase() === trimmed.toLowerCase())) return;
+        store.setBanList(activeConversationId, [...current, trimmed]);
+    };
+
+    // Merge every (possibly edited) suggestion in a SINGLE write so they don't overwrite
+    // one another, then clear the suggestion list.
+    const addAllBanRules = () => {
+        if (!activeConversationId) return;
+        const store = useChatStore.getState();
+        const current = store.getActiveBranchBanList(activeConversationId);
+        const seen = new Set(current.map((b) => b.toLowerCase()));
+        const additions: string[] = [];
+        for (const raw of styleSuggestions) {
+            const trimmed = raw.trim();
+            if (trimmed && !seen.has(trimmed.toLowerCase())) {
+                additions.push(trimmed);
+                seen.add(trimmed.toLowerCase());
+            }
+        }
+        if (additions.length > 0) store.setBanList(activeConversationId, [...current, ...additions]);
+        setStyleSuggestions([]);
+    };
+
+    const acceptSuggestion = (index: number) => {
+        addBanRule(styleSuggestions[index] ?? '');
+        setStyleSuggestions((s) => s.filter((_, i) => i !== index));
+    };
+
+    const dismissSuggestion = (index: number) => {
+        setStyleSuggestions((s) => s.filter((_, i) => i !== index));
+    };
+
+    const editSuggestion = (index: number, value: string) => {
+        setStyleSuggestions((s) => s.map((x, i) => (i === index ? value : x)));
+    };
+
+    const removeBanRule = (rule: string) => {
+        if (!activeConversationId) return;
+        const store = useChatStore.getState();
+        const current = store.getActiveBranchBanList(activeConversationId);
+        store.setBanList(
+            activeConversationId,
+            current.filter((b) => b !== rule)
+        );
+    };
 
     const handleAddMemory = async () => {
         if (!newMemory.trim() || !activeConversationId) return;
@@ -525,6 +662,7 @@ export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
         { key: 'notes', label: 'Notes', icon: Brain, count: memories.length },
         { key: 'guidance', label: 'Guidance', icon: Sparkles },
         { key: 'scratchpad', label: 'Scratchpad', icon: BrainCircuit },
+        { key: 'style', label: 'Style', icon: Feather, count: activeBanList.length },
         { key: 'facts', label: 'Facts', icon: Database, count: facts.length },
         { key: 'summaries', label: 'Summaries', icon: Layers, count: summaries.length },
     ];
@@ -777,6 +915,135 @@ export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
                                 }}
                                 className="flex-1 resize-none text-sm p-3 bg-muted/30 border-border/50 focus-visible:ring-primary/20 font-mono"
                             />
+                        </div>
+                    )}
+
+                    {/* === STYLE TAB === */}
+                    {activeTab === 'style' && (
+                        <div className="flex flex-col flex-1 min-h-0 p-4 space-y-4 overflow-y-auto">
+                            <div className="flex items-center gap-2 text-sm font-medium text-primary">
+                                <Feather className="w-4 h-4" />
+                                Style Guard (Anti-Cliché)
+                            </div>
+                            <p className="text-xs text-muted-foreground leading-relaxed">
+                                Analyze your recent AI replies for repetitive or cliché habits.
+                                Keep the suggestions you agree with — they&apos;re injected into the
+                                prompt as patterns the AI must avoid, for this chat only.
+                            </p>
+                            <Button
+                                onClick={handleAnalyzeStyle}
+                                disabled={isAnalyzingStyle}
+                                size="sm"
+                                className="gap-2 self-start"
+                            >
+                                {isAnalyzingStyle ? (
+                                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                ) : (
+                                    <Sparkles className="w-3.5 h-3.5" />
+                                )}
+                                Analyze my style
+                            </Button>
+
+                            {styleSuggestions.length > 0 && (
+                                <div className="space-y-2">
+                                    <div className="flex items-center justify-between">
+                                        <span className="text-xs font-medium text-muted-foreground">
+                                            Suggestions — edit before adding
+                                        </span>
+                                        <Button
+                                            variant="ghost"
+                                            size="sm"
+                                            className="h-6 text-xs"
+                                            onClick={addAllBanRules}
+                                        >
+                                            Add all
+                                        </Button>
+                                    </div>
+                                    {styleSuggestions.map((rule, i) => (
+                                        <div
+                                            key={i}
+                                            className="flex items-center gap-2 p-2 rounded-md bg-muted/30 border border-border/40"
+                                        >
+                                            <Input
+                                                value={rule}
+                                                onChange={(e) => editSuggestion(i, e.target.value)}
+                                                className="flex-1 h-8 text-xs"
+                                                onKeyDown={(e) => {
+                                                    if (e.key === 'Enter') acceptSuggestion(i);
+                                                }}
+                                            />
+                                            <button
+                                                onClick={() => acceptSuggestion(i)}
+                                                className="text-primary hover:text-primary/70 shrink-0"
+                                                title="Add to ban list"
+                                            >
+                                                <Plus className="w-3.5 h-3.5" />
+                                            </button>
+                                            <button
+                                                onClick={() => dismissSuggestion(i)}
+                                                className="text-muted-foreground hover:text-foreground shrink-0"
+                                                title="Dismiss"
+                                            >
+                                                <X className="w-3.5 h-3.5" />
+                                            </button>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+
+                            <div className="space-y-2">
+                                <span className="text-xs font-medium text-muted-foreground">
+                                    Active ban list ({activeBanList.length})
+                                </span>
+                                {activeBanList.length === 0 ? (
+                                    <p className="text-xs text-muted-foreground/70 italic">
+                                        No rules yet — analyze your style or add one below.
+                                    </p>
+                                ) : (
+                                    activeBanList.map((rule, i) => (
+                                        <div
+                                            key={i}
+                                            className="flex items-start gap-2 p-2 rounded-md bg-background/40 border border-border/40"
+                                        >
+                                            <span className="flex-1 text-xs leading-relaxed">
+                                                {rule}
+                                            </span>
+                                            <button
+                                                onClick={() => removeBanRule(rule)}
+                                                className="text-muted-foreground hover:text-destructive shrink-0"
+                                                title="Remove"
+                                            >
+                                                <Trash2 className="w-3.5 h-3.5" />
+                                            </button>
+                                        </div>
+                                    ))
+                                )}
+                                <div className="flex gap-2 pt-1">
+                                    <Input
+                                        value={newBanRule}
+                                        onChange={(e) => setNewBanRule(e.target.value)}
+                                        placeholder="Add a rule manually..."
+                                        className="h-8 text-xs"
+                                        onKeyDown={(e) => {
+                                            if (e.key === 'Enter') {
+                                                addBanRule(newBanRule);
+                                                setNewBanRule('');
+                                            }
+                                        }}
+                                    />
+                                    <Button
+                                        size="sm"
+                                        variant="secondary"
+                                        className="h-8"
+                                        onClick={() => {
+                                            addBanRule(newBanRule);
+                                            setNewBanRule('');
+                                        }}
+                                    >
+                                        Add
+                                    </Button>
+                                </div>
+                            </div>
                         </div>
                     )}
 

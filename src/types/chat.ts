@@ -12,6 +12,7 @@ export interface Message {
     childrenIds?: string[];
     createdAt: Date;
     worldStateSnapshot?: WorldState;
+    banListSnapshot?: string[]; // Style Guard ban list as of this branch tip (branch-aware)
 
     // Message ordering and regeneration tracking
     messageOrder: number; // Sequential position in timeline (1, 2, 3...)
@@ -31,6 +32,7 @@ export interface Conversation {
     momentumNudge?: string; // Transient anti-stall directive, consumed next turn then cleared
     rpJournal?: Record<string, string[]>; // Per-character "in this RP" developments, layered on canon
     relationships?: DirectedRelationship[]; // Phase 2: directional, multi-axis, history-aware bonds
+    banList?: string[]; // Style Guard: conversation-level fallback for branches without a banListSnapshot (legacy/seed)
     createdAt: Date;
     updatedAt: Date;
 }

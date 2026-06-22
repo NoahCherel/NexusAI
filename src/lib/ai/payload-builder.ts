@@ -9,7 +9,11 @@ import type { APIPreset } from '@/types/preset';
 import type { RPEngine } from '@/types/engine';
 import type { ContextSection } from '@/types/rag';
 import { buildSystemPrompt, buildRAGEnhancedPayload } from '@/lib/ai/context-builder';
-import { buildEngineSystemBlock, buildEnginePostHistory } from '@/lib/ai/rp-engine';
+import {
+    buildEngineSystemBlock,
+    buildEnginePostHistory,
+    buildLearnedBanBlock,
+} from '@/lib/ai/rp-engine';
 import { countTokens } from '@/lib/tokenizer';
 
 type SystemPromptOptions = NonNullable<Parameters<typeof buildSystemPrompt>[3]>;
@@ -27,6 +31,8 @@ export interface BuildConversationPayloadParams {
     recentMessages?: Message[];
     activePreset: APIPreset | null;
     activeEngine: RPEngine | null;
+    /** Per-chat learned anti-cliché rules (Style Guard). Injected for generation/preview only. */
+    learnedBanList?: string[];
     userPersona?: { name: string; bio: string; description?: string } | null;
     longTermMemory?: string[];
     storyGuidance?: string;
@@ -94,11 +100,20 @@ export async function buildConversationPayload(
     const userName = userPersona?.name;
 
     // Engine system block carries the player-facing contract ("never write the player").
-    // Impersonation must NOT receive it — it writes the player on purpose.
+    // Impersonation must NOT receive it — it writes the player on purpose. The per-chat
+    // learned ban list rides alongside it (and applies even when the engine is off, since
+    // it's conversation-level feedback), but never during impersonation.
     const engineSystemBlock =
-        activeEngine && !isImpersonation
-            ? buildEngineSystemBlock(activeEngine, { userName })
-            : undefined;
+        [
+            activeEngine && !isImpersonation
+                ? buildEngineSystemBlock(activeEngine, { userName })
+                : '',
+            !isImpersonation && params.learnedBanList?.length
+                ? buildLearnedBanBlock(params.learnedBanList)
+                : '',
+        ]
+            .filter(Boolean)
+            .join('\n\n') || undefined;
 
     let systemPrompt = buildSystemPrompt(character, worldState, activeEntries, {
         template: activePreset?.systemPromptTemplate,

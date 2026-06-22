@@ -144,6 +144,7 @@ export default function ChatPage() {
         addMessage,
         updateMessage,
         getActiveBranchMessages,
+        getActiveBranchBanList,
         getMessageSiblingsInfo,
         navigateToSibling,
         setActiveConversation,
@@ -667,6 +668,9 @@ export default function ChatPage() {
                 recentMessages: history as CAMessage[],
                 activePreset,
                 activeEngine,
+                learnedBanList: activeConversationId
+                    ? getActiveBranchBanList(activeConversationId)
+                    : undefined,
                 userPersona: activePersona,
                 longTermMemory: combinedMemory,
                 storyGuidance: currentConv?.storyGuidance,
@@ -1207,6 +1211,9 @@ export default function ChatPage() {
             recentMessages: simulatedMessages as CAMessage[],
             activePreset,
             activeEngine,
+            learnedBanList: activeConversationId
+                ? getActiveBranchBanList(activeConversationId)
+                : undefined,
             userPersona: activePersona,
             longTermMemory: combinedMem,
             storyGuidance: conv?.storyGuidance,
@@ -1306,6 +1313,9 @@ export default function ChatPage() {
                 recentMessages: messages,
                 activePreset,
                 activeEngine: getActiveEngine(),
+                learnedBanList: activeConversationId
+                    ? getActiveBranchBanList(activeConversationId)
+                    : undefined,
                 userPersona: activePersona,
                 longTermMemory: impMem,
                 storyGuidance: impConv?.storyGuidance,

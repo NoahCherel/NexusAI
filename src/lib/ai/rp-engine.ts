@@ -76,6 +76,18 @@ function resolveUser(text: string, userName?: string): string {
     return text.replace(/\{\{user\}\}/gi, userName || 'the player');
 }
 
+/**
+ * A per-chat "learned" ban block (Style Guard), kept distinct from the engine's static
+ * list so the model reads it as feedback specific to this conversation. Returns '' if empty.
+ */
+export function buildLearnedBanBlock(phrases: string[]): string {
+    const items = phrases.map((p) => p.trim()).filter(Boolean);
+    if (items.length === 0) return '';
+    return `[STYLE GUARD — patterns this chat has overused. Do NOT fall back into them:\n${items
+        .map((p) => `- ${p}`)
+        .join('\n')}]`;
+}
+
 /** The system-section block for an engine: rules + register policy + ban list. */
 export function buildEngineSystemBlock(
     engine: RPEngine,

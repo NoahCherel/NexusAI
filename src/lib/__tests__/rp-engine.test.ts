@@ -154,6 +154,39 @@ describe('buildConversationPayload — generate', () => {
         const joined = messagesPayload.map((m) => m.content).join('\n');
         expect(joined).toContain('output a <scratchpad>');
     });
+
+    it('injects the learned ban list (Style Guard) into the system prompt', async () => {
+        const { messagesPayload } = await buildConversationPayload({
+            mode: 'generate',
+            character: card,
+            worldState,
+            activeEntries: [],
+            history: [userMsg('hello')],
+            activePreset: preset(),
+            activeEngine: immersive,
+            learnedBanList: ['stop describing the weather'],
+            maxContextTokens: 8192,
+            maxOutputTokens: 1000,
+        });
+        expect(messagesPayload[0].content).toContain('STYLE GUARD');
+        expect(messagesPayload[0].content).toContain('stop describing the weather');
+    });
+
+    it('applies the learned ban list even when the engine is off', async () => {
+        const { messagesPayload } = await buildConversationPayload({
+            mode: 'generate',
+            character: card,
+            worldState,
+            activeEntries: [],
+            history: [userMsg('hello')],
+            activePreset: preset(),
+            activeEngine: null,
+            learnedBanList: ['no purple prose'],
+            maxContextTokens: 8192,
+            maxOutputTokens: 1000,
+        });
+        expect(messagesPayload[0].content).toContain('no purple prose');
+    });
 });
 
 describe('buildConversationPayload — impersonate (inverted contract)', () => {
@@ -257,6 +290,25 @@ describe('buildConversationPayload — impersonate (inverted contract)', () => {
         });
         const joined = messagesPayload.map((m) => m.content).join('\n');
         expect(joined).not.toContain('output a <scratchpad>');
+    });
+
+    it('omits the learned ban list during impersonation', async () => {
+        const { messagesPayload } = await buildConversationPayload({
+            mode: 'impersonate',
+            character: card,
+            worldState,
+            activeEntries: [],
+            history: [userMsg('hello')],
+            activePreset: preset(),
+            activeEngine: immersive,
+            userPersona: { name: 'Alex', bio: 'a ranger' },
+            learnedBanList: ['stop describing the weather'],
+            maxContextTokens: 8192,
+            maxOutputTokens: 1000,
+        });
+        const joined = messagesPayload.map((m) => m.content).join('\n');
+        expect(joined).not.toContain('STYLE GUARD');
+        expect(joined).not.toContain('stop describing the weather');
     });
 
     it('does not feed the prior scratchpad to the impersonation model (no metagaming)', async () => {
