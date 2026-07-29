@@ -140,6 +140,43 @@ describe('stable/dynamic zone split', () => {
     });
 });
 
+describe('continue-in-place (providers without prefill)', () => {
+    it('appends the CONTINUE instruction LAST so it beats the user post-history', async () => {
+        const { messagesPayload } = await buildConversationPayload({
+            mode: 'generate',
+            character: card,
+            worldState,
+            activeEntries: [],
+            history: [msg('hello'), msg('The story begins…', 'assistant')],
+            activePreset: preset({ postHistoryInstructions: 'USER_POSTHISTORY_MARKER' }),
+            activeEngine: null,
+            continueFromAssistant: true,
+            maxContextTokens: 8192,
+            maxOutputTokens: 1000,
+        });
+        const last = messagesPayload[messagesPayload.length - 1].content;
+        expect(last).toContain('[CONTINUE —');
+        expect(last.indexOf('USER_POSTHISTORY_MARKER')).toBeLessThan(last.indexOf('[CONTINUE —'));
+        // The incomplete assistant message stays in the history.
+        expect(messagesPayload[messagesPayload.length - 2].content).toBe('The story begins…');
+    });
+
+    it('omits the CONTINUE instruction in normal generation', async () => {
+        const { messagesPayload } = await buildConversationPayload({
+            mode: 'generate',
+            character: card,
+            worldState,
+            activeEntries: [],
+            history: [msg('hello')],
+            activePreset: preset(),
+            activeEngine: null,
+            maxContextTokens: 8192,
+            maxOutputTokens: 1000,
+        });
+        expect(messagesPayload.map((m) => m.content).join('\n')).not.toContain('[CONTINUE —');
+    });
+});
+
 describe('history window hysteresis', () => {
     const opts = { maxContextTokens: 450, maxOutputTokens: 100 };
     const longHistory = Array.from({ length: 40 }, (_, i) =>

@@ -12,7 +12,8 @@ export interface VectorEntry {
     conversationId: string;
     messageIds: string[]; // Source message IDs
     text: string; // Original text (summary of the chunk)
-    embedding: number[]; // Vector (384d for MiniLM)
+    embedding: number[]; // Vector (384d)
+    embeddingRevision?: string; // Embedding-space signature; cross-space cosine is invalid
     metadata: {
         timestamp: number;
         characters: string[]; // NPCs involved
@@ -66,6 +67,7 @@ export interface WorldFact {
     active: boolean; // false if invalidated by a more recent fact
     timestamp: number;
     embedding?: number[]; // For RAG
+    embeddingRevision?: string; // Embedding-space signature; cross-space cosine is invalid
     relatedEntities: string[]; // ["Fire Sword", "Kael", "Player"]
     lastAccessedAt: number; // For temporal decay
     accessCount: number; // Number of times retrieved

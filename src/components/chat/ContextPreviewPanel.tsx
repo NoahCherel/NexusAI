@@ -90,7 +90,7 @@ export function ContextPreviewPanel({
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
                     exit={{ opacity: 0 }}
-                    className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+                    className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 max-sm:p-0"
                     onClick={onClose}
                 >
                     <motion.div
@@ -98,7 +98,7 @@ export function ContextPreviewPanel({
                         animate={{ scale: 1, opacity: 1 }}
                         exit={{ scale: 0.95, opacity: 0 }}
                         transition={{ type: 'spring', stiffness: 300, damping: 30 }}
-                        className="bg-background border border-white/10 rounded-xl w-full max-w-3xl max-h-[85vh] flex flex-col overflow-hidden shadow-2xl"
+                        className="bg-background border border-white/10 rounded-xl w-full max-w-3xl max-h-[85vh] flex flex-col overflow-hidden shadow-2xl max-sm:h-dvh max-sm:max-h-none max-sm:rounded-none max-sm:border-0"
                         onClick={(e) => e.stopPropagation()}
                     >
                         {/* Header */}

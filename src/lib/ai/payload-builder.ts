@@ -74,6 +74,11 @@ export interface BuildConversationPayloadParams {
     /** Sticky history-window anchor (prompt-cache hysteresis), from the conversation. */
     historyCutMessageId?: string;
     /**
+     * Continue-in-place mode (providers without assistant prefill): history ends with the
+     * incomplete assistant message; a final instruction demands the continuation only.
+     */
+    continueFromAssistant?: boolean;
+    /**
      * Optional RAG retrieval. Invoked with a budget once the system prompt size is known.
      * Omit (e.g. impersonation) to skip RAG entirely.
      */
@@ -268,10 +273,14 @@ export async function buildConversationPayload(
     // contradictory user post-history can't reclaim priority; for generation the engine
     // checklist leads and the user's post-history follows. The dynamic context block always
     // comes first (it's reference material, not the instruction).
+    // Continue-in-place: the continuation demand goes LAST — it must beat everything.
+    const continueBlock = params.continueFromAssistant
+        ? `[CONTINUE — Your previous message above is INCOMPLETE. Continue it from exactly where it stops, mid-flow. Do not repeat any earlier text, do not summarize, do not start over. Output ONLY the continuation.]`
+        : undefined;
     const effectivePostHistory =
         (isImpersonation
             ? [dynamicBlock, activePreset?.postHistoryInstructions, contractBlock]
-            : [dynamicBlock, contractBlock, activePreset?.postHistoryInstructions]
+            : [dynamicBlock, contractBlock, activePreset?.postHistoryInstructions, continueBlock]
         )
             .filter(Boolean)
             .join('\n\n') || undefined;

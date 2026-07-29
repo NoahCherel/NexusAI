@@ -1,9 +1,13 @@
 /**
  * Vector Embedding Service
  *
- * Uses @xenova/transformers (all-MiniLM-L6-v2) for client-side embeddings.
- * Falls back to a TF-IDF/BM25 approach if the model can't be loaded.
+ * Uses @xenova/transformers (multilingual-e5-small) for client-side embeddings — the RP is
+ * mixed FR/EN and the previous all-MiniLM-L6-v2 was English-only (French text crushed the
+ * similarity scale). Falls back to a TF-IDF/BM25 approach if the model can't be loaded.
  * Runs in the main thread (Web Workers are complex with Next.js).
+ *
+ * e5 models REQUIRE asymmetric prefixes: retrieval questions embed as "query: …", stored
+ * texts as "passage: …" — hence the `kind` parameter on embedText.
  */
 
 // Dynamic import to avoid SSR issues
@@ -17,9 +21,13 @@ let loadError: Error | null = null;
 // Simple in-memory cache for recently computed embeddings
 const embeddingCache = new Map<string, number[]>();
 const MAX_CACHE_SIZE = 500;
-const EMBEDDING_MODEL_ID = 'Xenova/all-MiniLM-L6-v2';
-const EMBEDDING_MODEL_REVISION = 'local-minilm-v2';
+const EMBEDDING_MODEL_ID = 'Xenova/multilingual-e5-small';
+// Bump when the model changes: persisted vectors carry this signature and vectors from a
+// different space are excluded from cosine scoring (then lazily re-embedded).
+const EMBEDDING_MODEL_REVISION = 'multilingual-e5-small-v1';
 const MAX_MODEL_INPUT_CHARS = 2000;
+
+export type EmbedKind = 'query' | 'passage';
 
 /**
  * Initialize the embedder (lazy load).
@@ -57,15 +65,17 @@ export async function initEmbedder(): Promise<boolean> {
 
 /**
  * Generate embedding for a text using the ML model.
+ * `kind` follows the e5 contract: 'query' for retrieval questions, 'passage' (default)
+ * for stored/scored texts. The TF-IDF fallback ignores the prefix (symmetric space).
  */
-export async function embedText(text: string): Promise<number[]> {
+export async function embedText(text: string, kind: EmbedKind = 'passage'): Promise<number[]> {
     if (!text || text.trim().length === 0) {
         return new Array(384).fill(0);
     }
 
-    // Check cache
+    // Check cache (kind-scoped: query/passage vectors differ for the same text)
     const normalizedText = normalizeEmbeddingInput(text);
-    const cacheKey = getEmbeddingCacheKey(normalizedText);
+    const cacheKey = `${kind}:${getEmbeddingCacheKey(normalizedText)}`;
     if (embeddingCache.has(cacheKey)) {
         return embeddingCache.get(cacheKey)!;
     }
@@ -76,10 +86,10 @@ export async function embedText(text: string): Promise<number[]> {
 
     if (modelReady && embedderInstance) {
         try {
-            // MiniLM is a short-text encoder. Keep enough scene detail for retrieval while
-            // avoiding very large browser-side tokenization work.
+            // e5-small is a short-text encoder. Keep enough scene detail for retrieval
+            // while avoiding very large browser-side tokenization work.
             const truncated = normalizedText.slice(0, MAX_MODEL_INPUT_CHARS);
-            const output = await embedderInstance(truncated, {
+            const output = await embedderInstance(`${kind}: ${truncated}`, {
                 pooling: 'mean',
                 normalize: true,
             });
@@ -115,13 +125,33 @@ export function getEmbeddingModelSignature(): string {
 }
 
 /**
+ * Similarity gates for the CURRENT embedding space. e5 similarities live on a compressed
+ * high scale (irrelevant ≈ 0.70-0.75, relevant ≈ 0.78+); the TF-IDF fallback keeps the
+ * legacy low scale. Callers must never hardcode one scale.
+ */
+export function getSimilarityThresholds(): { min: number; minCritical: number } {
+    return embedderInstance
+        ? { min: 0.75, minCritical: 0.72 } // e5 scale
+        : { min: 0.18, minCritical: 0.12 }; // TF-IDF fallback scale
+}
+
+/**
+ * True when this stored vector belongs to the current embedding space and can be compared
+ * against a fresh query vector. Cross-space cosine (MiniLM vs e5) gives garbage scores.
+ */
+export function isCurrentSpace(embeddingRevision: string | undefined): boolean {
+    // Legacy items (no revision stamp) predate e5 — they are NOT comparable.
+    return embeddingRevision === EMBEDDING_MODEL_REVISION;
+}
+
+/**
  * Batch embed multiple texts efficiently.
  */
-export async function embedTexts(texts: string[]): Promise<number[][]> {
+export async function embedTexts(texts: string[], kind: EmbedKind = 'passage'): Promise<number[][]> {
     // Process sequentially to avoid OOM
     const results: number[][] = [];
     for (const text of texts) {
-        results.push(await embedText(text));
+        results.push(await embedText(text, kind));
     }
     return results;
 }

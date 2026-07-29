@@ -329,12 +329,17 @@ export const ChatBubble = memo(function ChatBubble({
                     </div>
                 )}
 
-                {/* Action buttons (always rendered to prevent layout shift, toggled via opacity) */}
+                {/* Action buttons (always rendered to prevent layout shift, toggled via
+                    opacity). Touch devices have no hover: on coarse pointers the row stays
+                    visible at reduced opacity with ≥40px targets. */}
                 <div
                     className={`flex gap-1 mt-1 transition-opacity duration-200 ${
-                        !isEditing && isHovered ? 'opacity-100' : 'opacity-0'
+                        isEditing
+                            ? 'opacity-0 pointer-events-none'
+                            : isHovered
+                              ? 'opacity-100 pointer-events-auto'
+                              : 'opacity-0 pointer-events-none pointer-coarse:opacity-70 pointer-coarse:pointer-events-auto'
                     }`}
-                    style={{ pointerEvents: !isEditing && isHovered ? 'auto' : 'none' }}
                 >
                     <ActionTooltip label="Edit">
                         <motion.div
@@ -346,7 +351,7 @@ export const ChatBubble = memo(function ChatBubble({
                             <Button
                                 variant="ghost"
                                 size="icon"
-                                className="h-7 w-7 text-muted-foreground hover:text-foreground"
+                                className="h-7 w-7 pointer-coarse:h-10 pointer-coarse:w-10 text-muted-foreground hover:text-foreground"
                                 onClick={handleStartEdit}
                             >
                                 <Edit2 className="h-3.5 w-3.5" />
@@ -366,7 +371,7 @@ export const ChatBubble = memo(function ChatBubble({
                                     <Button
                                         variant="ghost"
                                         size="icon"
-                                        className="h-7 w-7 text-muted-foreground hover:text-foreground"
+                                        className="h-7 w-7 pointer-coarse:h-10 pointer-coarse:w-10 text-muted-foreground hover:text-foreground"
                                         onClick={() => onRegenerate?.(id)}
                                     >
                                         <RefreshCw className="h-3.5 w-3.5" />
@@ -383,7 +388,7 @@ export const ChatBubble = memo(function ChatBubble({
                                     <Button
                                         variant="ghost"
                                         size="icon"
-                                        className="h-7 w-7 text-muted-foreground hover:text-foreground"
+                                        className="h-7 w-7 pointer-coarse:h-10 pointer-coarse:w-10 text-muted-foreground hover:text-foreground"
                                         onClick={() => onContinue?.(id)}
                                     >
                                         <ArrowRight className="h-3.5 w-3.5" />
@@ -403,7 +408,7 @@ export const ChatBubble = memo(function ChatBubble({
                             <Button
                                 variant="ghost"
                                 size="icon"
-                                className="h-7 w-7 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                                className="h-7 w-7 pointer-coarse:h-10 pointer-coarse:w-10 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
                                 onClick={() => setIsDeleteDialogOpen(true)}
                             >
                                 <Trash2 className="h-3.5 w-3.5" />
@@ -445,11 +450,11 @@ export const ChatBubble = memo(function ChatBubble({
 
                     {/* Branch Navigation */}
                     {totalBranches > 1 && (
-                        <div className="flex items-center gap-1 ml-auto bg-muted/50 rounded-md px-1 h-7">
+                        <div className="flex items-center gap-1 ml-auto bg-muted/50 rounded-md px-1 h-7 pointer-coarse:h-10">
                             <Button
                                 variant="ghost"
                                 size="icon"
-                                className="h-5 w-5"
+                                className="h-5 w-5 pointer-coarse:h-9 pointer-coarse:w-9"
                                 disabled={currentBranchIndex <= 1}
                                 onClick={() => onNavigateBranch?.(id, 'prev')}
                             >
@@ -461,7 +466,7 @@ export const ChatBubble = memo(function ChatBubble({
                             <Button
                                 variant="ghost"
                                 size="icon"
-                                className="h-5 w-5"
+                                className="h-5 w-5 pointer-coarse:h-9 pointer-coarse:w-9"
                                 disabled={currentBranchIndex >= totalBranches}
                                 onClick={() => onNavigateBranch?.(id, 'next')}
                             >

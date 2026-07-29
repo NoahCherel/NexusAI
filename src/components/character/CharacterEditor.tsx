@@ -166,7 +166,7 @@ export function CharacterEditor({ isOpen, onClose, character }: CharacterEditorP
 
     return (
         <Dialog open={isOpen} onOpenChange={onClose}>
-            <DialogContent className="w-[calc(100vw-2rem)] max-w-2xl max-h-[90vh] p-0 overflow-hidden flex flex-col">
+            <DialogContent className="w-[calc(100vw-2rem)] max-w-2xl max-h-[90vh] p-0 overflow-hidden flex flex-col max-sm:w-screen max-sm:max-w-none max-sm:h-dvh max-sm:max-h-none max-sm:rounded-none max-sm:border-0 max-sm:top-0 max-sm:left-0 max-sm:translate-x-0 max-sm:translate-y-0">
                 <DialogHeader className="p-4 border-b bg-muted/30 shrink-0">
                     <div className="flex items-center justify-between">
                         <div className="flex items-center gap-3">

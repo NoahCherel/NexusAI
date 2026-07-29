@@ -13,13 +13,11 @@
 import { useEffect, useRef } from 'react';
 import type { CharacterCard } from '@/types/character';
 import type { Message } from '@/types/chat';
-import type { WorldFact } from '@/types/rag';
 import { useSettingsStore } from '@/stores/settings-store';
 import { backgroundAICall } from '@/lib/ai/background-ai';
 import { embedText } from '@/lib/ai/embedding-service';
 import { indexMessageChunk } from '@/lib/ai/rag-service';
 import { getAdaptiveChunkSize } from '@/lib/ai/message-quality';
-import { deduplicateFacts } from '@/lib/ai/fact-extractor';
 import {
     shouldCreateL0Summary,
     shouldCreateL1Summary,
@@ -37,7 +35,7 @@ import {
     SUMMARIZATION_PROMPT_L1,
     SUMMARIZATION_PROMPT_L2,
 } from '@/lib/ai/hierarchical-summarizer';
-import { saveFactsBatch, getFactsByConversation, getSummariesByConversation } from '@/lib/db';
+import { getSummariesByConversation } from '@/lib/db';
 import { runPostBeatAnalyses, type PostBeatParams } from '@/lib/ai/post-beat';
 
 export type { PostBeatParams };
@@ -150,41 +148,10 @@ export function useBackgroundPipeline({
                                     branchPath
                                 );
 
-                                // Extract facts from key facts
-                                if (parsed.keyFacts.length > 0) {
-                                    const existingFacts =
-                                        await getFactsByConversation(activeConversationId);
-                                    const newFacts: Omit<WorldFact, 'id' | 'embedding'>[] =
-                                        parsed.keyFacts.map((kf) => ({
-                                            conversationId: activeConversationId,
-                                            messageId: chunk[chunk.length - 1].id,
-                                            fact: kf,
-                                            category: 'event' as const,
-                                            importance: 5,
-                                            active: true,
-                                            timestamp: Date.now(),
-                                            relatedEntities: [],
-                                            lastAccessedAt: Date.now(),
-                                            accessCount: 0,
-                                        }));
-
-                                    const deduped = deduplicateFacts(newFacts, existingFacts);
-                                    if (deduped.length > 0) {
-                                        const factsWithIds: WorldFact[] = deduped.map((f) => ({
-                                            ...f,
-                                            id: crypto.randomUUID(),
-                                            embedding: [],
-                                            branchPath,
-                                        }));
-
-                                        // Embed facts in background
-                                        for (const fact of factsWithIds) {
-                                            fact.embedding = await embedText(fact.fact);
-                                        }
-
-                                        await saveFactsBatch(factsWithIds);
-                                    }
-                                }
+                                // NOTE: keyFacts deliberately do NOT become WorldFacts —
+                                // fact-extractor (post-beat) is the single producer. The
+                                // keyFacts stay inside the summary (searchable via its
+                                // embedding); a second producer here created duplicates.
 
                                 console.log('[RAG] L0 summary created:', summary.id);
                             }

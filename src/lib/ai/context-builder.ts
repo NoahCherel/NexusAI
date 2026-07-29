@@ -26,6 +26,7 @@ interface LorebookConfig {
     matchWholeWords?: boolean;
     characterName?: string; // AI Character name to prioritize in lorebook
     userPersonaName?: string; // User's persona name to prioritize in lorebook
+    extraScanText?: string; // Injected canon/journal/relations text — entries fire on facts too
 }
 
 /**
@@ -42,11 +43,14 @@ export function getActiveLorebookEntries(
     const entries = lorebook.entries.filter((e) => e.enabled);
     if (entries.length === 0) return [];
 
-    const { scanDepth = 2, tokenBudget = 500, recursive = false, matchWholeWords = false, characterName, userPersonaName } = config;
+    const { scanDepth = 4, tokenBudget = 500, recursive = false, matchWholeWords = false, characterName, userPersonaName, extraScanText } = config;
 
-    // 1. Get text to scan
+    // 1. Get text to scan — recent messages plus whatever the other memory systems are
+    // injecting this turn (canon dossiers, RP journal, relations).
     const messagesToScan = messages.slice(-scanDepth);
-    const scanText = messagesToScan.map((m) => m.content.toLowerCase()).join('\n');
+    const scanText =
+        messagesToScan.map((m) => m.content.toLowerCase()).join('\n') +
+        (extraScanText ? '\n' + extraScanText.toLowerCase() : '');
 
     const matchedEntries = new Set<LorebookEntry>();
     let currentTokenCount = 0;
@@ -431,7 +435,8 @@ export function buildDynamicContextBlock(options: DynamicContextOptions): string
     if (parts.length === 0) return '';
 
     return (
-        `[CURRENT CONTEXT — up-to-date reference for this turn. The durable rules and canon above still apply.]\n\n` +
+        `[CURRENT CONTEXT — up-to-date reference for this turn. The durable rules and canon above still apply.\n` +
+        `Priority of truth: CANON > IN THIS RP > Story summary > Relevant past events > Lorebook. On conflict, the higher source wins.]\n\n` +
         parts.join('\n\n')
     );
 }

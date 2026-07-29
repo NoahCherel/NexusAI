@@ -101,6 +101,13 @@ export function useChatGeneration({
             isImpersonation?: boolean;
             prefill?: string;
             skipFactExtraction?: boolean;
+            /**
+             * Continue-in-place for providers WITHOUT assistant prefill (NanoGPT/OpenAI):
+             * `history` must END with this existing assistant message; the model gets an
+             * explicit continue instruction and the streamed continuation is appended to
+             * the message (overlap-deduped) instead of creating a new one.
+             */
+            continueTargetId?: string;
         } = {}
     ) => {
         if (!currentApiKey || !character) return;
@@ -120,7 +127,33 @@ export function useChatGeneration({
         const activePersona = personas.find((p) => p.id === activePersonaId);
         const activeEngine = getActiveEngine();
 
-        // 1. Active lorebook entries — single shared resolver (hybrid: keyword + semantic).
+        // 1. Canon Codex first (immutable identity + Arc + momentum + relationships): its
+        // injected text also feeds the lorebook keyword scan below, so entries fire on
+        // canon/journal facts, not just recent messages.
+        // persistSticky: generation updates the sticky-cast window (previews never mutate).
+        const currentConv = conversations.find((c) => c.id === activeConversationId);
+        const combinedMemory = [...(currentConv?.notes || []), ...(character.longTermMemory || [])];
+        const canonOptions = await buildCanonOptions(
+            character,
+            currentConv,
+            history,
+            activePersona?.name || 'the player',
+            { persistSticky: true }
+        );
+        const canonScanText = [
+            ...(canonOptions.canonDossiers ?? []).map(
+                (d) => `${d.character}\n${d.identity}\n${d.backstory ?? ''}`
+            ),
+            ...Object.entries(canonOptions.rpJournal ?? {}).flatMap(([name, notes]) => [
+                name,
+                ...notes,
+            ]),
+            canonOptions.relationshipBlock ?? '',
+        ]
+            .filter(Boolean)
+            .join('\n');
+
+        // 2. Active lorebook entries — single shared resolver (hybrid: keyword + semantic).
         const lastUserMsg = history[history.length - 1]?.content || '';
         const activeEntries = await resolveActiveLorebookEntries({
             messages: history,
@@ -131,21 +164,8 @@ export function useChatGeneration({
             hybrid: true,
             queryText: lastUserMsg,
             tokenBudget: activePreset?.lorebookTokenBudget ?? 2000,
+            extraScanText: canonScanText || undefined,
         });
-
-        // 2-4. Assemble the payload (system prompt + RP engine + contract + RAG budgeting)
-        // in one place, shared with preview and impersonation.
-        const currentConv = conversations.find((c) => c.id === activeConversationId);
-        const combinedMemory = [...(currentConv?.notes || []), ...(character.longTermMemory || [])];
-        // Canon Codex (immutable identity) + Arc + momentum + relationships, over RP memory.
-        // persistSticky: generation updates the sticky-cast window (previews never mutate).
-        const canonOptions = await buildCanonOptions(
-            character,
-            currentConv,
-            history,
-            activePersona?.name || 'the player',
-            { persistSticky: true }
-        );
 
         const { enableRAGRetrieval, minRAGConfidence, enableScratchpad } =
             useSettingsStore.getState();
@@ -182,6 +202,7 @@ export function useChatGeneration({
                 maxContextTokens,
                 maxOutputTokens,
                 historyCutMessageId: currentConv?.historyCutMessageId,
+                continueFromAssistant: !!options.continueTargetId,
                 retrieveRag:
                     enableRAGRetrieval && activeConversationId
                         ? (ragBudget) =>
@@ -194,6 +215,15 @@ export function useChatGeneration({
                                       recentMessages: history,
                                       activeBranchMessageIds: messages.map((m) => m.id),
                                       minConfidence: minRAGConfidence,
+                                      // Priority of truth: facts restating canon/lorebook
+                                      // content injected this turn are dropped.
+                                      dedupAgainstTexts: [
+                                          ...(canonOptions.canonDossiers ?? []).map(
+                                              (d) =>
+                                                  `${d.identity}\n${d.backstory ?? ''}\n${d.abilities ?? ''}`
+                                          ),
+                                          ...activeEntries.map((e) => e.content),
+                                      ],
                                   }
                               )
                         : undefined,
@@ -216,15 +246,19 @@ export function useChatGeneration({
             );
         }
 
-        // 5. Prepare Target Message (Assistant or User)
+        // 5. Prepare Target Message (Assistant or User). Continue-in-place reuses the
+        // existing message (last of `history`) instead of creating a new one.
         const targetRole = options.isImpersonation ? 'user' : 'assistant';
-        const targetId = crypto.randomUUID();
+        const continuing = !!options.continueTargetId;
+        const targetId = options.continueTargetId ?? crypto.randomUUID();
 
         // Initialize content state
-        const initialContent = options.prefill || '';
+        const initialContent = continuing
+            ? history[history.length - 1]?.content || ''
+            : options.prefill || '';
         let fullContent = initialContent;
 
-        if (activeConversationId) {
+        if (activeConversationId && !continuing) {
             addMessage({
                 id: targetId,
                 conversationId: activeConversationId,
@@ -306,6 +340,25 @@ export function useChatGeneration({
             // refetch (no-op for other providers; the badge only renders for NanoGPT).
             if (activeProvider === 'nanogpt') {
                 window.dispatchEvent(new Event(NANOGPT_USAGE_REFRESH_EVENT));
+            }
+
+            // Continue-in-place: strip the overlap between the end of the original message
+            // and the start of the continuation (models often re-emit the last sentence —
+            // or the whole message — despite the instruction).
+            if (continuing) {
+                let streamed = fullContent.slice(initialContent.length);
+                const maxOverlap = Math.min(initialContent.length, streamed.length);
+                for (let n = maxOverlap; n >= 12; n--) {
+                    if (streamed.startsWith(initialContent.slice(-n))) {
+                        streamed = streamed.slice(n);
+                        break;
+                    }
+                }
+                const needsSpace =
+                    streamed.length > 0 &&
+                    !/\s$/.test(initialContent) &&
+                    !/^[\s.,;:!?…»)"'\]]/.test(streamed);
+                fullContent = initialContent + (needsSpace ? ' ' : '') + streamed;
             }
 
             // Extract the trailing usage sentinel (provider-reported token accounting).
@@ -392,15 +445,22 @@ export function useChatGeneration({
             );
 
             if (activeConversationId) {
-                // Keep the error OUT of `content` (it would be sent back to the model on the
-                // next turn) — ChatBubble renders it as a banner with a Retry action.
-                updateMessage(targetId, {
-                    content: fullContent,
-                    error:
-                        error instanceof Error
-                            ? error.message
-                            : 'Failed to get response. Check API Key or Network.',
-                });
+                if (continuing) {
+                    // A failed continuation must not damage the existing message (and must
+                    // not flag it with `error` — Retry would DELETE it). Restore and let
+                    // the notification carry the failure.
+                    updateMessage(targetId, { content: initialContent });
+                } else {
+                    // Keep the error OUT of `content` (it would be sent back to the model on
+                    // the next turn) — ChatBubble renders it as a banner with a Retry action.
+                    updateMessage(targetId, {
+                        content: fullContent,
+                        error:
+                            error instanceof Error
+                                ? error.message
+                                : 'Failed to get response. Check API Key or Network.',
+                    });
+                }
             }
         } finally {
             setIsLoading(false);
@@ -607,17 +667,21 @@ export function useChatGeneration({
         // Only continue assistant messages
         if (msgToContinue.role !== 'assistant') return;
 
-        // Use the current content as prefill - AI will continue from where it left off
-        const prefill = msgToContinue.content + ' ';
-
-        // Get history up to and including this message's parent (the user message before it)
-        const history = messages.slice(0, msgIndex);
-
-        // Delete the current message so it can be replaced with the continued version
-        deleteMessage(id);
-
-        // Trigger AI with prefill
-        await triggerAiReponse(history, { prefill, skipFactExtraction: true });
+        const supportsPrefill = activeProvider === 'anthropic' || activeProvider === 'openrouter';
+        if (supportsPrefill) {
+            // Prefill path: the trailing assistant message makes the model literally keep
+            // typing. Replace the message with prefill + continuation.
+            const prefill = msgToContinue.content + ' ';
+            const history = messages.slice(0, msgIndex);
+            deleteMessage(id);
+            await triggerAiReponse(history, { prefill, skipFactExtraction: true });
+        } else {
+            // No prefill support (NanoGPT/OpenAI): keep the message in place and in the
+            // history, instruct an explicit continuation, append it (overlap-deduped).
+            // The old code deleted the message and regenerated everything — duplicated text.
+            const history = messages.slice(0, msgIndex + 1);
+            await triggerAiReponse(history, { continueTargetId: id, skipFactExtraction: true });
+        }
     };
 
     // Retry a failed generation: drop the errored message and regenerate from the same point.

@@ -7,7 +7,7 @@
  */
 
 import type { CharacterCard } from '@/types/character';
-import type { Conversation, Message } from '@/types/chat';
+import { USER_REL_KEY, type Conversation, type Message } from '@/types/chat';
 import type { CanonDossier } from '@/types/canon';
 import { getCanonDossiersByWork, getArcOutline } from '@/lib/db';
 import { deriveWorkFromName } from '@/lib/ai/canon-retrieval';
@@ -59,10 +59,18 @@ export function getActiveCanonNames(
     recentMessages: Message[],
     depth = 10
 ): string[] {
+    // Fallback roster for cards without a canonCast: the names seen in the directional
+    // relationship system (the live one — the legacy scalar worldState is frozen).
     const roster =
         card.canonCast && card.canonCast.length > 0
             ? card.canonCast
-            : Object.keys(conversation?.worldState?.relationships || {});
+            : Array.from(
+                  new Set(
+                      (conversation?.relationships || [])
+                          .flatMap((r) => [r.from, r.to])
+                          .filter((n) => n !== USER_REL_KEY)
+                  )
+              );
     if (roster.length === 0) return [];
     const text = recentMessages
         .slice(-depth)

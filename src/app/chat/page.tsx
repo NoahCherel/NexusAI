@@ -458,7 +458,9 @@ export default function ChatPage() {
     }
 
     return (
-        <div className="flex h-screen bg-background overflow-hidden">
+        // h-dvh (not h-screen/100vh): correct height on mobile Safari/Chrome where the URL
+        // bar collapses; keeps the input visible with the keyboard open.
+        <div className="flex h-dvh bg-background overflow-hidden">
             <main className="flex-1 flex flex-col min-w-0">
                 {character ? (
                     <>
@@ -664,7 +666,7 @@ export default function ChatPage() {
             <SettingsPanel open={isSettingsOpen} onOpenChange={setIsSettingsOpen} />
 
             <Dialog open={isLorebookOpen} onOpenChange={setIsLorebookOpen}>
-                <DialogContent className="!max-w-[95vw] !w-[95vw] h-[90vh] p-0 overflow-hidden [&>button]:hidden flex flex-col">
+                <DialogContent className="!max-w-[95vw] !w-[95vw] h-[90vh] p-0 overflow-hidden [&>button]:hidden flex flex-col max-sm:!w-screen max-sm:!max-w-none max-sm:h-dvh max-sm:rounded-none max-sm:border-0 max-sm:top-0 max-sm:left-0 max-sm:translate-x-0 max-sm:translate-y-0">
                     <DialogTitle className="sr-only">Lorebook Editor</DialogTitle>
                     <DialogDescription className="sr-only">
                         Edit lorebook entries for this character.
@@ -678,7 +680,7 @@ export default function ChatPage() {
             <MemoryPanel isOpen={isMemoryOpen} onClose={() => setIsMemoryOpen(false)} />
 
             <Dialog open={isCanonOpen} onOpenChange={setIsCanonOpen}>
-                <DialogContent className="!max-w-[95vw] !w-[95vw] h-[90vh] p-0 overflow-hidden [&>button]:hidden flex flex-col">
+                <DialogContent className="!max-w-[95vw] !w-[95vw] h-[90vh] p-0 overflow-hidden [&>button]:hidden flex flex-col max-sm:!w-screen max-sm:!max-w-none max-sm:h-dvh max-sm:rounded-none max-sm:border-0 max-sm:top-0 max-sm:left-0 max-sm:translate-x-0 max-sm:translate-y-0">
                     <DialogTitle className="sr-only">Canon Codex</DialogTitle>
                     <DialogDescription className="sr-only">
                         Arc Compass, casting canon et outils du Directeur.

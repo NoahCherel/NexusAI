@@ -35,7 +35,7 @@ export function ChatToolbar({
             <Button
                 variant="ghost"
                 size="sm"
-                className="h-8 w-8 p-0 text-muted-foreground hover:text-foreground shrink-0"
+                className="h-8 w-8 pointer-coarse:h-10 pointer-coarse:w-10 p-0 text-muted-foreground hover:text-foreground shrink-0"
                 onClick={onOpenLorebook}
                 title="Lorebook"
             >
@@ -45,7 +45,7 @@ export function ChatToolbar({
                 <Button
                     variant="ghost"
                     size="sm"
-                    className="h-8 w-8 p-0 text-muted-foreground hover:text-foreground shrink-0"
+                    className="h-8 w-8 pointer-coarse:h-10 pointer-coarse:w-10 p-0 text-muted-foreground hover:text-foreground shrink-0"
                     onClick={onOpenRelations}
                     title="Relations"
                 >
@@ -55,7 +55,7 @@ export function ChatToolbar({
             <Button
                 variant="ghost"
                 size="sm"
-                className="h-8 w-8 p-0 text-muted-foreground hover:text-foreground shrink-0"
+                className="h-8 w-8 pointer-coarse:h-10 pointer-coarse:w-10 p-0 text-muted-foreground hover:text-foreground shrink-0"
                 onClick={onOpenTree}
                 title="View Branch Tree"
             >
@@ -64,7 +64,7 @@ export function ChatToolbar({
             <Button
                 variant="ghost"
                 size="sm"
-                className="h-8 w-8 p-0 text-muted-foreground hover:text-foreground shrink-0"
+                className="h-8 w-8 pointer-coarse:h-10 pointer-coarse:w-10 p-0 text-muted-foreground hover:text-foreground shrink-0"
                 onClick={onOpenMemory}
                 title="Long-Term Memory"
             >
@@ -73,7 +73,7 @@ export function ChatToolbar({
             <Button
                 variant="ghost"
                 size="sm"
-                className="h-8 w-8 p-0 text-muted-foreground hover:text-foreground shrink-0"
+                className="h-8 w-8 pointer-coarse:h-10 pointer-coarse:w-10 p-0 text-muted-foreground hover:text-foreground shrink-0"
                 onClick={onOpenCanon}
                 title="Canon Codex (Arc + Casting + Directeur)"
             >
@@ -82,7 +82,7 @@ export function ChatToolbar({
             <Button
                 variant="ghost"
                 size="sm"
-                className="h-8 w-8 p-0 text-muted-foreground hover:text-foreground shrink-0"
+                className="h-8 w-8 pointer-coarse:h-10 pointer-coarse:w-10 p-0 text-muted-foreground hover:text-foreground shrink-0"
                 onClick={onContextPreview}
                 title="Context Preview"
             >

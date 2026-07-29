@@ -23,12 +23,15 @@ import {
     deduplicateFacts,
 } from '@/lib/ai/fact-extractor';
 import { scoreMessageQuality } from '@/lib/ai/message-quality';
-import { deriveWorldStateUpdates, applyWorldStateUpdate } from '@/lib/ai/world-state-updater';
 import { resolveWork, nameMatchesText } from '@/lib/ai/canon-context';
 import { fetchCharacterDossier } from '@/lib/ai/canon-retrieval';
 import { detectStall, buildMomentumNudge } from '@/lib/ai/momentum';
 import { analyzeAndUpdateRelationships } from '@/lib/ai/relationship-analyst';
-import { embedText } from '@/lib/ai/embedding-service';
+import {
+    embedText,
+    isEmbedderReady,
+    getEmbeddingModelSignature,
+} from '@/lib/ai/embedding-service';
 import { saveFactsBatch, getFactsByConversation } from '@/lib/db';
 
 export interface PostBeatParams {
@@ -179,28 +182,18 @@ export function runPostBeatAnalyses(params: PostBeatParams): void {
                             ...f,
                             id: crypto.randomUUID(),
                             embedding: emb,
+                            embeddingRevision: isEmbedderReady()
+                                ? getEmbeddingModelSignature()
+                                : undefined,
                             branchPath: branchMessageIds,
                         });
                     }
                     await saveFactsBatch(factsWithIds);
                     console.log(`[RAG] Extracted ${factsWithIds.length} facts from response`);
-
-                    // Auto-update world state from extracted facts
-                    try {
-                        const wsUpdates = deriveWorldStateUpdates(
-                            factsWithIds,
-                            worldState,
-                            character.name,
-                            personaName || 'You'
-                        );
-                        const wsChanges = applyWorldStateUpdate(worldState, wsUpdates);
-                        if (wsChanges) {
-                            useChatStore.getState().updateWorldState(conversationId, wsChanges);
-                            console.log('[RAG] Auto world state update:', wsChanges);
-                        }
-                    } catch (wsErr) {
-                        console.warn('[RAG] Auto world state update failed:', wsErr);
-                    }
+                    // NOTE: the legacy scalar worldState (location/inventory/relationship
+                    // numbers) is no longer auto-written — directional relationships + facts
+                    // are the live systems. Existing data stays readable; manual edits in
+                    // the World State panel still work.
                 } catch (err) {
                     console.error('[RAG] Fact extraction failed:', err);
                 }

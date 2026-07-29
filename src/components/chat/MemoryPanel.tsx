@@ -330,7 +330,9 @@ export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
         setMergeResult('');
         try {
             const { mergeRelatedFacts } = await import('@/lib/ai/fact-extractor');
-            const { embedText } = await import('@/lib/ai/embedding-service');
+            const { embedText, isEmbedderReady, getEmbeddingModelSignature } = await import(
+                '@/lib/ai/embedding-service'
+            );
             const { initDB } = await import('@/lib/db');
 
             const { mergedFacts, deletedIds, clusterCount } = mergeRelatedFacts(facts, 0.7);
@@ -355,6 +357,9 @@ export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
                     ...f,
                     id: crypto.randomUUID(),
                     embedding: await embedText(f.fact),
+                    embeddingRevision: isEmbedderReady()
+                        ? getEmbeddingModelSignature()
+                        : undefined,
                 }))
             );
 
@@ -430,11 +435,8 @@ export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
                 SUMMARIZATION_PROMPT_L2,
                 parseSummarizationResponse,
             } = await import('@/lib/ai/hierarchical-summarizer');
-            const { deduplicateFacts } = await import('@/lib/ai/fact-extractor');
             const {
-                saveFactsBatch,
                 getSummariesByConversation: getSummaries,
-                getFactsByConversation: getFacts,
                 deleteSummariesByConversation,
                 deleteVectorsByConversation,
             } = await import('@/lib/db');
@@ -505,33 +507,8 @@ export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
                             importance: 5,
                         });
 
-                        // Extract facts from key facts
-                        if (parsed.keyFacts.length > 0) {
-                            const existingFacts = await getFacts(activeConversationId);
-                            const newFacts = parsed.keyFacts.map((kf) => ({
-                                conversationId: activeConversationId,
-                                messageId: chunk[chunk.length - 1].id,
-                                fact: kf,
-                                category: 'event' as const,
-                                importance: 5,
-                                active: true,
-                                timestamp: Date.now(),
-                                relatedEntities: [] as string[],
-                                lastAccessedAt: Date.now(),
-                                accessCount: 0,
-                            }));
-                            const deduped = deduplicateFacts(newFacts, existingFacts);
-                            if (deduped.length > 0) {
-                                const factsWithIds = await Promise.all(
-                                    deduped.map(async (f) => ({
-                                        ...f,
-                                        id: crypto.randomUUID(),
-                                        embedding: await embedText(f.fact),
-                                    }))
-                                );
-                                await saveFactsBatch(factsWithIds);
-                            }
-                        }
+                        // keyFacts stay inside the summary — fact-extractor (post-beat) is
+                        // the single WorldFact producer (no duplicate facts path).
                     } else {
                         console.warn(`[Reindex] Chunk ${i + 1}: failed to parse summary response`);
                     }
@@ -669,7 +646,7 @@ export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-            <div className="w-full max-w-lg mx-4 bg-background border border-border/50 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[85vh]">
+            <div className="w-full max-w-lg mx-4 bg-background border border-border/50 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[85vh] max-sm:mx-0 max-sm:h-dvh max-sm:max-h-none max-sm:rounded-none max-sm:border-0">
                 {/* Header */}
                 <div className="flex items-center justify-between p-4 border-b bg-muted/30 shrink-0">
                     <div className="flex items-center gap-3 min-w-0">
