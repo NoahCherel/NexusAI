@@ -71,8 +71,7 @@ export default function ChatPage() {
     useAppInitialization();
 
     const scrollRef = useRef<HTMLDivElement>(null);
-    const { getActiveCharacter, removeCharacter, addCharacter } =
-        useCharacterStore();
+    const { getActiveCharacter, removeCharacter } = useCharacterStore();
     const {
         conversations,
         activeConversationId,
@@ -116,6 +115,7 @@ export default function ChatPage() {
         activeProvider,
         activeModel,
         showThoughts,
+        showUsageBadge,
         showWorldState,
         activePersonaId,
         personas,
@@ -188,6 +188,27 @@ export default function ChatPage() {
                 const newId = await createConversation(character.id, `Chat with ${character.name}`);
 
                 if (character.first_mes) {
+                    // Seed the greeting + V2 alternate greetings as swipable ROOT siblings.
+                    // addMessage activates the latest-added sibling, so the alternates go in
+                    // first and first_mes last (with the earliest createdAt, so the sibling
+                    // sort shows it as 1/N and it starts active).
+                    const base = Date.now();
+                    const alternates = (character.alternate_greetings ?? []).filter((g) =>
+                        g?.trim()
+                    );
+                    alternates.forEach((greeting, i) => {
+                        addMessage({
+                            id: crypto.randomUUID(),
+                            conversationId: newId,
+                            parentId: null,
+                            role: 'assistant',
+                            content: greeting,
+                            isActiveBranch: true,
+                            createdAt: new Date(base + 1 + i),
+                            messageOrder: 1,
+                            regenerationIndex: 0,
+                        });
+                    });
                     addMessage({
                         id: crypto.randomUUID(),
                         conversationId: newId,
@@ -195,7 +216,7 @@ export default function ChatPage() {
                         role: 'assistant',
                         content: character.first_mes,
                         isActiveBranch: true,
-                        createdAt: new Date(),
+                        createdAt: new Date(base),
                         messageOrder: 1,
                         regenerationIndex: 0,
                     });
@@ -330,6 +351,7 @@ export default function ChatPage() {
             activeProvider,
             maxContextTokens,
             maxOutputTokens,
+            historyCutMessageId: conv?.historyCutMessageId,
             retrieveRag: (ragBudget) =>
                 retrieveRelevantContext(lastMsg, activeConversationId, ragBudget, {
                     worldState,
@@ -508,6 +530,9 @@ export default function ChatPage() {
                                                         content={displayContent}
                                                         thought={msg.thought}
                                                         error={msg.error}
+                                                        usage={
+                                                            showUsageBadge ? msg.usage : undefined
+                                                        }
                                                         avatar={
                                                             msg.role === 'user'
                                                                 ? personas.find(

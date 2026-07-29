@@ -161,12 +161,22 @@ function wordOverlapMatch(appearsInArcs: string[] | undefined, context: string):
 }
 
 const SCAN_DEPTH = 10;
+// A dossier stays injected for this many beats after its last mention: the (cached) stable
+// system prompt must not flap when a name briefly drops out of the recent-scan window.
+const STICKY_WINDOW = 20;
 
 export async function buildCanonOptions(
     card: CharacterCard,
     conversation: Conversation | undefined,
     recentMessages: Message[],
-    userName = 'the player'
+    userName = 'the player',
+    options: {
+        /**
+         * Persist the updated sticky-cast map on the conversation (generation only —
+         * previews must not mutate state).
+         */
+        persistSticky?: boolean;
+    } = {}
 ): Promise<CanonPromptOptions> {
     // Master switch: when off, nothing canon-related reaches the prompt.
     if (!useSettingsStore.getState().useCanonCodex) return {};
@@ -177,7 +187,28 @@ export async function buildCanonOptions(
     const all = await getCanonDossiersByWork(work);
     const isInjectable = (d: CanonDossier) => d.enabled !== false && !d.stub && !!d.identity.trim();
 
-    const activeNameList = getActiveCanonNames(card, conversation, recentMessages, SCAN_DEPTH);
+    // Sticky cast: mentioned-now names refresh their timestamp; names mentioned within the
+    // window stay on stage even if they dropped out of the last SCAN_DEPTH messages.
+    const historyLength = recentMessages.length;
+    const mentionedNow = getActiveCanonNames(card, conversation, recentMessages, SCAN_DEPTH);
+    const sticky: Record<string, number> = {};
+    for (const [name, lastSeen] of Object.entries(conversation?.stickyCast || {})) {
+        if (historyLength - lastSeen <= STICKY_WINDOW) sticky[name] = lastSeen;
+    }
+    for (const name of mentionedNow) sticky[name] = historyLength;
+
+    if (options.persistSticky && conversation) {
+        const prev = conversation.stickyCast || {};
+        const changed =
+            Object.keys(sticky).length !== Object.keys(prev).length ||
+            Object.entries(sticky).some(([k, v]) => prev[k] !== v);
+        if (changed) {
+            const { useChatStore } = await import('@/stores/chat-store');
+            useChatStore.getState().setStickyCast(conversation.id, sticky);
+        }
+    }
+
+    const activeNameList = Object.keys(sticky).sort((a, b) => a.localeCompare(b));
     const activeNames = new Set(activeNameList.map((n) => n.toLowerCase()));
 
     // Partition for diagnostics: injected vs stub vs disabled, among mentioned cast members.

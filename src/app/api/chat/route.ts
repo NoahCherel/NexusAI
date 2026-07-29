@@ -34,6 +34,9 @@ export async function POST(req: NextRequest) {
             webSearch,
             webMaxResults,
             disableReasoning,
+            // Number of leading messages forming the cache-stable prefix (system + history).
+            // Used to place explicit cache_control breakpoints for Claude models.
+            cachePrefixLength,
         } = await req.json();
 
         if (!apiKey) {
@@ -210,6 +213,39 @@ export async function POST(req: NextRequest) {
             throw new Error('Invalid provider');
         }
 
+        // Explicit prompt-cache breakpoints for Claude models (OpenRouter passes
+        // `cache_control` through to Anthropic). Mark the system message and the last
+        // message of the stable prefix; Anthropic then prefix-matches on earlier
+        // breakpoints as the window grows. Requires multipart content.
+        const isClaudeModel =
+            provider === 'anthropic' || /claude|anthropic/i.test(String(effectiveModelId));
+        if (isClaudeModel && typeof cachePrefixLength === 'number' && cachePrefixLength >= 1) {
+            const marks = new Set([0, Math.min(cachePrefixLength, fullMessages.length) - 1]);
+            for (const i of marks) {
+                const m = fullMessages[i] as { content: unknown };
+                if (typeof m.content === 'string') {
+                    m.content = [
+                        {
+                            type: 'text',
+                            text: m.content,
+                            cache_control: { type: 'ephemeral' },
+                        },
+                    ];
+                }
+            }
+        }
+
+        // Token usage reporting: ask for the usage chunk at the end of the stream, and (on
+        // OpenRouter) for the accounted cost. Forwarded to the client as a trailing
+        // sentinel line. NanoGPT is skipped defensively (compatibility unverified — a 400
+        // here would break the user's main RP flow); the client estimates locally instead.
+        if (provider === 'openrouter' || provider === 'anthropic' || provider === 'openai') {
+            requestBody.stream_options = { include_usage: true };
+        }
+        if (provider === 'openrouter' || provider === 'anthropic') {
+            requestBody.usage = { include: true };
+        }
+
         // Create streaming response using OpenAI SDK
         // The stream: true option returns an AsyncIterable
         const stream = await client.chat.completions.create({
@@ -221,8 +257,19 @@ export async function POST(req: NextRequest) {
         const encoder = new TextEncoder();
         const readableStream = new ReadableStream({
             async start(controller) {
+                // The usage chunk arrives AFTER the finish_reason chunk — never break early.
+                interface StreamUsage {
+                    prompt_tokens?: number;
+                    completion_tokens?: number;
+                    prompt_tokens_details?: { cached_tokens?: number };
+                    cost?: number;
+                }
+                let usageData: StreamUsage | null = null;
                 try {
                     for await (const chunk of stream) {
+                        const chunkUsage = (chunk as { usage?: StreamUsage }).usage;
+                        if (chunkUsage) usageData = chunkUsage;
+
                         const delta = chunk.choices[0]?.delta;
 
                         if (delta?.content) {
@@ -252,9 +299,19 @@ export async function POST(req: NextRequest) {
                             }
                         }
 
-                        if (chunk.choices[0]?.finish_reason) {
-                            break;
-                        }
+                    }
+                    // Trailing usage sentinel, parsed (and stripped) by the client.
+                    if (usageData) {
+                        controller.enqueue(
+                            encoder.encode(
+                                `\n<|nexus_usage|>${JSON.stringify({
+                                    promptTokens: usageData.prompt_tokens,
+                                    completionTokens: usageData.completion_tokens,
+                                    cachedTokens: usageData.prompt_tokens_details?.cached_tokens,
+                                    cost: usageData.cost,
+                                })}`
+                            )
+                        );
                     }
                     controller.close();
                 } catch (error) {

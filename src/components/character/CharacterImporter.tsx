@@ -3,8 +3,10 @@
 import { useCallback, useState } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Upload, FileImage, AlertCircle, CheckCircle, Plus } from 'lucide-react';
+import { Upload, FileImage, AlertCircle, CheckCircle, Plus, Link2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { detectImportUrl } from '@/lib/import/url-detector';
 import {
     Dialog,
     DialogContent,
@@ -29,8 +31,86 @@ export function CharacterImporter({ trigger, onImported, isCollapsed }: Characte
     const [status, setStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
     const [error, setError] = useState<string | null>(null);
     const [importedChar, setImportedChar] = useState<CharacterCard | null>(null);
+    const [importUrl, setImportUrl] = useState('');
 
     const addCharacter = useCharacterStore((state) => state.addCharacter);
+
+    const finishImport = useCallback(
+        (character: CharacterCard) => {
+            setImportedChar(character);
+            addCharacter(character);
+            setStatus('success');
+            onImported?.(character);
+
+            // Auto-close after success
+            setTimeout(() => {
+                setIsOpen(false);
+                setStatus('idle');
+                setImportedChar(null);
+            }, 2000);
+        },
+        [addCharacter, onImported]
+    );
+
+    // Import by URL — the local Next server proxies the platform APIs (no CORS, no
+    // datacenter IP). JannyAI's API sits behind a Cloudflare challenge that blocks
+    // non-browser TLS fingerprints, so when the server gets challenged we retry the API
+    // call from THIS browser (real Chrome fingerprint) and only proxy the final PNG.
+    const handleUrlImport = useCallback(async () => {
+        const url = importUrl.trim();
+        if (!url) return;
+        const detected = detectImportUrl(url);
+        if (!detected) {
+            setError(
+                'URL non reconnue. Plateformes supportées : JannyAI, Chub.ai / CharacterHub, Pygmalion, RisuAI Realm, AICharacterCards.'
+            );
+            setStatus('error');
+            return;
+        }
+
+        setStatus('loading');
+        setError(null);
+        try {
+            let res = await fetch('/api/import', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ url }),
+            });
+            let data = await res.json();
+
+            // Cloudflare fallback (JannyAI): resolve the download URL from the browser
+            // itself, then let the server fetch the PNG (CORS-free parse + avatar).
+            if (!res.ok && data.kind === 'cloudflare' && detected.platform === 'jannyai') {
+                const api = await fetch('https://api.jannyai.com/api/v1/download', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ characterId: detected.id }),
+                });
+                const apiData = await api.json();
+                if (api.ok && apiData.status === 'ok' && apiData.downloadUrl) {
+                    res = await fetch('/api/import', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ pngUrl: apiData.downloadUrl }),
+                    });
+                    data = await res.json();
+                }
+            }
+
+            if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+
+            const character: CharacterCard = {
+                ...data.card,
+                id: crypto.randomUUID(),
+                avatar: data.avatarDataUrl || data.card.avatar || '',
+            };
+            setImportUrl('');
+            finishImport(character);
+        } catch (err) {
+            setError(err instanceof Error ? err.message : "Erreur lors de l'import");
+            setStatus('error');
+        }
+    }, [importUrl, finishImport]);
 
     const onDrop = useCallback(
         async (acceptedFiles: File[]) => {
@@ -42,23 +122,13 @@ export function CharacterImporter({ trigger, onImported, isCollapsed }: Characte
 
             try {
                 const character = await importCharacterCard(file);
-                setImportedChar(character);
-                addCharacter(character);
-                setStatus('success');
-                onImported?.(character);
-
-                // Auto-close after success
-                setTimeout(() => {
-                    setIsOpen(false);
-                    setStatus('idle');
-                    setImportedChar(null);
-                }, 2000);
+                finishImport(character);
             } catch (err) {
                 setError(err instanceof Error ? err.message : "Erreur lors de l'import");
                 setStatus('error');
             }
         },
-        [addCharacter, onImported]
+        [finishImport]
     );
 
     const { getRootProps, getInputProps, isDragActive } = useDropzone({
@@ -97,10 +167,40 @@ export function CharacterImporter({ trigger, onImported, isCollapsed }: Characte
                 <DialogHeader>
                     <DialogTitle>Import Character</DialogTitle>
                     <DialogDescription>
-                        Drag & drop a Character Card V2 (PNG or JSON) from Chub, JanitorAI, or
-                        SillyTavern.
+                        Collez une URL de carte, ou glissez un fichier Character Card (PNG/JSON).
                     </DialogDescription>
                 </DialogHeader>
+
+                {/* Import by URL */}
+                <div className="mt-2 space-y-1.5">
+                    <div className="flex gap-2">
+                        <Input
+                            value={importUrl}
+                            onChange={(e) => setImportUrl(e.target.value)}
+                            onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                    e.preventDefault();
+                                    void handleUrlImport();
+                                }
+                            }}
+                            placeholder="https://jannyai.com/characters/… ou chub.ai/characters/…"
+                            disabled={status === 'loading'}
+                            className="h-9"
+                        />
+                        <Button
+                            onClick={() => void handleUrlImport()}
+                            disabled={!importUrl.trim() || status === 'loading'}
+                            className="h-9 gap-1.5 shrink-0"
+                        >
+                            <Link2 className="h-4 w-4" />
+                            Importer
+                        </Button>
+                    </div>
+                    <p className="text-[11px] text-muted-foreground">
+                        JannyAI (miroir JanitorAI) · Chub.ai / CharacterHub · Pygmalion · RisuAI ·
+                        AICharacterCards — ou glissez un fichier ci-dessous.
+                    </p>
+                </div>
 
                 <div
                     {...getRootProps()}

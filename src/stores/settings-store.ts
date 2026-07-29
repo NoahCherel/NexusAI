@@ -191,6 +191,8 @@ interface SettingsState {
     // Per-response <scratchpad> working memory. Costs output tokens on every reply and
     // invalidates prompt caching, so it's opt-in.
     enableScratchpad: boolean;
+    // Per-message token/cost badge under assistant replies.
+    showUsageBadge: boolean;
     // Directional relationship analyst (one background call per beat).
     enableRelationshipAnalyst: boolean;
     // Anti-stall detection + one-shot momentum nudge.
@@ -232,6 +234,7 @@ interface SettingsState {
     setBackgroundModel: (model: string | null) => void;
     setNanogptBackgroundModel: (model: string | null) => void;
     setEnableScratchpad: (enabled: boolean) => void;
+    setShowUsageBadge: (enabled: boolean) => void;
     setEnableRelationshipAnalyst: (enabled: boolean) => void;
     setEnableMomentum: (enabled: boolean) => void;
     setEnableFactExtraction: (enabled: boolean) => void;
@@ -286,6 +289,7 @@ export const useSettingsStore = create<SettingsState>()(
             backgroundModel: null,
             nanogptBackgroundModel: null,
             enableScratchpad: false,
+            showUsageBadge: true,
             enableRelationshipAnalyst: true,
             enableMomentum: true,
             enableFactExtraction: true,
@@ -350,6 +354,7 @@ export const useSettingsStore = create<SettingsState>()(
             setBackgroundModel: (backgroundModel) => set({ backgroundModel }),
             setNanogptBackgroundModel: (nanogptBackgroundModel) => set({ nanogptBackgroundModel }),
             setEnableScratchpad: (enableScratchpad) => set({ enableScratchpad }),
+            setShowUsageBadge: (showUsageBadge) => set({ showUsageBadge }),
             setEnableRelationshipAnalyst: (enableRelationshipAnalyst) =>
                 set({ enableRelationshipAnalyst }),
             setEnableMomentum: (enableMomentum) => set({ enableMomentum }),

@@ -34,6 +34,8 @@ interface ChatState {
     appendRpJournal: (conversationId: string, character: string, note: string) => void;
     setRpJournalForCharacter: (conversationId: string, character: string, notes: string[]) => void;
     setMomentumNudge: (conversationId: string, nudge: string | undefined) => void;
+    setHistoryCut: (conversationId: string, messageId: string | undefined) => void;
+    setStickyCast: (conversationId: string, stickyCast: Record<string, number>) => void;
     setBanList: (conversationId: string, banList: string[]) => void;
     getActiveBranchBanList: (conversationId: string) => string[];
     setRelationships: (conversationId: string, relationships: DirectedRelationship[]) => void;
@@ -591,6 +593,38 @@ export const useChatStore = create<ChatState>()((set, get) => ({
         if (conversationToUpdate) saveConversation(conversationToUpdate).catch(console.error);
     },
 
+    // Prompt-cache hysteresis: persist the history-window anchor chosen by the payload
+    // builder. NOTE: deliberately does NOT bump updatedAt — this is plumbing, not content.
+    setHistoryCut: (conversationId, messageId) => {
+        let conversationToUpdate: Conversation | undefined;
+        set((state) => ({
+            conversations: state.conversations.map((c) => {
+                if (c.id === conversationId) {
+                    conversationToUpdate = { ...c, historyCutMessageId: messageId };
+                    return conversationToUpdate;
+                }
+                return c;
+            }),
+        }));
+        if (conversationToUpdate) saveConversation(conversationToUpdate).catch(console.error);
+    },
+
+    // Canon cast stickiness (name -> history length at last mention). Same plumbing rule:
+    // no updatedAt bump.
+    setStickyCast: (conversationId, stickyCast) => {
+        let conversationToUpdate: Conversation | undefined;
+        set((state) => ({
+            conversations: state.conversations.map((c) => {
+                if (c.id === conversationId) {
+                    conversationToUpdate = { ...c, stickyCast };
+                    return conversationToUpdate;
+                }
+                return c;
+            }),
+        }));
+        if (conversationToUpdate) saveConversation(conversationToUpdate).catch(console.error);
+    },
+
     // The Style Guard ban list is branch-aware: it is snapshotted onto the active branch
     // tip (like worldStateSnapshot) so swiping/regenerating doesn't carry one branch's
     // learned rules into an unrelated one. conversation.banList remains only as a fallback
@@ -657,11 +691,17 @@ export const useChatStore = create<ChatState>()((set, get) => ({
     navigateToSibling: (currentMessageId, direction) =>
         set((state) => {
             const currentMsg = state.messages.find((m) => m.id === currentMessageId);
-            if (!currentMsg || !currentMsg.parentId) return state;
+            if (!currentMsg) return state;
 
-            // Find all siblings (messages with same parent)
+            // Find all siblings (messages with same parent). Root messages (parentId null,
+            // e.g. the greeting + its alternate greetings) are siblings of each other —
+            // scope by conversation since null doesn't discriminate.
             const siblings = state.messages
-                .filter((m) => m.parentId === currentMsg.parentId)
+                .filter(
+                    (m) =>
+                        m.conversationId === currentMsg.conversationId &&
+                        m.parentId === currentMsg.parentId
+                )
                 .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
 
             const currentIndex = siblings.findIndex((m) => m.id === currentMessageId);
@@ -780,10 +820,15 @@ export const useChatStore = create<ChatState>()((set, get) => ({
     getMessageSiblingsInfo: (messageId) => {
         const messages = get().messages;
         const currentMsg = messages.find((m) => m.id === messageId);
-        if (!currentMsg || !currentMsg.parentId) return { currentIndex: 1, total: 1 };
+        if (!currentMsg) return { currentIndex: 1, total: 1 };
 
+        // Root messages (greeting + alternate greetings) are siblings of each other.
         const siblings = messages
-            .filter((m) => m.parentId === currentMsg.parentId)
+            .filter(
+                (m) =>
+                    m.conversationId === currentMsg.conversationId &&
+                    m.parentId === currentMsg.parentId
+            )
             .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
 
         return {

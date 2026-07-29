@@ -25,7 +25,11 @@ import {
 } from '@/lib/ai/rag-service';
 import { extractLorebookEntries, extractRpDevelopments } from '@/lib/lorebook-extractor';
 import { NANOGPT_USAGE_REFRESH_EVENT } from '@/lib/ai/nanogpt-usage';
+import { countTokens } from '@/lib/tokenizer';
 import type { PostBeatParams } from '@/lib/ai/post-beat';
+
+// Trailing sentinel appended by /api/chat carrying the provider-reported token usage.
+const USAGE_SENTINEL_RE = /\n?<\|nexus_usage\|>(\{[\s\S]*?\})\s*$/;
 
 /** Decrypted key of the ACTIVE provider (null while loading or when none is stored). */
 export function useActiveApiKey(): string | null {
@@ -134,11 +138,13 @@ export function useChatGeneration({
         const currentConv = conversations.find((c) => c.id === activeConversationId);
         const combinedMemory = [...(currentConv?.notes || []), ...(character.longTermMemory || [])];
         // Canon Codex (immutable identity) + Arc + momentum + relationships, over RP memory.
+        // persistSticky: generation updates the sticky-cast window (previews never mutate).
         const canonOptions = await buildCanonOptions(
             character,
             currentConv,
             history,
-            activePersona?.name || 'the player'
+            activePersona?.name || 'the player',
+            { persistSticky: true }
         );
 
         const { enableRAGRetrieval, minRAGConfidence, enableScratchpad } =
@@ -146,8 +152,14 @@ export function useChatGeneration({
         const maxContextTokens = activePreset?.maxContextTokens ?? 16384;
         const maxOutputTokens = activePreset?.maxOutputTokens ?? 2048;
 
-        const { messagesPayload, includedMessageCount, droppedMessageCount, tokenBreakdown } =
-            await buildConversationPayload({
+        const {
+            messagesPayload,
+            includedMessageCount,
+            droppedMessageCount,
+            stablePrefixLength,
+            suggestedCutMessageId,
+            tokenBreakdown,
+        } = await buildConversationPayload({
                 mode: options.isImpersonation ? 'impersonate' : 'generate',
                 character,
                 worldState,
@@ -169,6 +181,7 @@ export function useChatGeneration({
                 activeProvider,
                 maxContextTokens,
                 maxOutputTokens,
+                historyCutMessageId: currentConv?.historyCutMessageId,
                 retrieveRag:
                     enableRAGRetrieval && activeConversationId
                         ? (ragBudget) =>
@@ -189,6 +202,12 @@ export function useChatGeneration({
         // The momentum nudge is one-shot: it has now been injected, so clear it.
         if (currentConv?.momentumNudge && activeConversationId) {
             useChatStore.getState().setMomentumNudge(activeConversationId, undefined);
+        }
+
+        // History window moved (hysteresis overflow): persist the new anchor so following
+        // turns reuse the exact same prefix — that's what lets the provider cache hit.
+        if (suggestedCutMessageId && activeConversationId && !options.isImpersonation) {
+            useChatStore.getState().setHistoryCut(activeConversationId, suggestedCutMessageId);
         }
 
         if (droppedMessageCount > 0) {
@@ -242,6 +261,8 @@ export function useChatGeneration({
                     systemInstruction: undefined,
                     enableReasoning: activePreset?.enableReasoning ?? enableReasoning,
                     useFlexTier: activePreset?.useFlexTier ?? useFlexTier,
+                    // Cache-stable prefix boundary (system + history) for Claude cache_control.
+                    cachePrefixLength: stablePrefixLength,
                 }),
                 signal: abortControllerRef.current.signal,
             });
@@ -287,6 +308,24 @@ export function useChatGeneration({
                 window.dispatchEvent(new Event(NANOGPT_USAGE_REFRESH_EVENT));
             }
 
+            // Extract the trailing usage sentinel (provider-reported token accounting).
+            let usage: CAMessage['usage'];
+            const usageMatch = fullContent.match(USAGE_SENTINEL_RE);
+            if (usageMatch) {
+                fullContent = fullContent.replace(USAGE_SENTINEL_RE, '');
+                try {
+                    const u = JSON.parse(usageMatch[1]);
+                    usage = {
+                        promptTokens: u.promptTokens ?? 0,
+                        completionTokens: u.completionTokens ?? 0,
+                        cachedTokens: u.cachedTokens,
+                        cost: u.cost,
+                    };
+                } catch {
+                    /* malformed sentinel — fall through to the local estimate */
+                }
+            }
+
             // Final parse
             const finalResult = normalizeCoT(fullContent, activeProvider);
 
@@ -306,9 +345,20 @@ export function useChatGeneration({
                     .trim();
             }
 
+            // No provider-reported usage (e.g. NanoGPT) → local tokenizer estimate, so the
+            // per-message badge and quota tracking still work.
+            if (!usage) {
+                usage = {
+                    promptTokens: Math.max(0, tokenBreakdown.total - maxOutputTokens),
+                    completionTokens: countTokens(finalContent),
+                    estimated: true,
+                };
+            }
+
             updateMessage(targetId, {
                 content: finalContent,
                 thought: finalResult.thought || assistantThought || undefined,
+                usage,
             });
 
             // Post-beat pipeline: arc capture + canon dossier fetch, momentum, relationship
@@ -520,6 +570,8 @@ export function useChatGeneration({
                 generatedText += chunk;
             }
 
+            // Strip the trailing usage sentinel — the drafted text goes into the input box.
+            generatedText = generatedText.replace(USAGE_SENTINEL_RE, '');
             const final = normalizeCoT(generatedText, activeProvider);
             return final.content;
         } catch (err) {

@@ -4,10 +4,10 @@
 import type { CharacterCard, CharacterCardV2 } from '@/types';
 
 /**
- * Parse a PNG file to extract Character Card V2 data
+ * Parse PNG bytes to extract Character Card V2 data. Shared by the client file importer
+ * and the server-side URL importer (/api/import) — it only depends on ArrayBuffer.
  */
-export async function parseCharacterCardPNG(file: File): Promise<CharacterCard> {
-    const arrayBuffer = await file.arrayBuffer();
+export function parseCharacterCardPNGBuffer(arrayBuffer: ArrayBuffer): CharacterCard {
     const dataView = new DataView(arrayBuffer);
 
     // Verify PNG signature
@@ -35,7 +35,8 @@ export async function parseCharacterCardPNG(file: File): Promise<CharacterCard> 
             const nullIndex = chunkData.indexOf(0);
             const keyword = new TextDecoder().decode(chunkData.slice(0, nullIndex));
 
-            if (keyword === 'chara') {
+            // 'chara' = V1/V2 cards; 'ccv3' = V3 cards (e.g. RisuAI png-v3 exports).
+            if (keyword === 'chara' || keyword === 'ccv3') {
                 // The rest is base64-encoded JSON
                 const base64Data = new TextDecoder().decode(chunkData.slice(nullIndex + 1));
                 const jsonString = atob(base64Data);
@@ -58,6 +59,13 @@ export async function parseCharacterCardPNG(file: File): Promise<CharacterCard> 
 }
 
 /**
+ * Parse a PNG file to extract Character Card V2 data
+ */
+export async function parseCharacterCardPNG(file: File): Promise<CharacterCard> {
+    return parseCharacterCardPNGBuffer(await file.arrayBuffer());
+}
+
+/**
  * Parse a JSON file as a Character Card
  */
 export async function parseCharacterCardJSON(file: File): Promise<CharacterCard> {
@@ -67,13 +75,15 @@ export async function parseCharacterCardJSON(file: File): Promise<CharacterCard>
 }
 
 /**
- * Normalize different card formats to our internal format
+ * Normalize different card formats to our internal format.
+ * Handles chara_card_v2, chara_card_v3 (same data shape for the fields we use), and
+ * flat V1/legacy objects.
  */
-function normalizeCharacterCard(
+export function normalizeCharacterCard(
     data: CharacterCardV2 | CharacterCard | Record<string, unknown>
 ): CharacterCard {
-    // Handle V2 format
-    if ('spec' in data && data.spec === 'chara_card_v2') {
+    // Handle V2/V3 format (V3 keeps the same `data` envelope for the fields we consume)
+    if ('spec' in data && (data.spec === 'chara_card_v2' || data.spec === 'chara_card_v3')) {
         const v2 = data as CharacterCardV2;
         return {
             ...v2.data,
@@ -92,7 +102,11 @@ function normalizeCharacterCard(
         scenario: (card.scenario as string) || '',
         first_mes: (card.first_mes as string) || (card.first_message as string) || '',
         mes_example: (card.mes_example as string) || (card.example_dialogue as string) || '',
+        alternate_greetings: Array.isArray(card.alternate_greetings)
+            ? (card.alternate_greetings as string[]).filter((g) => typeof g === 'string' && g.trim())
+            : undefined,
         system_prompt: (card.system_prompt as string) || '',
+        post_history_instructions: (card.post_history_instructions as string) || undefined,
         avatar: (card.avatar as string) || '',
         tags: (card.tags as string[]) || [],
         creator: (card.creator as string) || '',

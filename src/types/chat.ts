@@ -20,6 +20,16 @@ export interface Message {
     // Message ordering and regeneration tracking
     messageOrder: number; // Sequential position in timeline (1, 2, 3...)
     regenerationIndex: number; // Which regeneration attempt (0 = original, 1+ = regens)
+
+    // Token accounting for this generation (assistant messages). Provider-reported when
+    // available; `estimated` marks a local tokenizer estimate.
+    usage?: {
+        promptTokens: number;
+        completionTokens: number;
+        cachedTokens?: number;
+        cost?: number; // USD (OpenRouter credits)
+        estimated?: boolean;
+    };
 }
 
 export interface Conversation {
@@ -36,6 +46,14 @@ export interface Conversation {
     rpJournal?: Record<string, string[]>; // Per-character "in this RP" developments, layered on canon
     relationships?: DirectedRelationship[]; // Phase 2: directional, multi-axis, history-aware bonds
     banList?: string[]; // Style Guard: conversation-level fallback for branches without a banListSnapshot (legacy/seed)
+    // Prompt-cache hysteresis: id of the OLDEST message included in the API window. The
+    // window only moves when the budget overflows (then cuts a whole block), keeping the
+    // history prefix byte-stable between turns so provider prompt caching can hit.
+    historyCutMessageId?: string;
+    // Canon cast stickiness: name -> history length at last mention. A dossier stays
+    // injected for a window of beats after its last mention so the (cached) system prompt
+    // doesn't flap when a name drops out of the recent-scan window.
+    stickyCast?: Record<string, number>;
     createdAt: Date;
     updatedAt: Date;
 }

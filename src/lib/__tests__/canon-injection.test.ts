@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildSystemPrompt } from '@/lib/ai/context-builder';
+import { buildSystemPrompt, buildDynamicContextBlock } from '@/lib/ai/context-builder';
 import type { CharacterCard } from '@/types/character';
 import type { WorldState } from '@/types/chat';
 import type { CanonDossier } from '@/types/canon';
@@ -38,14 +38,15 @@ describe('buildSystemPrompt canon injection', () => {
         expect(prompt).toContain('Sode no Shirayuki');
     });
 
-    it('layers the RP journal under a separate "IN THIS RP" block', () => {
-        const prompt = buildSystemPrompt(card, worldState, [], {
-            template: '{{scenario}}',
-            canonDossiers: [dossier],
+    it('layers the RP journal under a separate "IN THIS RP" block (dynamic zone)', () => {
+        // The journal grows every beat, so it now lives in the dynamic context block
+        // (after history), not in the cache-stable system prompt.
+        const block = buildDynamicContextBlock({
             rpJournal: { 'Rukia Kuchiki': ['Lost her powers to Ichigo'] },
+            activeCastNames: ['Rukia Kuchiki'],
         });
-        expect(prompt).toContain('IN THIS RP — Rukia Kuchiki');
-        expect(prompt).toContain('Lost her powers to Ichigo');
+        expect(block).toContain('IN THIS RP — Rukia Kuchiki');
+        expect(block).toContain('Lost her powers to Ichigo');
     });
 
     it('does not inject canon when no dossiers are active', () => {
@@ -53,10 +54,11 @@ describe('buildSystemPrompt canon injection', () => {
         expect(prompt).not.toContain('CANON —');
     });
 
-    it('injects the Director arc block only when the arc is enabled', () => {
+    it('injects the Director framing + arc map only when the arc is enabled (stable zone)', () => {
         const disabled = buildSystemPrompt(card, worldState, [], {
             template: '{{scenario}}',
-            arc: { enabled: false, nextBeat: 'the Soul Society arc' },
+            arc: { enabled: false, work: 'Bleach' },
+            arcOutline: '1. Agent of the Shinigami\n2. Soul Society',
         });
         expect(disabled).not.toContain('NARRATIVE DIRECTOR');
 
@@ -66,16 +68,25 @@ describe('buildSystemPrompt canon injection', () => {
             arcOutline: '1. Agent of the Shinigami\n2. Soul Society',
         });
         expect(enabled).toContain('NARRATIVE DIRECTOR');
-        expect(enabled).toContain('the Soul Society arc');
         expect(enabled).toContain('Agent of the Shinigami');
     });
 
-    it('injects the momentum nudge when present', () => {
-        const prompt = buildSystemPrompt(card, worldState, [], {
-            template: '{{scenario}}',
+    it('renders the arc cursor (position/next beat) in the dynamic zone', () => {
+        // The cursor moves with the story — it must not invalidate the cached system prompt.
+        const block = buildDynamicContextBlock({
+            arcPosition: 'S1E20',
+            arcNextBeat: 'the Soul Society arc',
+        });
+        expect(block).toContain('[ARC]');
+        expect(block).toContain('S1E20');
+        expect(block).toContain('the Soul Society arc');
+    });
+
+    it('injects the momentum nudge when present (dynamic zone)', () => {
+        const block = buildDynamicContextBlock({
             momentumNudge: 'The scene is stalling — advance one step.',
         });
-        expect(prompt).toContain('MOMENTUM');
-        expect(prompt).toContain('advance one step');
+        expect(block).toContain('MOMENTUM');
+        expect(block).toContain('advance one step');
     });
 });

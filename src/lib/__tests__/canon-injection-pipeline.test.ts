@@ -13,7 +13,7 @@
 
 import { describe, it, expect } from 'vitest';
 import { getActiveCanonNames } from '@/lib/ai/canon-context';
-import { buildSystemPrompt } from '@/lib/ai/context-builder';
+import { buildSystemPrompt, buildDynamicContextBlock } from '@/lib/ai/context-builder';
 import type { CharacterCard } from '@/types/character';
 import type { Message, Conversation, WorldState } from '@/types/chat';
 import type { CanonDossier } from '@/types/canon';
@@ -114,17 +114,21 @@ describe('STEP 2 — buildSystemPrompt only renders FULL ENABLED dossiers', () =
         expect(prompt).toContain('Never contradict this personality');
     });
 
-    it('also layers the in-this-RP journal under canon, without overwriting it', () => {
+    it('layers the in-this-RP journal in the dynamic zone, never overwriting canon', () => {
+        // Canon (immutable) lives in the stable system prompt; the journal (grows each
+        // beat) lives in the dynamic context block rendered after history.
         const prompt = buildSystemPrompt(card, worldState, [], {
             template: '{{scenario}}',
             canonDossiers: [fullDossier('Naruto Uzumaki')],
-            rpJournal: { 'Naruto Uzumaki': ['Lost his headband in the river.'] },
         });
-        // Canon block comes first
-        expect(prompt.indexOf('[CANON — Naruto Uzumaki')).toBeLessThan(
-            prompt.indexOf('[IN THIS RP — Naruto Uzumaki')
-        );
-        expect(prompt).toContain('Lost his headband in the river');
+        const dynamic = buildDynamicContextBlock({
+            rpJournal: { 'Naruto Uzumaki': ['Lost his headband in the river.'] },
+            activeCastNames: ['Naruto Uzumaki'],
+        });
+        expect(prompt).toContain('[CANON — Naruto Uzumaki');
+        expect(prompt).not.toContain('[IN THIS RP —');
+        expect(dynamic).toContain('[IN THIS RP — Naruto Uzumaki');
+        expect(dynamic).toContain('Lost his headband in the river');
     });
 
     it('renders nothing when the dossier list is empty (no active casting)', () => {
@@ -138,18 +142,23 @@ describe('STEP 3 — Arc + due-to-appear hint reaches the prompt', () => {
     const conv: Pick<Conversation, 'arc'> = {
         arc: { enabled: true, work: 'naruto', currentPosition: 'Kazekage Rescue Mission' },
     };
-    it('injects the Director block with the arc map + due-to-appear list', () => {
+    it('injects the Director framing + arc map (stable) and the cursor + due-to-appear (dynamic)', () => {
         const prompt = buildSystemPrompt(card, worldState, [], {
             template: '{{scenario}}',
             arc: conv.arc,
             arcOutline: '1. Kazekage Rescue Mission\n2. Tenchi Bridge',
-            dueToAppear: ['Gaara', 'Kankuro'],
         });
         expect(prompt).toContain('NARRATIVE DIRECTOR');
         expect(prompt).toContain('Kazekage Rescue Mission');
-        expect(prompt).toContain('Gaara, Kankuro');
+
+        const dynamic = buildDynamicContextBlock({
+            arcPosition: conv.arc?.currentPosition,
+            dueToAppear: ['Gaara', 'Kankuro'],
+        });
+        expect(dynamic).toContain('Kazekage Rescue Mission');
+        expect(dynamic).toContain('Gaara, Kankuro');
         // Specifies non-railroad + butterfly tolerance
-        expect(prompt).toContain('may diverge from canon');
+        expect(dynamic).toContain('may diverge from canon');
     });
 });
 

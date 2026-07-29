@@ -120,6 +120,8 @@ export function SettingsPanel({ open, onOpenChange }: SettingsPanelProps) {
         setNanogptBackgroundModel,
         enableScratchpad,
         setEnableScratchpad,
+        showUsageBadge,
+        setShowUsageBadge,
         enableRelationshipAnalyst,
         setEnableRelationshipAnalyst,
         enableMomentum,
@@ -506,6 +508,24 @@ export function SettingsPanel({ open, onOpenChange }: SettingsPanelProps) {
                                                 className="w-16"
                                             >
                                                 {showWorldState ? 'On' : 'Off'}
+                                            </Button>
+                                        </div>
+
+                                        <div className="flex items-center justify-between p-3 border rounded-lg bg-card/50">
+                                            <div>
+                                                <p className="text-sm">Badge tokens / coût</p>
+                                                <p className="text-xs text-muted-foreground mt-0.5">
+                                                    Affiche les tokens consommés (et le coût
+                                                    OpenRouter) sous chaque réponse
+                                                </p>
+                                            </div>
+                                            <Button
+                                                variant={showUsageBadge ? 'default' : 'secondary'}
+                                                size="sm"
+                                                onClick={() => setShowUsageBadge(!showUsageBadge)}
+                                                className="w-16"
+                                            >
+                                                {showUsageBadge ? 'On' : 'Off'}
                                             </Button>
                                         </div>
 

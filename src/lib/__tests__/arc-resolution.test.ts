@@ -6,7 +6,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { buildSystemPrompt } from '@/lib/ai/context-builder';
+import { buildSystemPrompt, buildDynamicContextBlock } from '@/lib/ai/context-builder';
 import { resolveActiveArcNames } from '@/lib/ai/canon-context';
 import type { CharacterCard } from '@/types/character';
 import type { WorldState } from '@/types/chat';
@@ -64,7 +64,7 @@ describe('resolveActiveArcNames — maps free-form positions to canonical arc na
 });
 
 describe('Arc-block injection with free-form positions', () => {
-    it('still injects the Director block with a free-form position like "Season 1, Episode 1"', () => {
+    it('injects the Director framing (stable) and the free-form cursor (dynamic zone)', () => {
         const prompt = buildSystemPrompt(card, ws, [], {
             template: '{{scenario}}',
             arc: {
@@ -73,12 +73,16 @@ describe('Arc-block injection with free-form positions', () => {
                 currentPosition: 'Naruto Shippuden, Season 1, Episode 1',
             },
             arcOutline: NARUTO_OUTLINE,
-            dueToAppear: ['Gaara', 'Kankuro'], // these come from canon-context's resolver
         });
         expect(prompt).toContain('NARRATIVE DIRECTOR');
-        expect(prompt).toContain('Naruto Shippuden, Season 1, Episode 1');
         expect(prompt).toContain('Kazekage Rescue Mission');
-        expect(prompt).toContain('Gaara, Kankuro');
+
+        const dynamic = buildDynamicContextBlock({
+            arcPosition: 'Naruto Shippuden, Season 1, Episode 1',
+            dueToAppear: ['Gaara', 'Kankuro'], // these come from canon-context's resolver
+        });
+        expect(dynamic).toContain('Naruto Shippuden, Season 1, Episode 1');
+        expect(dynamic).toContain('Gaara, Kankuro');
     });
 
     it('Director block is omitted when arc is disabled', () => {
@@ -86,7 +90,6 @@ describe('Arc-block injection with free-form positions', () => {
             template: '{{scenario}}',
             arc: { enabled: false, work: 'naruto' },
             arcOutline: NARUTO_OUTLINE,
-            dueToAppear: ['Gaara'],
         });
         expect(prompt).not.toContain('NARRATIVE DIRECTOR');
     });

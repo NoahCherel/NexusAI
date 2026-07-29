@@ -62,6 +62,18 @@ const buttonVariants = {
     tap: { scale: 0.9 },
 };
 
+interface UsageInfo {
+    promptTokens: number;
+    completionTokens: number;
+    cachedTokens?: number;
+    cost?: number;
+    estimated?: boolean;
+}
+
+function formatTokens(n: number): string {
+    return n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n);
+}
+
 interface ChatBubbleProps {
     id: string;
     role: 'user' | 'assistant';
@@ -69,6 +81,8 @@ interface ChatBubbleProps {
     thought?: string;
     /** Generation failure for this message — rendered as a banner, never part of content. */
     error?: string;
+    /** Token accounting for this generation (assistant messages, when enabled). */
+    usage?: UsageInfo;
     avatar?: string;
     name?: string;
     showThoughts?: boolean;
@@ -92,6 +106,7 @@ export const ChatBubble = memo(function ChatBubble({
     content,
     thought,
     error,
+    usage,
     avatar,
     name,
     showThoughts = true,
@@ -273,6 +288,25 @@ export const ChatBubble = memo(function ChatBubble({
                             <ChatFormatter content={displayContent} isUser={isUser} />
                         )}
                     </motion.div>
+                )}
+
+                {/* Token/cost accounting for this generation ("≈" = local estimate). */}
+                {usage && !isUser && !isEditing && (
+                    <div className="flex items-center gap-3 px-1 text-[10px] text-muted-foreground/60 font-mono">
+                        <span>
+                            {usage.estimated ? '≈ ' : ''}
+                            {formatTokens(usage.promptTokens)} → {formatTokens(usage.completionTokens)} tok
+                        </span>
+                        {!!usage.cachedTokens && usage.promptTokens > 0 && (
+                            <span>
+                                cache{' '}
+                                {Math.round((usage.cachedTokens / usage.promptTokens) * 100)}%
+                            </span>
+                        )}
+                        {typeof usage.cost === 'number' && usage.cost > 0 && (
+                            <span>${usage.cost.toFixed(4)}</span>
+                        )}
+                    </div>
                 )}
 
                 {/* Generation error banner — the error lives outside `content` so it is never

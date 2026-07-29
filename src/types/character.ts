@@ -9,7 +9,10 @@ export interface CharacterCard {
     scenario: string;
     first_mes: string;
     mes_example: string;
+    // V2 spec: alternative opening messages the user can swipe between on a new chat.
+    alternate_greetings?: string[];
     system_prompt?: string;
+    post_history_instructions?: string;
     avatar?: string;
     tags?: string[];
     creator?: string;

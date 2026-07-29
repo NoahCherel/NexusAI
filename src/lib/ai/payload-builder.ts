@@ -4,11 +4,20 @@
 // sites can't drift apart or double-inject.
 
 import type { CharacterCard, LorebookEntry } from '@/types/character';
-import type { Message, WorldState } from '@/types/chat';
+import type { ArcCompass, Message, WorldState } from '@/types/chat';
+import type { CanonDossier } from '@/types/canon';
 import type { APIPreset } from '@/types/preset';
 import type { RPEngine } from '@/types/engine';
 import type { ContextSection } from '@/types/rag';
-import { buildSystemPrompt, buildRAGEnhancedPayload } from '@/lib/ai/context-builder';
+import {
+    DEFAULT_SYSTEM_PROMPT_TEMPLATE,
+    LEGACY_DEFAULT_SYSTEM_PROMPT_TEMPLATE,
+} from '@/types/preset';
+import {
+    buildSystemPrompt,
+    buildDynamicContextBlock,
+    buildRAGEnhancedPayload,
+} from '@/lib/ai/context-builder';
 import {
     buildEngineSystemBlock,
     buildEnginePostHistory,
@@ -16,7 +25,19 @@ import {
 } from '@/lib/ai/rp-engine';
 import { countTokens } from '@/lib/tokenizer';
 
-type SystemPromptOptions = NonNullable<Parameters<typeof buildSystemPrompt>[3]>;
+/** Canon Codex material, split by the builder into stable (dossiers, arc map) and dynamic
+ *  (journal, relationships, arc cursor, momentum) zones. Mirrors CanonPromptOptions. */
+export interface CanonPayloadOptions {
+    canonDossiers?: CanonDossier[];
+    rpJournal?: Record<string, string[]>;
+    arc?: ArcCompass;
+    arcOutline?: string;
+    momentumNudge?: string;
+    dueToAppear?: string[];
+    relationshipBlock?: string;
+    canonTokenBudget?: number;
+    injectionMeta?: unknown;
+}
 
 export type ConversationMode = 'generate' | 'preview' | 'impersonate';
 
@@ -44,12 +65,14 @@ export interface BuildConversationPayloadParams {
      * explicit callers/tests keep the legacy behaviour.
      */
     enableScratchpad?: boolean;
-    /** Canon Codex options spread into buildSystemPrompt (may carry `injectionMeta`). */
-    canonOptions?: Partial<SystemPromptOptions> & { injectionMeta?: unknown };
+    /** Canon Codex options — split into stable/dynamic zones (may carry `injectionMeta`). */
+    canonOptions?: CanonPayloadOptions;
     assistantPrefill?: string;
     activeProvider?: string;
     maxContextTokens: number;
     maxOutputTokens: number;
+    /** Sticky history-window anchor (prompt-cache hysteresis), from the conversation. */
+    historyCutMessageId?: string;
     /**
      * Optional RAG retrieval. Invoked with a budget once the system prompt size is known.
      * Omit (e.g. impersonation) to skip RAG entirely.
@@ -58,14 +81,18 @@ export interface BuildConversationPayloadParams {
 }
 
 export interface BuildConversationPayloadResult {
-    /** The assembled system prompt BEFORE RAG sections are folded in (for the preview UI). */
+    /** The STABLE system prompt (cache prefix) — per-turn material is in effectivePostHistory. */
     systemPrompt: string;
-    /** The merged post-history block (engine contract + user's preset post-history). */
+    /** The merged dynamic zone: per-turn context + engine contract + preset post-history. */
     effectivePostHistory?: string;
     ragSections: ContextSection[];
     messagesPayload: { role: string; content: string }[];
     includedMessageCount: number;
     droppedMessageCount: number;
+    /** system + included history — cache_control anchor for Claude models. */
+    stablePrefixLength: number;
+    /** Set when the history window moved; caller persists it on the conversation. */
+    suggestedCutMessageId?: string;
     tokenBreakdown: {
         system: number;
         rag: number;
@@ -94,7 +121,6 @@ export async function buildConversationPayload(
         longTermMemory,
         storyGuidance,
         scratchpad,
-        canonOptions,
         assistantPrefill,
         activeProvider,
         maxContextTokens,
@@ -127,24 +153,45 @@ export async function buildConversationPayload(
             .filter(Boolean)
             .join('\n\n') || undefined;
 
-    let systemPrompt = buildSystemPrompt(character, worldState, activeEntries, {
-        template: activePreset?.systemPromptTemplate,
-        preHistory: activePreset?.preHistoryInstructions,
-        postHistory: activePreset?.postHistoryInstructions,
-        userPersona,
-        longTermMemory,
-        recentMessages,
-        excludePostHistory: true,
-        storyGuidance,
-        // Impersonation writes the player. It must neither emit a new <scratchpad> nor SEE
-        // the prior one — that scratchpad holds the AI's private plans/secrets, and feeding
-        // it to the player model would be metagaming. The scratchpad is also fully skippable
-        // via settings (enableScratchpad).
-        scratchpad: isImpersonation || !scratchpadOn ? undefined : scratchpad,
-        engineSystemBlock,
-        suppressScratchpadInstruction: isImpersonation || !scratchpadOn,
-        ...(canonOptions ?? {}),
-    });
+    // Template: silently upgrade pristine copies of the legacy v1 default to the
+    // cache-friendly v2 (per-turn blocks move to the dynamic zone). A CUSTOM template that
+    // places {{lorebook}}/{{memory}} itself keeps its own placement — the user chose it —
+    // at the (accepted) cost of a colder prompt cache.
+    const rawTemplate = activePreset?.systemPromptTemplate;
+    const template =
+        !rawTemplate || rawTemplate.trim() === LEGACY_DEFAULT_SYSTEM_PROMPT_TEMPLATE.trim()
+            ? DEFAULT_SYSTEM_PROMPT_TEMPLATE
+            : rawTemplate;
+    const templatePlacesLorebook = template.includes('{{lorebook}}');
+    const templatePlacesMemory =
+        template.includes('{{memory}}') || template.includes('{{long_term_memory}}');
+
+    const canon = params.canonOptions ?? {};
+
+    // STABLE zone: character card, persona, RP engine, canon dossiers (sticky cast,
+    // deterministic order), arc map. Byte-identical between turns → provider cache prefix.
+    let systemPrompt = buildSystemPrompt(
+        character,
+        worldState,
+        templatePlacesLorebook ? activeEntries : [],
+        {
+            template,
+            preHistory: activePreset?.preHistoryInstructions,
+            postHistory: activePreset?.postHistoryInstructions,
+            userPersona,
+            longTermMemory: templatePlacesMemory ? longTermMemory : undefined,
+            recentMessages,
+            excludePostHistory: true,
+            engineSystemBlock,
+            // Impersonation must not emit a <scratchpad> (it would leak into the player's
+            // line); the instruction is also skipped entirely when scratchpad is disabled.
+            suppressScratchpadInstruction: isImpersonation || !scratchpadOn,
+            canonDossiers: canon.canonDossiers,
+            arc: canon.arc,
+            arcOutline: canon.arcOutline,
+            canonTokenBudget: canon.canonTokenBudget,
+        }
+    );
 
     // Mode-aware behavioural contract, placed AFTER history (strongest position) and merged
     // with the user's own post-history instructions (never replacing them).
@@ -181,17 +228,6 @@ export async function buildConversationPayload(
         contractBlock = buildEnginePostHistory(activeEngine, 'generate', { userName });
     }
 
-    // For impersonation the inverted contract must be the FINAL instruction so a
-    // contradictory user post-history can't reclaim priority; for generation the engine
-    // checklist leads and the user's post-history follows.
-    const effectivePostHistory =
-        (isImpersonation
-            ? [activePreset?.postHistoryInstructions, contractBlock]
-            : [contractBlock, activePreset?.postHistoryInstructions]
-        )
-            .filter(Boolean)
-            .join('\n\n') || undefined;
-
     // RAG retrieval (optional), budgeted from the now-known system prompt size.
     let ragSections: ContextSection[] = [];
     if (retrieveRag) {
@@ -210,17 +246,54 @@ export async function buildConversationPayload(
         }
     }
 
-    const { messagesPayload, includedMessageCount, droppedMessageCount, tokenBreakdown } =
-        buildRAGEnhancedPayload(systemPrompt, ragSections, history, {
-            maxContextTokens,
-            maxOutputTokens,
-            postHistoryInstructions: effectivePostHistory,
-            // A second system message after history is not portable across OpenAI-compatible
-            // providers. A final user drafting request is both valid chat structure and explicit.
-            postHistoryRole: isImpersonation ? 'user' : 'system',
-            assistantPrefill,
-            activeProvider,
-        });
+    // DYNAMIC zone: everything per-turn, rendered once after the history. Impersonation
+    // stays context-light (no canon/RAG/journal) as before.
+    const dynamicBlock = buildDynamicContextBlock({
+        lorebookEntries: templatePlacesLorebook ? undefined : activeEntries,
+        longTermMemory: templatePlacesMemory ? undefined : longTermMemory,
+        rpJournal: isImpersonation ? undefined : canon.rpJournal,
+        activeCastNames: (canon.canonDossiers ?? []).map((d) => d.character),
+        relationshipBlock: canon.relationshipBlock,
+        ragSections,
+        arcPosition: canon.arc?.enabled !== false ? canon.arc?.currentPosition : undefined,
+        arcNextBeat: canon.arc?.enabled !== false ? canon.arc?.nextBeat : undefined,
+        dueToAppear: canon.dueToAppear,
+        storyGuidance,
+        momentumNudge: canon.momentumNudge,
+        // Impersonation must not SEE the prior scratchpad (private AI plans → metagaming).
+        scratchpad: isImpersonation || !scratchpadOn ? undefined : scratchpad,
+    });
+
+    // For impersonation the inverted contract must be the FINAL instruction so a
+    // contradictory user post-history can't reclaim priority; for generation the engine
+    // checklist leads and the user's post-history follows. The dynamic context block always
+    // comes first (it's reference material, not the instruction).
+    const effectivePostHistory =
+        (isImpersonation
+            ? [dynamicBlock, activePreset?.postHistoryInstructions, contractBlock]
+            : [dynamicBlock, contractBlock, activePreset?.postHistoryInstructions]
+        )
+            .filter(Boolean)
+            .join('\n\n') || undefined;
+
+    const {
+        messagesPayload,
+        includedMessageCount,
+        droppedMessageCount,
+        stablePrefixLength,
+        suggestedCutMessageId,
+        tokenBreakdown,
+    } = buildRAGEnhancedPayload(systemPrompt, ragSections, history, {
+        maxContextTokens,
+        maxOutputTokens,
+        postHistoryInstructions: effectivePostHistory,
+        // A second system message after history is not portable across OpenAI-compatible
+        // providers. A final user drafting request is both valid chat structure and explicit.
+        postHistoryRole: isImpersonation ? 'user' : 'system',
+        assistantPrefill,
+        activeProvider,
+        historyCutMessageId: params.historyCutMessageId,
+    });
 
     return {
         systemPrompt,
@@ -229,6 +302,8 @@ export async function buildConversationPayload(
         messagesPayload,
         includedMessageCount,
         droppedMessageCount,
+        stablePrefixLength,
+        suggestedCutMessageId,
         tokenBreakdown,
     };
 }

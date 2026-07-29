@@ -52,8 +52,25 @@ export interface APIPreset {
     createdAt: Date;
 }
 
-// Default system prompt template with all placeholders
+// Default system prompt template (v2).
+// v2 deliberately has NO {{memory}} / {{lorebook}} / {{world_state}} placeholders: those
+// blocks change every turn and now live in the DYNAMIC context zone after the chat history,
+// so the system prompt stays byte-stable across turns and provider prompt caching works.
+// Custom templates that still include the placeholders keep the legacy in-template placement.
 export const DEFAULT_SYSTEM_PROMPT_TEMPLATE = `About {{character_name}}:
+{{character_description}}
+
+{{character_personality}}
+
+{{scenario}}
+
+About {{user}}: {{user_bio}}
+
+[System note: Stay in character at all times. Write naturally and engagingly. Do not speak for {{user}}.]`;
+
+// The v1 template, kept verbatim so persisted copies of it (built-in presets seeded before
+// v2) can be recognized and silently upgraded to the cache-friendly dynamic placement.
+export const LEGACY_DEFAULT_SYSTEM_PROMPT_TEMPLATE = `About {{character_name}}:
 {{character_description}}
 
 {{character_personality}}
