@@ -8,6 +8,9 @@ export interface Message {
     role: 'user' | 'assistant' | 'system';
     content: string;
     thought?: string;
+    // Generation failure for this message (shown as a banner with Retry). Kept OUT of
+    // `content` so it is never sent back to the model as part of the history.
+    error?: string;
     isActiveBranch: boolean;
     childrenIds?: string[];
     createdAt: Date;

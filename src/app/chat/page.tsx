@@ -2,44 +2,19 @@
 
 import { useRef, useEffect, useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import {
-    Settings2,
-    Sparkles,
-    GitBranch,
-    Brain,
-    MoreVertical,
-    Edit,
-    Trash2,
-    Download,
-    Upload,
-    Users,
-    Eye,
-    ChevronUp,
-} from 'lucide-react';
+import { Settings2, Sparkles, Users, ChevronUp } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import {
-    DropdownMenu,
-    DropdownMenuContent,
-    DropdownMenuItem,
-    DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
 import type { Message as CAMessage } from '@/types';
+import { ChatBubble, ChatInput, RelationshipPanel, ContextPreviewPanel } from '@/components/chat';
+import { ChatHeader } from '@/components/chat/ChatHeader';
+import { ChatToolbar } from '@/components/chat/ChatToolbar';
 import {
-    ChatBubble,
-    ChatInput,
-    RelationshipPanel,
-    PersonaSelector,
-    ModelSelector,
-    ContextPreviewPanel,
-} from '@/components/chat';
+    exportConversationForCharacter,
+    importConversationFromFile,
+} from '@/lib/conversation-transfer';
 import { SettingsPanel, CharacterPanel } from '@/components/layout';
-import { NanoGPTUsageBadge, NANOGPT_USAGE_REFRESH_EVENT } from '@/components/layout/NanoGPTUsage';
 import { CharacterEditor } from '@/components/character';
 import { useCharacterStore, useSettingsStore, useChatStore, useLorebookStore } from '@/stores';
-import { useNotificationStore } from '@/components/ui/api-notification';
-import { decryptApiKey } from '@/lib/crypto';
-import { parseStreamingChunk, normalizeCoT } from '@/lib/ai/cot-middleware';
-import { getActiveLorebookEntries } from '@/lib/ai/context-builder';
 import { buildConversationPayload } from '@/lib/ai/payload-builder';
 import { LorebookEditor } from '@/components/lorebook';
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from '@/components/ui/dialog';
@@ -50,66 +25,31 @@ import {
     SheetTitle,
     SheetDescription,
 } from '@/components/ui/sheet';
-import { Book, Clapperboard, Heart as HeartIcon } from 'lucide-react';
 import { TreeVisualization } from '@/components/chat/TreeVisualization';
 import { MemoryPanel } from '@/components/chat/MemoryPanel';
 import { CanonEditor } from '@/components/canon/CanonEditor';
 import { LandingPage } from '@/components/chat/LandingPage';
 import { useAppInitialization } from '@/hooks/useAppInitialization';
-import { extractLorebookEntries, extractRpDevelopments } from '@/lib/lorebook-extractor';
+import { useBackgroundPipeline } from '@/hooks/useBackgroundPipeline';
+import { useChatGeneration, useActiveApiKey } from '@/hooks/useChatGeneration';
 import { APINotificationToast } from '@/components/ui/api-notification';
 import {
     retrieveRelevantContext,
-    hybridLorebookSearch,
-    indexMessageChunk,
+    resolveActiveLorebookEntries,
     buildContextPreview,
 } from '@/lib/ai/rag-service';
-import { embedText } from '@/lib/ai/embedding-service';
-import {
-    shouldCreateL0Summary,
-    shouldCreateL1Summary,
-    shouldCreateL2Summary,
-    getNextChunkToSummarize,
-    getL0SummariesForL1,
-    getL1SummariesForL2,
-    parseSummarizationResponse,
-    buildL0Prompt,
-    buildL1Prompt,
-    buildL2Prompt,
-    createSummary,
-    DEFAULT_CHUNK_SIZE,
-    SUMMARIZATION_PROMPT_L0,
-    SUMMARIZATION_PROMPT_L1,
-    SUMMARIZATION_PROMPT_L2,
-} from '@/lib/ai/hierarchical-summarizer';
-import {
-    FACT_EXTRACTION_PROMPT,
-    parseFactExtractionResponse,
-    buildFactExtractionPrompt,
-    deduplicateFacts,
-    buildFactExtractionSystemPrompt,
-} from '@/lib/ai/fact-extractor';
-import { getAdaptiveChunkSize, scoreMessageQuality } from '@/lib/ai/message-quality';
-import { backgroundAICall } from '@/lib/ai/background-ai';
-import { deriveWorldStateUpdates, applyWorldStateUpdate } from '@/lib/ai/world-state-updater';
-import { buildCanonOptions, resolveWork, nameMatchesText } from '@/lib/ai/canon-context';
-import { fetchCharacterDossier } from '@/lib/ai/canon-retrieval';
-import { detectStall, buildMomentumNudge } from '@/lib/ai/momentum';
-import { analyzeAndUpdateRelationships } from '@/lib/ai/relationship-analyst';
-import { saveFactsBatch, getFactsByConversation, getSummariesByConversation } from '@/lib/db';
-import type { ContextSection, WorldFact } from '@/types/rag';
-import type { Message } from '@/types';
+import { buildCanonOptions } from '@/lib/ai/canon-context';
+import type { ContextSection } from '@/types/rag';
 
 export default function ChatPage() {
     const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-    const [isWorldStateCollapsed, setIsWorldStateCollapsed] = useState(false);
     const [isLorebookOpen, setIsLorebookOpen] = useState(false);
     const [isTreeOpen, setIsTreeOpen] = useState(false);
     const [isMemoryOpen, setIsMemoryOpen] = useState(false);
     const [isCanonOpen, setIsCanonOpen] = useState(false);
     const [isWorldStateSheetOpen, setIsWorldStateSheetOpen] = useState(false);
     const [isWorldStateDialogOpen, setIsWorldStateDialogOpen] = useState(false);
-    const [currentApiKey, setCurrentApiKey] = useState<string | null>(null);
+    const currentApiKey = useActiveApiKey();
     const [isCharacterEditorOpen, setIsCharacterEditorOpen] = useState(false);
 
     // Context preview state
@@ -130,12 +70,8 @@ export default function ChatPage() {
     // Initialize IndexedDB and load data
     useAppInitialization();
 
-    const [isLoading, setIsLoading] = useState(false);
     const scrollRef = useRef<HTMLDivElement>(null);
-    const abortControllerRef = useRef<AbortController | null>(null);
-    const lastSummarizedCount = useRef(0); // Track last summarized message count
-    const isSummarizingRef = useRef(false); // Concurrency guard for summarization
-    const { getActiveCharacter, removeCharacter, updateCharacter, addCharacter } =
+    const { getActiveCharacter, removeCharacter, addCharacter } =
         useCharacterStore();
     const {
         conversations,
@@ -177,16 +113,12 @@ export default function ChatPage() {
     }, [activeConversationId]);
 
     const {
-        apiKeys,
         activeProvider,
         activeModel,
-        temperature,
         showThoughts,
         showWorldState,
         activePersonaId,
         personas,
-        enableReasoning,
-        useFlexTier,
         immersiveMode,
         getActivePreset,
         getActiveEngine,
@@ -207,24 +139,6 @@ export default function ChatPage() {
         location: '',
         relationships: {},
     };
-
-    // Get decrypted API key on mount/change
-    useEffect(() => {
-        const loadApiKey = async () => {
-            const keyConfig = apiKeys.find((k) => k.provider === activeProvider);
-            if (keyConfig) {
-                try {
-                    const decrypted = await decryptApiKey(keyConfig.encryptedKey);
-                    setCurrentApiKey(decrypted);
-                } catch {
-                    setCurrentApiKey(null);
-                }
-            } else {
-                setCurrentApiKey(null);
-            }
-        };
-        loadApiKey();
-    }, [apiKeys, activeProvider]);
 
     // Auto-scroll to bottom when switching conversations or loading
     useEffect(() => {
@@ -307,828 +221,34 @@ export default function ChatPage() {
         }
     }, [messages]);
 
-    // Hierarchical Auto-Summary & Fact Extraction Logic
-    useEffect(() => {
-        const { enableHierarchicalSummaries, backgroundModel } = useSettingsStore.getState();
-        const runHierarchicalSummary = async () => {
-            if (!enableHierarchicalSummaries) return;
-            if (!character || !activeConversationId || messages.length === 0 || !currentApiKey)
-                return;
-
-            // Concurrency guard: prevent overlapping summary runs
-            if (isSummarizingRef.current) return;
-
-            // Skip if message count hasn't changed since last summarization
-            if (messages.length <= lastSummarizedCount.current) return;
-
-            isSummarizingRef.current = true;
-            try {
-                // Background summaries run on the OpenRouter endpoint (backgroundAICall forces
-                // provider:'openrouter'), so they need an OpenRouter key — NOT currentApiKey, which
-                // may be a NanoGPT key when NanoGPT is the active RP provider.
-                const orCfg = useSettingsStore
-                    .getState()
-                    .apiKeys.find((k) => k.provider === 'openrouter');
-                const orKey = orCfg ? await decryptApiKey(orCfg.encryptedKey) : null;
-                if (!orKey) return;
-
-                const existingSummaries = await getSummariesByConversation(activeConversationId);
-                const activePersona = personas.find((p) => p.id === activePersonaId);
-                const userName = activePersona?.name || 'You';
-
-                // Adaptive chunk size based on message quality/density
-                const recentMsgs = messages.slice(-15);
-                const adaptiveChunkSize = getAdaptiveChunkSize(
-                    recentMsgs.map((m) => ({ role: m.role, content: m.content })),
-                    DEFAULT_CHUNK_SIZE
-                );
-
-                // Check L0 (chunk summary with adaptive frequency)
-                if (shouldCreateL0Summary(messages.length, existingSummaries, adaptiveChunkSize)) {
-                    const chunk = getNextChunkToSummarize(
-                        messages,
-                        existingSummaries,
-                        adaptiveChunkSize
-                    );
-                    if (chunk) {
-                        const l0Summaries = existingSummaries.filter((s) => s.level === 0);
-                        // Use actual coverage from existing summaries
-                        const startIdx =
-                            l0Summaries.length > 0
-                                ? Math.max(...l0Summaries.map((s) => s.messageRange[1]))
-                                : 0;
-                        const endIdx = startIdx + chunk.length;
-
-                        console.log(
-                            `[RAG] Creating L0 summary for messages ${startIdx}-${endIdx} (adaptive chunk=${adaptiveChunkSize})`
-                        );
-                        lastSummarizedCount.current = messages.length;
-
-                        const prompt = buildL0Prompt(chunk, character.name, userName);
-
-                        const result = await backgroundAICall({
-                            systemPrompt: SUMMARIZATION_PROMPT_L0,
-                            userPrompt: prompt,
-                            apiKey: orKey,
-                            temperature: 0.3,
-                            backgroundModel,
-                        });
-
-                        if (result) {
-                            const parsed = parseSummarizationResponse(result.content);
-
-                            if (parsed) {
-                                const embedding = await embedText(parsed.summary);
-                                const summary = await createSummary(
-                                    activeConversationId,
-                                    0,
-                                    parsed.summary,
-                                    parsed.keyFacts,
-                                    [startIdx, endIdx],
-                                    [],
-                                    embedding
-                                );
-
-                                // Also index as a vector chunk for retrieval (with branch path)
-                                const branchPath = messages.map((m) => m.id);
-                                await indexMessageChunk(
-                                    chunk,
-                                    activeConversationId,
-                                    parsed.summary,
-                                    {
-                                        characters: [character.name],
-                                        location: worldState.location,
-                                        importance: 5,
-                                    },
-                                    branchPath
-                                );
-
-                                // Extract facts from key facts
-                                if (parsed.keyFacts.length > 0) {
-                                    const existingFacts =
-                                        await getFactsByConversation(activeConversationId);
-                                    const newFacts: Omit<WorldFact, 'id' | 'embedding'>[] =
-                                        parsed.keyFacts.map((kf) => ({
-                                            conversationId: activeConversationId,
-                                            messageId: chunk[chunk.length - 1].id,
-                                            fact: kf,
-                                            category: 'event' as const,
-                                            importance: 5,
-                                            active: true,
-                                            timestamp: Date.now(),
-                                            relatedEntities: [],
-                                            lastAccessedAt: Date.now(),
-                                            accessCount: 0,
-                                        }));
-
-                                    const deduped = deduplicateFacts(newFacts, existingFacts);
-                                    if (deduped.length > 0) {
-                                        const factsWithIds: WorldFact[] = deduped.map((f) => ({
-                                            ...f,
-                                            id: crypto.randomUUID(),
-                                            embedding: [],
-                                            branchPath,
-                                        }));
-
-                                        // Embed facts in background
-                                        for (const fact of factsWithIds) {
-                                            fact.embedding = await embedText(fact.fact);
-                                        }
-
-                                        await saveFactsBatch(factsWithIds);
-                                    }
-                                }
-
-                                console.log('[RAG] L0 summary created:', summary.id);
-                            }
-                        }
-                    }
-                }
-
-                // Check L1 (section summary from L0s)
-                const updatedSummaries = await getSummariesByConversation(activeConversationId);
-                if (shouldCreateL1Summary(updatedSummaries)) {
-                    const l0s = getL0SummariesForL1(updatedSummaries);
-                    if (l0s) {
-                        console.log('[RAG] Creating L1 summary from', l0s.length, 'L0 summaries');
-                        const prompt = buildL1Prompt(l0s);
-
-                        const result = await backgroundAICall({
-                            systemPrompt: SUMMARIZATION_PROMPT_L1,
-                            userPrompt: prompt,
-                            apiKey: orKey,
-                            temperature: 0.3,
-                            backgroundModel,
-                        });
-
-                        if (result) {
-                            const parsed = parseSummarizationResponse(result.content);
-                            if (parsed) {
-                                const range: [number, number] = [
-                                    Math.min(...l0s.map((s) => s.messageRange[0])),
-                                    Math.max(...l0s.map((s) => s.messageRange[1])),
-                                ];
-                                const embedding = await embedText(parsed.summary);
-                                await createSummary(
-                                    activeConversationId,
-                                    1,
-                                    parsed.summary,
-                                    parsed.keyFacts,
-                                    range,
-                                    l0s.map((s) => s.id),
-                                    embedding
-                                );
-                                console.log('[RAG] L1 summary created');
-                            }
-                        }
-                    }
-                } else {
-                    console.log('[RAG] L1 not needed yet');
-                }
-
-                // Check L2 (arc summary from L1s)
-                const finalSummaries = await getSummariesByConversation(activeConversationId);
-                if (shouldCreateL2Summary(finalSummaries)) {
-                    const l1s = getL1SummariesForL2(finalSummaries);
-                    if (l1s) {
-                        console.log(
-                            '[RAG] Creating L2 arc summary from',
-                            l1s.length,
-                            'L1 summaries'
-                        );
-                        const prompt = buildL2Prompt(l1s);
-
-                        const result = await backgroundAICall({
-                            systemPrompt: SUMMARIZATION_PROMPT_L2,
-                            userPrompt: prompt,
-                            apiKey: orKey,
-                            temperature: 0.3,
-                            backgroundModel,
-                        });
-
-                        if (result) {
-                            const parsed = parseSummarizationResponse(result.content);
-                            if (parsed) {
-                                const range: [number, number] = [
-                                    Math.min(...l1s.map((s) => s.messageRange[0])),
-                                    Math.max(...l1s.map((s) => s.messageRange[1])),
-                                ];
-                                const embedding = await embedText(parsed.summary);
-                                await createSummary(
-                                    activeConversationId,
-                                    2,
-                                    parsed.summary,
-                                    parsed.keyFacts,
-                                    range,
-                                    l1s.map((s) => s.id),
-                                    embedding
-                                );
-                                console.log('[RAG] L2 arc summary created');
-                            }
-                        }
-                    }
-                }
-            } catch (error) {
-                console.error('[RAG] Hierarchical summary error:', error);
-            } finally {
-                isSummarizingRef.current = false;
-            }
-        };
-
-        runHierarchicalSummary();
-    }, [
-        messages,
+    // Background memory pipeline: hierarchical-summaries effect + post-beat analyses
+    // (arc capture, momentum, relations, fact extraction) — extracted to a dedicated hook.
+    const { runPostBeat } = useBackgroundPipeline({
         character,
         activeConversationId,
+        messages,
         currentApiKey,
-        updateCharacter,
-        personas,
-        activePersonaId,
-        worldState.location,
-    ]);
+        worldStateLocation: worldState.location,
+    });
 
-    const triggerAiReponse = async (
-        history: CAMessage[],
-        options: {
-            isImpersonation?: boolean;
-            prefill?: string;
-            skipFactExtraction?: boolean;
-        } = {}
-    ) => {
-        if (!currentApiKey || !character) return;
-        setIsLoading(true);
-
-        // Stop any previous request
-        if (abortControllerRef.current) {
-            abortControllerRef.current.abort();
-        }
-        abortControllerRef.current = new AbortController();
-
-        const activePreset = getActivePreset();
-        const activePersona = personas.find((p) => p.id === activePersonaId);
-        const activeEngine = getActiveEngine();
-
-        // 1. Calculate Active Lorebook Entries (hybrid: keyword + semantic)
-        const useLorebooks = activePreset?.useLorebooks ?? true;
-        const lorebookTokenBudget = activePreset?.lorebookTokenBudget ?? 2000;
-
-        let activeEntries;
-        const lastUserMsg = history[history.length - 1]?.content || '';
-
-        if (useLorebooks && activeLorebook?.entries && activeLorebook.entries.length > 0) {
-            try {
-                const queryEmbedding = await embedText(lastUserMsg);
-                activeEntries = await hybridLorebookSearch(
-                    lastUserMsg,
-                    queryEmbedding,
-                    activeLorebook.entries,
-                    history.map((m) => ({
-                        ...m,
-                        conversationId: '',
-                        parentId: null,
-                        isActiveBranch: true,
-                        createdAt: new Date(),
-                    })) as unknown as CAMessage[],
-                    {
-                        scanDepth: activePreset?.lorebookScanDepth,
-                        tokenBudget: lorebookTokenBudget,
-                        matchWholeWords: activePreset?.matchWholeWords,
-                        characterName: character.name,
-                        userPersonaName: activePersona?.name,
-                    }
-                );
-            } catch (err) {
-                console.warn('[RAG] Hybrid lorebook search failed, falling back:', err);
-                activeEntries = getActiveLorebookEntries(
-                    history.map((m) => ({
-                        ...m,
-                        conversationId: '',
-                        parentId: null,
-                        isActiveBranch: true,
-                        createdAt: new Date(),
-                    })) as unknown as CAMessage[],
-                    activeLorebook || undefined,
-                    {
-                        scanDepth: activePreset?.lorebookScanDepth,
-                        tokenBudget: lorebookTokenBudget,
-                        recursive: activePreset?.lorebookRecursiveScanning,
-                        matchWholeWords: activePreset?.matchWholeWords,
-                        characterName: character.name,
-                        userPersonaName: activePersona?.name,
-                    }
-                );
-            }
-        } else {
-            activeEntries = useLorebooks
-                ? getActiveLorebookEntries(
-                      history.map((m) => ({
-                          ...m,
-                          conversationId: '',
-                          parentId: null,
-                          isActiveBranch: true,
-                          createdAt: new Date(),
-                      })) as unknown as CAMessage[],
-                      activeLorebook || undefined,
-                      {
-                          scanDepth: activePreset?.lorebookScanDepth,
-                          tokenBudget: lorebookTokenBudget,
-                          recursive: activePreset?.lorebookRecursiveScanning,
-                          matchWholeWords: activePreset?.matchWholeWords,
-                          characterName: character.name,
-                          userPersonaName: activePersona?.name,
-                      }
-                  )
-                : [];
-        }
-
-        // 2-4. Assemble the payload (system prompt + RP engine + contract + RAG budgeting)
-        // in one place, shared with preview and impersonation.
-        const currentConv = conversations.find((c) => c.id === activeConversationId);
-        const combinedMemory = [...(currentConv?.notes || []), ...(character.longTermMemory || [])];
-        // Canon Codex (immutable identity) + Arc + momentum + relationships, over RP memory.
-        const canonOptions = await buildCanonOptions(
-            character,
-            currentConv,
-            history,
-            activePersona?.name || 'the player'
-        );
-
-        const { enableRAGRetrieval, enableFactExtraction, minRAGConfidence } =
-            useSettingsStore.getState();
-        const maxContextTokens = activePreset?.maxContextTokens ?? 16384;
-        const maxOutputTokens = activePreset?.maxOutputTokens ?? 2048;
-
-        const { messagesPayload, includedMessageCount, droppedMessageCount, tokenBreakdown } =
-            await buildConversationPayload({
-                mode: options.isImpersonation ? 'impersonate' : 'generate',
-                character,
-                worldState,
-                activeEntries,
-                history: history as CAMessage[],
-                recentMessages: history as CAMessage[],
-                activePreset,
-                activeEngine,
-                learnedBanList: activeConversationId
-                    ? getActiveBranchBanList(activeConversationId)
-                    : undefined,
-                userPersona: activePersona,
-                longTermMemory: combinedMemory,
-                storyGuidance: currentConv?.storyGuidance,
-                scratchpad: currentConv?.scratchpad,
-                canonOptions,
-                assistantPrefill: options.prefill,
-                activeProvider,
-                maxContextTokens,
-                maxOutputTokens,
-                retrieveRag:
-                    enableRAGRetrieval && activeConversationId
-                        ? (ragBudget) =>
-                              retrieveRelevantContext(
-                                  lastUserMsg,
-                                  activeConversationId,
-                                  ragBudget,
-                                  {
-                                      worldState,
-                                      recentMessages: history as CAMessage[],
-                                      activeBranchMessageIds: messages.map((m) => m.id),
-                                      minConfidence: minRAGConfidence,
-                                  }
-                              )
-                        : undefined,
-            });
-
-        // The momentum nudge is one-shot: it has now been injected, so clear it.
-        if (currentConv?.momentumNudge && activeConversationId) {
-            useChatStore.getState().setMomentumNudge(activeConversationId, undefined);
-        }
-
-        if (droppedMessageCount > 0) {
-            console.log(
-                `[RAG] Context: ${includedMessageCount} msgs included, ${droppedMessageCount} truncated. Tokens: sys=${tokenBreakdown.system} rag=${tokenBreakdown.rag} hist=${tokenBreakdown.history} total=${tokenBreakdown.total}`
-            );
-        }
-
-        // 5. Prepare Target Message (Assistant or User)
-        const targetRole = options.isImpersonation ? 'user' : 'assistant';
-        const targetId = crypto.randomUUID();
-
-        // Initialize content state
-        const initialContent = options.prefill || '';
-        let fullContent = initialContent;
-
-        if (activeConversationId) {
-            addMessage({
-                id: targetId,
-                conversationId: activeConversationId,
-                parentId: history[history.length - 1]?.id || null,
-                role: targetRole,
-                content: initialContent,
-                isActiveBranch: true,
-                createdAt: new Date(),
-                messageOrder: history.length + 1,
-                regenerationIndex: 0,
-            });
-        }
-
-        try {
-            const response = await fetch('/api/chat', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    messages: messagesPayload,
-                    provider: activeProvider,
-                    model: activeModel,
-                    apiKey: currentApiKey,
-                    // Extended Parameters
-                    temperature: activePreset?.temperature ?? temperature,
-                    maxTokens: activePreset?.maxOutputTokens ?? 2048,
-                    topP: activePreset?.topP,
-                    topK: activePreset?.topK,
-                    frequencyPenalty: activePreset?.frequencyPenalty,
-                    presencePenalty: activePreset?.presencePenalty,
-                    repetitionPenalty: activePreset?.repetitionPenalty,
-                    minP: activePreset?.minP,
-                    stoppingStrings: activePreset?.stoppingStrings,
-                    // Context
-                    // System prompt is now in messages[0]
-                    systemInstruction: undefined, // Gemini fallback? No, we use messages.
-                    enableReasoning: activePreset?.enableReasoning ?? enableReasoning,
-                    useFlexTier: activePreset?.useFlexTier ?? useFlexTier,
-                }),
-                signal: abortControllerRef.current.signal,
-            });
-
-            if (!response.ok) {
-                const errorData = await response.json().catch(() => ({}));
-                throw new Error(
-                    errorData.error || `API Error: ${response.status} ${response.statusText}`
-                );
-            }
-
-            const reader = response.body?.getReader();
-            if (!reader) throw new Error('No reader');
-
-            const decoder = new TextDecoder();
-
-            // If we have a prefill that WASN'T sent to API, we start with it.
-            // If it WAS sent (Anthropic), the stream typically continues AFTER it.
-            // If it WAS sent, we don't want to duplicate it.
-            // Safest: Always maintain `fullContent` state.
-            fullContent = initialContent;
-            let assistantThought = '';
-
-            while (true) {
-                const { done, value } = await reader.read();
-                if (done) break;
-
-                const chunk = decoder.decode(value, { stream: true });
-
-                // For providers where we DID sends prefill, the chunk acts as continuation.
-                // For providers where we DID NOT, the chunk is the whole start.
-                // We just append chunk to what we have?
-                // Yes, unless OpenAI hallucinates the prefill at start.
-
-                // Special handling for thoughts:
-                const parsed = parseStreamingChunk(chunk, activeProvider);
-                if (parsed.thoughtContent) assistantThought += parsed.thoughtContent;
-                if (parsed.visibleContent) fullContent += parsed.visibleContent;
-
-                // Update the message in store
-                updateMessage(targetId, {
-                    content: fullContent,
-                    thought: assistantThought || undefined,
-                });
-            }
-
-            // NanoGPT quota was just consumed by this generation — ask the usage badge/panel to
-            // refetch (no-op for other providers; the badge only renders for NanoGPT).
-            if (activeProvider === 'nanogpt') {
-                window.dispatchEvent(new Event(NANOGPT_USAGE_REFRESH_EVENT));
-            }
-
-            // Final parse
-            const finalResult = normalizeCoT(fullContent, activeProvider);
-            // Check if we need to preserve thought accumulated vs returned?
-            // normalizeCoT re-parses whole string.
-            // If we used prefill, fullContent has prefill.
-
-            // Extract scratchpad
-            let finalContent = finalResult.content;
-            const scratchpadMatch = finalContent.match(/<scratchpad>([\s\S]*?)<\/scratchpad>/i);
-            if (scratchpadMatch) {
-                const scratchpadContent = scratchpadMatch[1].trim();
-                if (activeConversationId) {
-                    useChatStore
-                        .getState()
-                        .updateScratchpad(activeConversationId, scratchpadContent);
-                }
-                // Remove scratchpad from final content
-                finalContent = finalContent
-                    .replace(/<scratchpad>[\s\S]*?<\/scratchpad>/i, '')
-                    .trim();
-            }
-
-            // Canon: capture the GM's trailing [timeline …] as the arc cursor (= canon cap),
-            // then lazily fetch/refresh dossiers for roster members active this turn.
-            if (character && activeConversationId) {
-                const conv = useChatStore
-                    .getState()
-                    .conversations.find((c) => c.id === activeConversationId);
-                // Arc Compass: enabled by default. Treat undefined as ON; only an explicit
-                // `enabled: false` from the user turns it off.
-                if (conv && conv.arc?.enabled !== false) {
-                    const work = resolveWork(character);
-                    let cap = conv.arc?.currentPosition || 'Start';
-                    const tl = finalContent.match(
-                        /\[([^\]\n]*(?:season|episode|s\d|e\d|arc|chapter|timeline)[^\]\n]*)\]\s*$/i
-                    );
-                    if (tl) {
-                        const pos = tl[1].trim();
-                        if (pos && pos !== conv.arc?.currentPosition) {
-                            cap = pos;
-                            useChatStore
-                                .getState()
-                                .updateArc(activeConversationId, {
-                                    ...(conv.arc || {}),
-                                    currentPosition: pos,
-                                });
-                        }
-                    }
-                    const roster = character.canonCast || [];
-                    if (work && roster.length > 0) {
-                        const lower = finalContent.toLowerCase();
-                        const active = roster.filter((n) => nameMatchesText(n, lower));
-                        for (const name of active) {
-                            fetchCharacterDossier(work, name, cap).catch((e) =>
-                                console.error('[Canon] dossier fetch failed', name, e)
-                            );
-                        }
-                    }
-                }
-            }
-
-            // Anti-stall: if this beat barely advanced vs the previous one, queue a one-shot nudge.
-            if (character && activeConversationId && finalContent && !options.isImpersonation) {
-                const prevAssistant = [...history].reverse().find((m) => m.role === 'assistant');
-                const { stalled } = detectStall(finalContent, prevAssistant?.content, false);
-                if (stalled) {
-                    const conv = useChatStore
-                        .getState()
-                        .conversations.find((c) => c.id === activeConversationId);
-                    useChatStore
-                        .getState()
-                        .setMomentumNudge(activeConversationId, buildMomentumNudge(conv?.arc?.nextBeat));
-                }
-            }
-
-            updateMessage(targetId, {
-                content: finalContent,
-                thought: finalResult.thought || assistantThought || undefined,
-            });
-
-            // Background analysis after a beat.
-            if (character) {
-                // Relationships (Phase 2): update NPC bonds from this beat, in the background.
-                if (finalContent && activeConversationId && !options.isImpersonation) {
-                    analyzeAndUpdateRelationships(
-                        character,
-                        activeConversationId,
-                        finalContent,
-                        targetId
-                    ).catch((e) => console.error('[Relationships] analysis failed', e));
-                }
-
-                // Lorebook extraction is now handled in handleSend on the previous message
-
-                // RAG: Background fact extraction from the AI response (skip on regeneration)
-                // Quality gate: skip extraction for trivial/short responses to save API calls
-                if (
-                    enableFactExtraction &&
-                    activeConversationId &&
-                    fullContent &&
-                    !options.skipFactExtraction
-                ) {
-                    const responseQuality = scoreMessageQuality({
-                        role: 'assistant',
-                        content: fullContent,
-                    });
-                    if (responseQuality.score >= 4) {
-                        (async () => {
-                            try {
-                                const factPrompt = buildFactExtractionPrompt(
-                                    fullContent,
-                                    worldState,
-                                    character.name,
-                                    activePersona?.name || 'User'
-                                );
-
-                                // Fact extraction is a background task on the OpenRouter endpoint,
-                                // so it needs an OpenRouter key. Don't fall back to currentApiKey:
-                                // with NanoGPT active, that would send a NanoGPT key to OpenRouter.
-                                const orConfig = apiKeys.find(
-                                    (k) => k.provider === 'openrouter'
-                                );
-                                const openRouterKey = orConfig
-                                    ? await decryptApiKey(orConfig.encryptedKey)
-                                    : null;
-                                if (!openRouterKey) return; // no OpenRouter key → skip extraction
-
-                                const { customFactCategories, backgroundModel: bgModel } =
-                                    useSettingsStore.getState();
-                                const factSystemPrompt =
-                                    customFactCategories.length > 0
-                                        ? buildFactExtractionSystemPrompt(customFactCategories)
-                                        : FACT_EXTRACTION_PROMPT;
-
-                                const factResult = await backgroundAICall({
-                                    systemPrompt: factSystemPrompt,
-                                    userPrompt: factPrompt,
-                                    apiKey: openRouterKey,
-                                    temperature: 0.2,
-                                    backgroundModel: bgModel,
-                                });
-
-                                if (factResult) {
-                                    const extractedFacts = parseFactExtractionResponse(
-                                        factResult.content,
-                                        activeConversationId,
-                                        targetId
-                                    );
-
-                                    if (extractedFacts.length > 0) {
-                                        const existingFacts =
-                                            await getFactsByConversation(activeConversationId);
-                                        const deduped = deduplicateFacts(
-                                            extractedFacts,
-                                            existingFacts
-                                        );
-
-                                        if (deduped.length > 0) {
-                                            // Tag facts with active branch path for branch-aware retrieval
-                                            const branchPath = messages.map((m) => m.id);
-                                            const factsWithIds: WorldFact[] = [];
-                                            for (const f of deduped) {
-                                                const emb = await embedText(f.fact);
-                                                factsWithIds.push({
-                                                    ...f,
-                                                    id: crypto.randomUUID(),
-                                                    embedding: emb,
-                                                    branchPath,
-                                                });
-                                            }
-                                            await saveFactsBatch(factsWithIds);
-                                            console.log(
-                                                `[RAG] Extracted ${factsWithIds.length} facts from response`
-                                            );
-
-                                            // Auto-update world state from extracted facts
-                                            try {
-                                                const activePersona = personas.find(
-                                                    (p) => p.id === activePersonaId
-                                                );
-                                                const wsUpdates = deriveWorldStateUpdates(
-                                                    factsWithIds,
-                                                    worldState,
-                                                    character.name,
-                                                    activePersona?.name || 'You'
-                                                );
-                                                const wsChanges = applyWorldStateUpdate(
-                                                    worldState,
-                                                    wsUpdates
-                                                );
-                                                if (wsChanges && activeConversationId) {
-                                                    useChatStore
-                                                        .getState()
-                                                        .updateWorldState(
-                                                            activeConversationId,
-                                                            wsChanges
-                                                        );
-                                                    console.log(
-                                                        '[RAG] Auto world state update:',
-                                                        wsChanges
-                                                    );
-                                                }
-                                            } catch (wsErr) {
-                                                console.warn(
-                                                    '[RAG] Auto world state update failed:',
-                                                    wsErr
-                                                );
-                                            }
-                                        }
-                                    }
-                                }
-                            } catch (err) {
-                                console.error('[RAG] Fact extraction failed:', err);
-                            }
-                        })();
-                    } else {
-                        console.log(
-                            `[RAG] Skipping fact extraction — response quality too low (${responseQuality.score}/10: ${responseQuality.label})`
-                        );
-                    }
-                }
-            }
-        } catch (error) {
-            if (error instanceof Error && error.name === 'AbortError') {
-                return;
-            }
-
-            const { addNotification, updateNotification } = useNotificationStore.getState();
-            const notifId = addNotification('Failed to generate response', 'world');
-            updateNotification(
-                notifId,
-                'error',
-                error instanceof Error ? error.message : 'Unknown error'
-            );
-
-            if (activeConversationId) {
-                updateMessage(targetId, {
-                    content:
-                        fullContent +
-                        `\n[Error: ${error instanceof Error ? error.message : 'Failed to get response. Check API Key or Network.'}]`,
-                });
-            }
-        } finally {
-            setIsLoading(false);
-            abortControllerRef.current = null;
-        }
-    };
-
-    const handleStop = () => {
-        if (abortControllerRef.current) {
-            abortControllerRef.current.abort();
-            setIsLoading(false);
-        }
-    };
-
-    const handleShowSettings = () => {
-        setIsSettingsOpen(true);
-    };
-
-
-    const handleSend = async (userMessage: string) => {
-        if (!activeConversationId || !character) return;
-
-        // Extraction on the PREVIOUS assistant message (the one the user is confirming by replying).
-        // This ensures only the active regeneration branch gets extracted.
-        const { lorebookAutoExtract } = useSettingsStore.getState();
-        // Whole-work RPG cards use the canon-safe RP journal instead of the (canon-destroying)
-        // lorebook accretion: canonical identity stays immutable, only "in this RP" notes are logged.
-        const isCanonCard = !!(character.work || (character.canonCast && character.canonCast.length));
-        if (lorebookAutoExtract && messages.length > 0) {
-            const lastAssistantMsg = [...messages].reverse().find((m) => m.role === 'assistant');
-            if (lastAssistantMsg?.content) {
-                if (isCanonCard) {
-                    const convId = activeConversationId;
-                    extractRpDevelopments(lastAssistantMsg.content, character.canonCast || [])
-                        .then((devs) => {
-                            const { appendRpJournal } = useChatStore.getState();
-                            for (const d of devs) appendRpJournal(convId, d.character, d.note);
-                        })
-                        .catch((err) => console.error('RP journal extraction failed:', err));
-                } else if (activeLorebook) {
-                    const existingKeys = activeLorebook.entries.flatMap((e) => e.keys);
-                    extractLorebookEntries(lastAssistantMsg.content, existingKeys)
-                        .then((newEntries) => {
-                            if (newEntries.length > 0) {
-                                const { addSuggestions } = useLorebookStore.getState();
-                                addSuggestions(
-                                    newEntries.map((e) => ({
-                                        keys: e.keys,
-                                        content: e.content,
-                                        category: e.category,
-                                    }))
-                                );
-                            }
-                        })
-                        .catch((err) => console.error('Lorebook extraction failed:', err));
-                }
-            }
-        }
-
-        const lastParams = messages.length > 0 ? messages[messages.length - 1] : null;
-
-        const newUserMessage: Message = {
-            id: crypto.randomUUID(),
-            conversationId: activeConversationId,
-            parentId: lastParams?.id || null,
-            role: 'user',
-            content: userMessage,
-            isActiveBranch: true,
-            createdAt: new Date(),
-            messageOrder: messages.length + 1,
-            regenerationIndex: 0,
-        };
-
-        addMessage(newUserMessage);
-
-        const activePreset = getActivePreset();
-        const prefill = activePreset?.assistantPrefill || undefined;
-
-        // Construct history for API (include the new message)
-        const history = [...messages, newUserMessage];
-        await triggerAiReponse(history, { prefill });
-    };
+    // Generation flow (send / stop / regenerate / continue / impersonate / retry) —
+    // extracted to useChatGeneration; behaviour unchanged.
+    const {
+        isLoading,
+        send: handleSend,
+        stop: handleStop,
+        regenerate: handleRegenerate,
+        continueMessage: handleContinue,
+        impersonate: handleImpersonate,
+        retry: handleRetry,
+    } = useChatGeneration({
+        character,
+        activeConversationId,
+        messages,
+        worldState,
+        currentApiKey,
+        runPostBeat,
+    });
 
     // Context Preview handler - builds a preview of what would be sent
     const handleContextPreview = async () => {
@@ -1158,29 +278,15 @@ export default function ChatPage() {
               ]
             : messages;
 
-        // Build system prompt
-        const useLorebooks = activePreset?.useLorebooks ?? true;
-        const lorebookTokenBudget = activePreset?.lorebookTokenBudget ?? 2000;
-        const activeEntries = useLorebooks
-            ? getActiveLorebookEntries(
-                  simulatedMessages.map((m) => ({
-                      ...m,
-                      conversationId: '',
-                      parentId: null,
-                      isActiveBranch: true,
-                      createdAt: new Date(),
-                  })) as unknown as CAMessage[],
-                  activeLorebook || undefined,
-                  {
-                      scanDepth: activePreset?.lorebookScanDepth,
-                      tokenBudget: lorebookTokenBudget,
-                      recursive: activePreset?.lorebookRecursiveScanning,
-                      matchWholeWords: activePreset?.matchWholeWords,
-                      characterName: character.name,
-                      userPersonaName: activePersona?.name,
-                  }
-              )
-            : [];
+        // Keyword-only lorebook scan (same shared resolver as generation, hybrid off).
+        const activeEntries = await resolveActiveLorebookEntries({
+            messages: simulatedMessages,
+            lorebook: activeLorebook,
+            preset: activePreset,
+            characterName: character.name,
+            userPersonaName: activePersona?.name,
+            tokenBudget: activePreset?.lorebookTokenBudget ?? 2000,
+        });
 
         const conv = conversations.find((c) => c.id === activeConversationId);
         const combinedMem = [...(conv?.notes || []), ...(character.longTermMemory || [])];
@@ -1192,7 +298,8 @@ export default function ChatPage() {
         );
         const maxContextTokens = activePreset?.maxContextTokens ?? 16384;
         const maxOutputTokens = activePreset?.maxOutputTokens ?? 2048;
-        const { minRAGConfidence: previewMinConf } = useSettingsStore.getState();
+        const { minRAGConfidence: previewMinConf, enableScratchpad: previewScratchpad } =
+            useSettingsStore.getState();
         const lastMsg = simulatedMessages[simulatedMessages.length - 1]?.content || '';
 
         const {
@@ -1218,6 +325,7 @@ export default function ChatPage() {
             longTermMemory: combinedMem,
             storyGuidance: conv?.storyGuidance,
             scratchpad: conv?.scratchpad,
+            enableScratchpad: previewScratchpad,
             canonOptions: previewCanonOptions,
             activeProvider,
             maxContextTokens,
@@ -1260,162 +368,6 @@ export default function ChatPage() {
             ],
         });
         setIsContextPreviewOpen(true);
-    };
-
-    const handleImpersonate = async (): Promise<string | void> => {
-        if (!activeConversationId || isLoading || !currentApiKey || !character) return;
-
-        setIsLoading(true);
-
-        let generatedText = '';
-
-        try {
-            const activePreset = getActivePreset();
-            const activePersona = personas.find((p) => p.id === activePersonaId);
-
-            // 1. Context
-            const useLorebooks = activePreset?.useLorebooks ?? true;
-            const activeEntries = useLorebooks
-                ? getActiveLorebookEntries(
-                      messages.map((m) => ({
-                          ...m,
-                          conversationId: '',
-                          parentId: null,
-                          isActiveBranch: true,
-                          createdAt: new Date(),
-                      })) as unknown as CAMessage[],
-                      activeLorebook || undefined,
-                      {
-                          scanDepth: activePreset?.lorebookScanDepth,
-                          tokenBudget: activePreset?.lorebookTokenBudget,
-                          recursive: activePreset?.lorebookRecursiveScanning,
-                          matchWholeWords: activePreset?.matchWholeWords,
-                          characterName: character.name,
-                          userPersonaName: activePersona?.name,
-                      }
-                  )
-                : [];
-
-            const impConv = conversations.find((c) => c.id === activeConversationId);
-            const impMem = [...(impConv?.notes || []), ...(character.longTermMemory || [])];
-
-            // Unified assembly with the INVERTED contract (mode: 'impersonate'): the builder
-            // strips "Do not speak for <user>" and asserts the write-only-the-player contract
-            // after history. Kept context-light (no canon/RAG) as before. The system prompt is
-            // already messages[0] — we do NOT also pass top-level systemPrompt/userPersona,
-            // which previously made the route inject the system prompt twice.
-            const { messagesPayload } = await buildConversationPayload({
-                mode: 'impersonate',
-                character,
-                worldState,
-                activeEntries,
-                history: messages,
-                recentMessages: messages,
-                activePreset,
-                activeEngine: getActiveEngine(),
-                learnedBanList: activeConversationId
-                    ? getActiveBranchBanList(activeConversationId)
-                    : undefined,
-                userPersona: activePersona,
-                longTermMemory: impMem,
-                storyGuidance: impConv?.storyGuidance,
-                scratchpad: impConv?.scratchpad,
-                activeProvider,
-                maxContextTokens: activePreset?.maxContextTokens ?? 16384,
-                maxOutputTokens: activePreset?.maxOutputTokens ?? 2048,
-            });
-
-            // 2. API Call
-            const response = await fetch('/api/chat', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    messages: messagesPayload,
-                    provider: activeProvider,
-                    model: activeModel,
-                    apiKey: currentApiKey,
-                    temperature: activePreset?.temperature ?? temperature,
-                    maxTokens: activePreset?.maxOutputTokens ?? 2048,
-                    topP: activePreset?.topP,
-                    topK: activePreset?.topK,
-                    frequencyPenalty: activePreset?.frequencyPenalty,
-                    presencePenalty: activePreset?.presencePenalty,
-                    repetitionPenalty: activePreset?.repetitionPenalty,
-                    minP: activePreset?.minP,
-                    stoppingStrings: activePreset?.stoppingStrings,
-                    enableReasoning: activePreset?.enableReasoning ?? enableReasoning,
-                    useFlexTier: activePreset?.useFlexTier ?? useFlexTier,
-                }),
-            });
-
-            if (!response.ok) throw new Error('Impersonation failed');
-
-            const reader = response.body?.getReader();
-            if (!reader) throw new Error('No reader');
-            const decoder = new TextDecoder();
-
-            while (true) {
-                const { done, value } = await reader.read();
-                if (done) break;
-                const chunk = decoder.decode(value, { stream: true });
-                // We must accumulate the raw text first, because chunk-based parsing
-                // of thoughts split across chunks is unreliable.
-                generatedText += chunk;
-            }
-
-            const final = normalizeCoT(generatedText, activeProvider);
-            return final.content;
-        } catch (err) {
-            console.error('Impersonation error:', err);
-        } finally {
-            setIsLoading(false);
-        }
-    };
-
-    const handleRegenerate = async (id: string) => {
-        if (!activeConversationId) return;
-
-        // Find the message
-        const msgIndex = messages.findIndex((m) => m.id === id);
-        if (msgIndex === -1) return;
-
-        const msgToRegen = messages[msgIndex];
-
-        // If regening an assistant message, we use history UP TO that message (excluding it)
-        // If regening a user message -> not typically supported unless we fork conversation there.
-        // Let's support regening assistant response.
-
-        if (msgToRegen.role === 'assistant') {
-            // Create a sibling!
-            // Just trigger AI with history up to parent
-            const history = messages.slice(0, msgIndex);
-            await triggerAiReponse(history, { skipFactExtraction: true });
-        }
-    };
-
-    const handleContinue = async (id: string) => {
-        if (!activeConversationId || !character) return;
-
-        // Find the message
-        const msgIndex = messages.findIndex((m) => m.id === id);
-        if (msgIndex === -1) return;
-
-        const msgToContinue = messages[msgIndex];
-
-        // Only continue assistant messages
-        if (msgToContinue.role !== 'assistant') return;
-
-        // Use the current content as prefill - AI will continue from where it left off
-        const prefill = msgToContinue.content + ' ';
-
-        // Get history up to and including this message's parent (the user message before it)
-        const history = messages.slice(0, msgIndex);
-
-        // Delete the current message so it can be replaced with the continued version
-        deleteMessage(id);
-
-        // Trigger AI with prefill
-        await triggerAiReponse(history, { prefill, skipFactExtraction: true });
     };
 
     const handleEditMessage = (id: string, newContent: string) => {
@@ -1466,154 +418,11 @@ export default function ChatPage() {
 
     const handleExportCharacter = async () => {
         if (!character) return;
-
-        // Find most recent conversation for this character
-        const charConvs = conversations
-            .filter((c) => c.characterId === character.id)
-            .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime());
-
-        if (charConvs.length === 0) {
-            alert('No conversation found for this character.');
-            return;
-        }
-
-        const latestConv = charConvs[0];
-        const messages = await useChatStore.getState().getConversationMessages(latestConv.id);
-
-        const exportData = {
-            character: {
-                name: character.name,
-                description: character.description,
-                personality: character.personality,
-                scenario: character.scenario,
-                first_mes: character.first_mes,
-                mes_example: character.mes_example,
-            },
-            conversation: {
-                title: latestConv.title,
-                createdAt: latestConv.createdAt,
-                updatedAt: latestConv.updatedAt,
-                worldState: latestConv.worldState,
-            },
-            messages: messages.map((m) => ({
-                role: m.role,
-                content: m.content,
-                thought: m.thought,
-                createdAt: m.createdAt,
-                isActiveBranch: m.isActiveBranch,
-            })),
-            exportedAt: new Date().toISOString(),
-        };
-
-        const { exportToJson } = await import('@/lib/export-utils');
-        exportToJson(
-            exportData,
-            `Conversation_${character.name}_${new Date().toISOString().split('T')[0]}`
-        );
+        await exportConversationForCharacter(character);
     };
 
-    const handleImportConversation = async () => {
-        const input = document.createElement('input');
-        input.type = 'file';
-        input.accept = 'application/json,.json';
-
-        input.onchange = async (e) => {
-            const file = (e.target as HTMLInputElement).files?.[0];
-            if (!file) return;
-
-            try {
-                const text = await file.text();
-                const data = JSON.parse(text);
-
-                // Validate structure
-                if (!data.character || !data.conversation || !Array.isArray(data.messages)) {
-                    alert('Invalid conversation export format');
-                    return;
-                }
-
-                // Check if character already exists by name
-                const { useCharacterStore } = await import('@/stores');
-                const existingChar = useCharacterStore
-                    .getState()
-                    .characters.find((c) => c.name === data.character.name);
-
-                let characterId: string;
-
-                if (existingChar) {
-                    // Use existing character
-                    characterId = existingChar.id;
-                    if (
-                        confirm(
-                            `Character "${data.character.name}" already exists. Import conversation for this character?`
-                        )
-                    ) {
-                        // Continue with import
-                    } else {
-                        return;
-                    }
-                } else {
-                    // Create new character from imported data
-                    characterId = crypto.randomUUID();
-                    const newCharacter = {
-                        id: characterId,
-                        name: data.character.name,
-                        description: data.character.description || '',
-                        personality: data.character.personality || '',
-                        scenario: data.character.scenario || '',
-                        first_mes: data.character.first_mes || '',
-                        mes_example: data.character.mes_example || '',
-                        createdAt: new Date(),
-                    };
-                    await addCharacter(newCharacter);
-                }
-
-                // Create new conversation
-                const convId = await createConversation(
-                    characterId,
-                    data.conversation.title || `Imported Chat - ${new Date().toLocaleDateString()}`
-                );
-
-                // Import messages
-                const { useChatStore } = await import('@/stores');
-                const chatStore = useChatStore.getState();
-
-                for (let i = 0; i < data.messages.length; i++) {
-                    const msg = data.messages[i];
-                    chatStore.addMessage({
-                        id: crypto.randomUUID(),
-                        conversationId: convId,
-                        parentId: i > 0 ? null : null, // Simplified - all messages in main branch
-                        role: msg.role,
-                        content: msg.content,
-                        thought: msg.thought,
-                        isActiveBranch: true,
-                        createdAt: new Date(msg.createdAt || new Date()),
-                        messageOrder: i + 1,
-                        regenerationIndex: 0,
-                    });
-                }
-
-                // Update world state if present
-                if (data.conversation.worldState) {
-                    const { updateWorldState } = useChatStore.getState();
-                    updateWorldState(convId, data.conversation.worldState);
-                }
-
-                // Switch to the imported conversation
-                setActiveConversation(convId);
-
-                alert(
-                    `Successfully imported conversation "${data.conversation.title}" with ${data.messages.length} messages!`
-                );
-            } catch (error) {
-                console.error('Import error:', error);
-                alert(
-                    `Failed to import conversation: ${error instanceof Error ? error.message : 'Unknown error'}`
-                );
-            }
-        };
-
-        input.click();
+    const handleImportConversation = () => {
+        importConversationFromFile();
     };
 
     // Hydration check
@@ -1634,103 +443,18 @@ export default function ChatPage() {
                         {/* Header - Hidden in immersive mode */}
                         <AnimatePresence>
                             {!immersiveMode && (
-                                <motion.header
-                                    initial={{ y: -60, opacity: 0 }}
-                                    animate={{ y: 0, opacity: 1 }}
-                                    exit={{ y: -60, opacity: 0 }}
-                                    transition={{
-                                        type: 'spring' as const,
-                                        stiffness: 300,
-                                        damping: 30,
-                                    }}
-                                    className="h-14 border-b border-white/5 flex items-center px-4 justify-between glass-heavy sticky top-0 z-30 shrink-0"
-                                >
-                                    <div className="flex items-center gap-2 sm:gap-3 min-w-0">
-                                        {/* Character Panel Button */}
-                                        <CharacterPanel
-                                            trigger={
-                                                <Button
-                                                    variant="ghost"
-                                                    size="icon"
-                                                    className="shrink-0 h-8 w-8"
-                                                >
-                                                    <Users className="h-4 w-4" />
-                                                </Button>
-                                            }
-                                        />
-                                        <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center overflow-hidden shrink-0">
-                                            {character.avatar ? (
-                                                <div className="w-8 h-8 rounded-full overflow-hidden border border-border/50 shrink-0">
-                                                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                                                    <img
-                                                        src={character.avatar}
-                                                        alt={character.name}
-                                                        className="w-full h-full object-cover"
-                                                    />
-                                                </div>
-                                            ) : (
-                                                <span className="font-semibold text-xs text-primary">
-                                                    {character.name.slice(0, 2).toUpperCase()}
-                                                </span>
-                                            )}
-                                        </div>
-                                        <div className="flex flex-col min-w-0">
-                                            <h2 className="font-semibold text-xs sm:text-sm truncate">
-                                                {character.name}
-                                            </h2>
-                                            <p className="text-[10px] text-muted-foreground truncate opacity-80">
-                                                {activeModel}
-                                            </p>
-                                        </div>
-                                    </div>
-
-                                    <div className="flex items-center gap-1 sm:gap-2">
-                                        <DropdownMenu>
-                                            <DropdownMenuTrigger asChild>
-                                                <Button
-                                                    variant="ghost"
-                                                    size="icon"
-                                                    className="shrink-0 h-8 w-8"
-                                                >
-                                                    <MoreVertical className="h-4 w-4" />
-                                                </Button>
-                                            </DropdownMenuTrigger>
-                                            <DropdownMenuContent align="end" className="w-48">
-                                                <DropdownMenuItem onClick={handleEditCharacter}>
-                                                    <Edit className="h-4 w-4 mr-2" />
-                                                    Edit Character
-                                                </DropdownMenuItem>
-                                                <DropdownMenuItem
-                                                    onClick={handleImportConversation}
-                                                >
-                                                    <Upload className="h-4 w-4 mr-2" />
-                                                    Import Conversation
-                                                </DropdownMenuItem>
-                                                <DropdownMenuItem onClick={handleExportCharacter}>
-                                                    <Download className="h-4 w-4 mr-2" />
-                                                    Export Conversation
-                                                </DropdownMenuItem>
-                                                <DropdownMenuItem
-                                                    onClick={handleDeleteCharacter}
-                                                    className="text-destructive focus:text-destructive"
-                                                >
-                                                    <Trash2 className="h-4 w-4 mr-2" />
-                                                    Delete Character
-                                                </DropdownMenuItem>
-                                            </DropdownMenuContent>
-                                        </DropdownMenu>
-                                        <Button
-                                            variant="ghost"
-                                            size="icon"
-                                            onClick={() => setIsSettingsOpen(true)}
-                                            className="shrink-0 h-8 w-8"
-                                        >
-                                            <Settings2 className="h-4 w-4" />
-                                        </Button>
-                                    </div>
-                                </motion.header>
+                                <ChatHeader
+                                    character={character}
+                                    activeModel={activeModel}
+                                    onEditCharacter={handleEditCharacter}
+                                    onImportConversation={handleImportConversation}
+                                    onExportConversation={handleExportCharacter}
+                                    onDeleteCharacter={handleDeleteCharacter}
+                                    onOpenSettings={() => setIsSettingsOpen(true)}
+                                />
                             )}
                         </AnimatePresence>
+
 
                         <div className="flex-1 flex flex-col min-h-0 relative">
                             {/* Messages Area */}
@@ -1783,6 +507,7 @@ export default function ChatPage() {
                                                         role={msg.role as 'user' | 'assistant'}
                                                         content={displayContent}
                                                         thought={msg.thought}
+                                                        error={msg.error}
                                                         avatar={
                                                             msg.role === 'user'
                                                                 ? personas.find(
@@ -1805,6 +530,7 @@ export default function ChatPage() {
                                                         onContinue={handleContinue}
                                                         onBranch={handleBranch}
                                                         onDelete={handleDeleteMessage}
+                                                        onRetry={handleRetry}
                                                         currentBranchIndex={
                                                             siblingsInfo.currentIndex
                                                         }
@@ -1834,76 +560,22 @@ export default function ChatPage() {
                                 className={`mx-auto w-full space-y-2 ${immersiveMode ? 'p-4 max-w-3xl' : 'max-w-4xl'}`}
                             >
                                 {!immersiveMode && (
-                                    <div className="flex items-center gap-1 sm:gap-2 overflow-x-auto no-scrollbar pb-1">
-                                        <PersonaSelector />
-                                        <ModelSelector />
-                                        <NanoGPTUsageBadge />
-
-                                        <Button
-                                            variant="ghost"
-                                            size="sm"
-                                            className="h-8 w-8 p-0 text-muted-foreground hover:text-foreground shrink-0"
-                                            onClick={() => setIsLorebookOpen(true)}
-                                            title="Lorebook"
-                                        >
-                                            <Book className="h-4 w-4" />
-                                        </Button>
-                                        {/* WorldState Button - Dialog on desktop, Sheet on mobile */}
-                                        {showWorldState && (
-                                            <Button
-                                                variant="ghost"
-                                                size="sm"
-                                                className="h-8 w-8 p-0 text-muted-foreground hover:text-foreground shrink-0"
-                                                onClick={() => {
-                                                    // Desktop: open dialog, Mobile: open sheet
-                                                    if (window.innerWidth >= 1024) {
-                                                        setIsWorldStateDialogOpen(true);
-                                                    } else {
-                                                        setIsWorldStateSheetOpen(true);
-                                                    }
-                                                }}
-                                                title="Relations"
-                                            >
-                                                <HeartIcon className="h-4 w-4" />
-                                            </Button>
-                                        )}
-                                        <Button
-                                            variant="ghost"
-                                            size="sm"
-                                            className="h-8 w-8 p-0 text-muted-foreground hover:text-foreground shrink-0"
-                                            onClick={() => setIsTreeOpen(true)}
-                                            title="View Branch Tree"
-                                        >
-                                            <GitBranch className="h-4 w-4" />
-                                        </Button>
-                                        <Button
-                                            variant="ghost"
-                                            size="sm"
-                                            className="h-8 w-8 p-0 text-muted-foreground hover:text-foreground shrink-0"
-                                            onClick={() => setIsMemoryOpen(true)}
-                                            title="Long-Term Memory"
-                                        >
-                                            <Brain className="h-4 w-4" />
-                                        </Button>
-                                        <Button
-                                            variant="ghost"
-                                            size="sm"
-                                            className="h-8 w-8 p-0 text-muted-foreground hover:text-foreground shrink-0"
-                                            onClick={() => setIsCanonOpen(true)}
-                                            title="Canon Codex (Arc + Casting + Directeur)"
-                                        >
-                                            <Clapperboard className="h-4 w-4" />
-                                        </Button>
-                                        <Button
-                                            variant="ghost"
-                                            size="sm"
-                                            className="h-8 w-8 p-0 text-muted-foreground hover:text-foreground shrink-0"
-                                            onClick={handleContextPreview}
-                                            title="Context Preview"
-                                        >
-                                            <Eye className="h-4 w-4" />
-                                        </Button>
-                                    </div>
+                                    <ChatToolbar
+                                        showWorldState={showWorldState}
+                                        onOpenLorebook={() => setIsLorebookOpen(true)}
+                                        onOpenRelations={() => {
+                                            // Desktop: dialog — Mobile: bottom sheet
+                                            if (window.innerWidth >= 1024) {
+                                                setIsWorldStateDialogOpen(true);
+                                            } else {
+                                                setIsWorldStateSheetOpen(true);
+                                            }
+                                        }}
+                                        onOpenTree={() => setIsTreeOpen(true)}
+                                        onOpenMemory={() => setIsMemoryOpen(true)}
+                                        onOpenCanon={() => setIsCanonOpen(true)}
+                                        onContextPreview={handleContextPreview}
+                                    />
                                 )}
                                 <ChatInput
                                     onSend={handleSend}

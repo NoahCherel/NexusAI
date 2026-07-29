@@ -149,17 +149,6 @@ export function getActiveLorebookEntries(
 }
 
 /**
- * Formats world state for template insertion
- * Now uses a cleaner format without heavy section headers
- */
-function formatWorldState(_worldState: WorldState, _recentCharacterNames?: string[]): string {
-    // Phase 2: the old World Context (location / inventory / symmetric relationship scalars) is
-    // retired in favour of the directional Relationship system. The `{{world_state}}` placeholder
-    // now resolves to nothing; relationships are injected via the dedicated relationship block.
-    return '';
-}
-
-/**
  * Formats lorebook entries for template insertion (character-focused)
  */
 function formatLorebookEntries(entries: LorebookEntry[]): string {
@@ -173,39 +162,19 @@ function formatLorebookEntries(entries: LorebookEntry[]): string {
 /**
  * Resolves a system prompt template with actual values
  */
-/**
- * Resolves a system prompt template with actual values
- */
 export function resolveSystemPromptTemplate(
     template: string,
     character: CharacterCard,
-    worldState: WorldState,
+    _worldState: WorldState,
     activeLorebookEntries: LorebookEntry[],
     userPersona?: { name: string; bio: string; description?: string } | null,
     longTermMemory?: string[],
-    recentMessages?: Message[]
+    _recentMessages?: Message[]
 ): string {
     const formattedMemory =
         longTermMemory && longTermMemory.length > 0
             ? `The story so far:\n${longTermMemory.join('\n')}`
             : '';
-
-    // Extract character names mentioned in recent messages (last 10)
-    // for filtering relationships
-    let recentCharacterNames: string[] | undefined;
-    if (recentMessages && recentMessages.length > 0) {
-        const last10 = recentMessages.slice(-10);
-        const combinedText = last10
-            .map((m) => m.content)
-            .join(' ')
-            .toLowerCase();
-        // Get all relationship names and filter to those mentioned (by full name or first name)
-        recentCharacterNames = Object.keys(worldState.relationships).filter((name) => {
-            const lowerName = name.toLowerCase();
-            const firstName = lowerName.split(' ')[0];
-            return combinedText.includes(lowerName) || combinedText.includes(firstName);
-        });
-    }
 
     const replacements: Record<string, string> = {
         '{{character_name}}': character.name,
@@ -214,7 +183,9 @@ export function resolveSystemPromptTemplate(
         '{{character_personality}}': character.personality || '',
         '{{scenario}}': character.scenario || '',
         '{{first_message}}': character.first_mes || '',
-        '{{world_state}}': formatWorldState(worldState, recentCharacterNames),
+        // The old World Context (location / inventory / scalar relationships) is retired in
+        // favour of the directional Relationship system — the placeholder resolves to nothing.
+        '{{world_state}}': '',
         '{{lorebook}}': formatLorebookEntries(activeLorebookEntries),
         '{{memory}}': formattedMemory,
         '{{long_term_memory}}': formattedMemory, // Alias
@@ -235,10 +206,6 @@ export function resolveSystemPromptTemplate(
     return resolved.trim();
 }
 
-/**
- * Builds the final system prompt.
- * Joins Pre-History + Template + Post-History.
- */
 /**
  * Builds the final system prompt.
  * Joins Pre-History + Template + Post-History.
@@ -422,6 +389,8 @@ export function buildRAGEnhancedPayload(
         maxContextTokens: number;
         maxOutputTokens: number;
         postHistoryInstructions?: string;
+        /** Defaults to system. Impersonation uses user for provider-compatible task framing. */
+        postHistoryRole?: 'system' | 'user';
         assistantPrefill?: string;
         activeProvider?: string;
     }
@@ -441,6 +410,7 @@ export function buildRAGEnhancedPayload(
         maxContextTokens,
         maxOutputTokens,
         postHistoryInstructions,
+        postHistoryRole = 'system',
         assistantPrefill,
         activeProvider,
     } = options;
@@ -488,7 +458,7 @@ export function buildRAGEnhancedPayload(
 
     // Post-history instructions
     if (postHistoryInstructions) {
-        messagesPayload.push({ role: 'system', content: postHistoryInstructions });
+        messagesPayload.push({ role: postHistoryRole, content: postHistoryInstructions });
     }
 
     // Assistant prefill

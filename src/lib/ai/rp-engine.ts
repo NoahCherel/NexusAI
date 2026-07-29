@@ -113,7 +113,7 @@ export function buildEnginePostHistory(
 ): string {
     if (mode === 'impersonate') {
         return resolveUser(
-            `[IMPERSONATION — write ONLY {{user}}'s next message, in {{user}}'s voice. Do not write, decide, or narrate anything for the other characters; do not reveal their private thoughts.]`,
+            `[ROLEPLAY DRAFTING TASK — {{user}} is the user's player-character/persona in this fictional roleplay. Draft one candidate next message for {{user}} in {{user}}'s established voice. This is collaborative fiction drafting, not a request to claim or verify anyone's identity. Output only {{user}}'s message; do not answer as the assistant and do not write, decide, or narrate for the other characters.]`,
             opts.userName
         );
     }

@@ -174,8 +174,12 @@ interface SettingsState {
     immersiveMode: boolean;
     lorebookAutoExtract: boolean;
 
-    // Background AI Model
-    backgroundModel: string | null; // null = auto (free model rotation), string = specific modelId
+    // Background AI routing
+    // 'auto' = NanoGPT subscription quota when a key exists (better models), else free
+    // OpenRouter rotation. Web-search tasks (canon retrieval) always stay on OpenRouter.
+    backgroundProvider: 'auto' | 'nanogpt' | 'openrouter-free';
+    backgroundModel: string | null; // OpenRouter background override (null = free model rotation)
+    nanogptBackgroundModel: string | null; // NanoGPT background override (null = auto-pick from subscription)
 
     // RAG / Memory Settings
     enableFactExtraction: boolean;
@@ -183,6 +187,14 @@ interface SettingsState {
     enableRAGRetrieval: boolean;
     minRAGConfidence: number; // 0–1, minimum confidence threshold for RAG sections
     customFactCategories: string[]; // User-defined fact categories (in addition to built-in ones)
+
+    // Per-response <scratchpad> working memory. Costs output tokens on every reply and
+    // invalidates prompt caching, so it's opt-in.
+    enableScratchpad: boolean;
+    // Directional relationship analyst (one background call per beat).
+    enableRelationshipAnalyst: boolean;
+    // Anti-stall detection + one-shot momentum nudge.
+    enableMomentum: boolean;
 
     // Canon Codex (Arc + Casting + Director)
     // Master switch: when false, no canon/arc/casting injection happens at all.
@@ -216,7 +228,12 @@ interface SettingsState {
     setShowWorldState: (show: boolean) => void;
     setImmersiveMode: (immersive: boolean) => void;
     setLorebookAutoExtract: (enabled: boolean) => void;
+    setBackgroundProvider: (provider: 'auto' | 'nanogpt' | 'openrouter-free') => void;
     setBackgroundModel: (model: string | null) => void;
+    setNanogptBackgroundModel: (model: string | null) => void;
+    setEnableScratchpad: (enabled: boolean) => void;
+    setEnableRelationshipAnalyst: (enabled: boolean) => void;
+    setEnableMomentum: (enabled: boolean) => void;
     setEnableFactExtraction: (enabled: boolean) => void;
     setEnableHierarchicalSummaries: (enabled: boolean) => void;
     setEnableRAGRetrieval: (enabled: boolean) => void;
@@ -265,7 +282,12 @@ export const useSettingsStore = create<SettingsState>()(
             showWorldState: true,
             immersiveMode: false,
             lorebookAutoExtract: true,
+            backgroundProvider: 'auto',
             backgroundModel: null,
+            nanogptBackgroundModel: null,
+            enableScratchpad: false,
+            enableRelationshipAnalyst: true,
+            enableMomentum: true,
             enableFactExtraction: true,
             enableHierarchicalSummaries: true,
             enableRAGRetrieval: true,
@@ -324,7 +346,13 @@ export const useSettingsStore = create<SettingsState>()(
             setShowWorldState: (showWorldState) => set({ showWorldState }),
             setImmersiveMode: (immersiveMode) => set({ immersiveMode }),
             setLorebookAutoExtract: (lorebookAutoExtract) => set({ lorebookAutoExtract }),
+            setBackgroundProvider: (backgroundProvider) => set({ backgroundProvider }),
             setBackgroundModel: (backgroundModel) => set({ backgroundModel }),
+            setNanogptBackgroundModel: (nanogptBackgroundModel) => set({ nanogptBackgroundModel }),
+            setEnableScratchpad: (enableScratchpad) => set({ enableScratchpad }),
+            setEnableRelationshipAnalyst: (enableRelationshipAnalyst) =>
+                set({ enableRelationshipAnalyst }),
+            setEnableMomentum: (enableMomentum) => set({ enableMomentum }),
             setEnableFactExtraction: (enableFactExtraction) => set({ enableFactExtraction }),
             setEnableHierarchicalSummaries: (enableHierarchicalSummaries) =>
                 set({ enableHierarchicalSummaries }),

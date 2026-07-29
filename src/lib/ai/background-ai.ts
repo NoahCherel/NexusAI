@@ -1,14 +1,24 @@
 /**
  * Shared utility for background AI calls (summarization, fact extraction, etc.)
  *
+ * Routing (settings.backgroundProvider):
+ * - 'auto' (default): NanoGPT subscription quota when a key exists — much better models
+ *   (DeepSeek V4, GLM, …) at no marginal cost — falling back to free OpenRouter models.
+ * - 'nanogpt': NanoGPT first, free OpenRouter models as an error/quota fallback.
+ * - 'openrouter-free': legacy behaviour, free OpenRouter rotation only.
+ * Web-search calls (canon retrieval) ALWAYS run on OpenRouter — the `web` plugin is
+ * OpenRouter-specific.
+ *
  * Features:
- * - Model fallback chain: tries multiple free models in order
+ * - Model fallback chain: tries multiple models in order
  * - Exponential backoff on 429 rate limits
  * - Global rate limiter to space out requests
  * - Streaming response reading
  */
 
 import { useSettingsStore } from '@/stores';
+import { decryptApiKey } from '@/lib/crypto';
+import { NANOGPT_USAGE_REFRESH_EVENT } from '@/lib/ai/nanogpt-usage';
 
 // Fallback model chain — tried in order, skips on 429
 const FREE_MODELS = [
@@ -34,14 +44,18 @@ async function waitForSlot(): Promise<void> {
 interface BackgroundAIOptions {
     systemPrompt: string;
     userPrompt: string;
-    apiKey: string;
+    /**
+     * Optional pre-resolved OpenRouter key. When omitted, keys are resolved from settings.
+     * (Legacy param — only affects the OpenRouter path.)
+     */
+    apiKey?: string;
     temperature?: number;
     maxTokens?: number;
-    /** Override the default model chain */
+    /** Override the OpenRouter-path model chain */
     models?: string[];
     /** Max retries per model on 429 */
     maxRetries?: number;
-    /** User-chosen background model override (from settings). Bypasses fallback chain. */
+    /** User-chosen OpenRouter background model override (from settings). */
     backgroundModel?: string | null;
     /**
      * How to process <think> tags in model output:
@@ -49,7 +63,7 @@ interface BackgroundAIOptions {
      * - remove-tags: keep text but strip only the <think> tags
      */
     thinkTagStrategy?: 'remove-blocks' | 'remove-tags';
-    /** Enable the OpenRouter web_search server tool (for canon retrieval). */
+    /** Enable web search (canon retrieval). Forces the OpenRouter path. */
     webSearch?: boolean;
     /** Max results per web search call (default 5). */
     webMaxResults?: number;
@@ -60,37 +74,70 @@ interface BackgroundAIOptions {
 interface BackgroundAIResult {
     content: string;
     usedModel: string;
+    usedProvider: 'nanogpt' | 'openrouter';
+}
+
+/** Decrypt the stored key for a provider, or null when absent/broken. */
+async function resolveKey(provider: 'openrouter' | 'nanogpt'): Promise<string | null> {
+    const cfg = useSettingsStore.getState().apiKeys.find((k) => k.provider === provider);
+    if (!cfg) return null;
+    try {
+        const key = await decryptApiKey(cfg.encryptedKey);
+        return key || null;
+    } catch {
+        return null;
+    }
 }
 
 /**
- * Make a background AI call with model fallback and rate limit handling.
- * Returns cleaned text (thinking tags removed) or null on total failure.
+ * Pick the NanoGPT model for background work: the user's explicit choice, else a cheap
+ * capable model from their subscription list (fetched into settings.nanogptModels).
  */
-export async function backgroundAICall(
-    options: BackgroundAIOptions
-): Promise<BackgroundAIResult | null> {
+function pickNanogptBackgroundModel(): string | null {
+    const { nanogptBackgroundModel, nanogptModels } = useSettingsStore.getState();
+    if (nanogptBackgroundModel) return nanogptBackgroundModel;
+    if (nanogptModels.length === 0) return null;
+    const preferences = [/deepseek/i, /glm/i, /qwen/i, /flash/i, /mini/i];
+    for (const re of preferences) {
+        const hit = nanogptModels.find((m) => re.test(m.modelId) || re.test(m.name));
+        if (hit) return hit.modelId;
+    }
+    return nanogptModels[0].modelId;
+}
+
+interface ChainAttemptParams {
+    provider: 'nanogpt' | 'openrouter';
+    apiKey: string;
+    models: string[];
+    systemPrompt: string;
+    userPrompt: string;
+    temperature: number;
+    maxTokens: number;
+    maxRetries: number;
+    thinkTagStrategy: 'remove-blocks' | 'remove-tags';
+    webSearch: boolean;
+    webMaxResults?: number;
+    disableReasoning: boolean;
+}
+
+/** Try each model in order against /api/chat; returns the first non-empty cleaned response. */
+async function tryModelChain(params: ChainAttemptParams): Promise<BackgroundAIResult | null> {
     const {
+        provider,
+        apiKey,
+        models,
         systemPrompt,
         userPrompt,
-        apiKey,
-        temperature = 0.3,
-        maxTokens = 2000,
-        models,
-        maxRetries = 2,
-        backgroundModel,
-        thinkTagStrategy = 'remove-blocks',
-        webSearch = false,
+        temperature,
+        maxTokens,
+        maxRetries,
+        thinkTagStrategy,
+        webSearch,
         webMaxResults,
-        disableReasoning = webSearch, // canon/extraction calls don't need thinking
-    } = options;
+        disableReasoning,
+    } = params;
 
-    // Prefer user-selected model first, then fallback chain.
-    const fallbackModels = models ?? FREE_MODELS;
-    const modelChain = backgroundModel
-        ? [backgroundModel, ...fallbackModels.filter((m) => m !== backgroundModel)]
-        : fallbackModels;
-
-    for (const model of modelChain) {
+    for (const model of models) {
         for (let attempt = 0; attempt <= maxRetries; attempt++) {
             try {
                 // Wait for global rate limit slot
@@ -101,7 +148,7 @@ export async function backgroundAICall(
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         messages: [{ role: 'user', content: userPrompt }],
-                        provider: 'openrouter',
+                        provider,
                         model,
                         apiKey,
                         systemPrompt,
@@ -109,8 +156,12 @@ export async function backgroundAICall(
                         maxTokens,
                         // Flex tier + web_search times out (504): the slow flex queue plus the
                         // server-side search loop exceeds the deadline. Never combine them.
-                        useFlexTier: webSearch ? false : useSettingsStore.getState().useFlexTier,
-                        webSearch,
+                        // Flex is OpenRouter-only.
+                        useFlexTier:
+                            provider === 'openrouter' && !webSearch
+                                ? useSettingsStore.getState().useFlexTier
+                                : false,
+                        webSearch: provider === 'openrouter' ? webSearch : false,
                         webMaxResults,
                         disableReasoning,
                     }),
@@ -120,7 +171,7 @@ export async function backgroundAICall(
                     const text = await readStreamFull(response);
                     const cleaned = normalizeThinkText(text, thinkTagStrategy).trim();
                     if (cleaned) {
-                        return { content: cleaned, usedModel: model };
+                        return { content: cleaned, usedModel: model, usedProvider: provider };
                     }
                     // Empty response — try next model
                     break;
@@ -131,30 +182,115 @@ export async function backgroundAICall(
                         // Exponential backoff: 3s, 6s
                         const delay = 3000 * Math.pow(2, attempt);
                         console.warn(
-                            `[BackgroundAI] 429 on ${model}, retrying in ${delay}ms (attempt ${attempt + 1}/${maxRetries})`
+                            `[BackgroundAI] 429 on ${provider}/${model}, retrying in ${delay}ms (attempt ${attempt + 1}/${maxRetries})`
                         );
                         await new Promise((r) => setTimeout(r, delay));
                         continue;
                     }
                     // Exhausted retries for this model, try next
                     console.warn(
-                        `[BackgroundAI] 429 on ${model}, exhausted retries, trying next model`
+                        `[BackgroundAI] 429 on ${provider}/${model}, exhausted retries, trying next model`
                     );
                     break;
                 }
 
                 // Other error — try next model
-                console.warn(`[BackgroundAI] ${response.status} on ${model}, trying next model`);
+                console.warn(
+                    `[BackgroundAI] ${response.status} on ${provider}/${model}, trying next model`
+                );
                 break;
             } catch (err) {
-                console.warn(`[BackgroundAI] Error on ${model}:`, err);
+                console.warn(`[BackgroundAI] Error on ${provider}/${model}:`, err);
                 break;
             }
         }
     }
-
-    console.error('[BackgroundAI] All models exhausted');
     return null;
+}
+
+/**
+ * Make a background AI call with provider routing, model fallback and rate limit handling.
+ * Returns cleaned text (thinking tags removed) or null on total failure.
+ */
+export async function backgroundAICall(
+    options: BackgroundAIOptions
+): Promise<BackgroundAIResult | null> {
+    const {
+        systemPrompt,
+        userPrompt,
+        temperature = 0.3,
+        maxTokens = 2000,
+        models,
+        maxRetries = 2,
+        thinkTagStrategy = 'remove-blocks',
+        webSearch = false,
+        webMaxResults,
+        disableReasoning = webSearch, // canon/extraction calls don't need thinking
+    } = options;
+
+    const settings = useSettingsStore.getState();
+    // Persisted stores from before this field existed may miss it despite the default.
+    const routing = settings.backgroundProvider ?? 'auto';
+
+    const shared = {
+        systemPrompt,
+        userPrompt,
+        temperature,
+        maxTokens,
+        maxRetries,
+        thinkTagStrategy,
+        webSearch,
+        webMaxResults,
+        disableReasoning,
+    };
+
+    // 1. NanoGPT path — never for web search (the `web` plugin is OpenRouter-only).
+    if (!webSearch && (routing === 'auto' || routing === 'nanogpt')) {
+        const nanoKey = await resolveKey('nanogpt');
+        const nanoModel = nanoKey ? pickNanogptBackgroundModel() : null;
+        if (nanoKey && nanoModel) {
+            const result = await tryModelChain({
+                ...shared,
+                provider: 'nanogpt',
+                apiKey: nanoKey,
+                models: [nanoModel],
+            });
+            if (result) {
+                // Quota was consumed — ask the usage badge to refetch.
+                if (typeof window !== 'undefined') {
+                    window.dispatchEvent(new Event(NANOGPT_USAGE_REFRESH_EVENT));
+                }
+                return result;
+            }
+            console.warn(
+                '[BackgroundAI] NanoGPT background path failed — falling back to OpenRouter'
+            );
+        }
+    }
+
+    // 2. OpenRouter path (free rotation, or the user's OpenRouter background override).
+    const orKey = options.apiKey || (await resolveKey('openrouter'));
+    if (!orKey) {
+        console.error('[BackgroundAI] No usable API key for background call');
+        return null;
+    }
+
+    const fallbackModels = models ?? FREE_MODELS;
+    // An explicit `models` list (e.g. canon retrieval's grounding model) is authoritative —
+    // the settings-level OpenRouter override only reorders the default free chain.
+    const orOverride = models ? null : (options.backgroundModel ?? settings.backgroundModel);
+    const modelChain = orOverride
+        ? [orOverride, ...fallbackModels.filter((m) => m !== orOverride)]
+        : fallbackModels;
+
+    const result = await tryModelChain({
+        ...shared,
+        provider: 'openrouter',
+        apiKey: orKey,
+        models: modelChain,
+    });
+    if (!result) console.error('[BackgroundAI] All models exhausted');
+    return result;
 }
 
 /**

@@ -39,7 +39,7 @@ export function deriveWorkFromName(cardName: string): string {
 
 /** Resolve an OpenRouter API key + a grounding-capable model from settings. */
 async function getRetrievalConfig(): Promise<{ apiKey: string; model: string } | null> {
-    const { apiKeys, activeProvider, activeModel, backgroundModel } = useSettingsStore.getState();
+    const { apiKeys, backgroundModel } = useSettingsStore.getState();
     // Background canon/web tasks REQUIRE an OpenRouter key (they hit the OpenRouter endpoint and
     // use its web plugin). Do NOT fall back to apiKeys[0]: with only a NanoGPT key, that key would
     // be sent to OpenRouter — a wrong-provider call that also leaks the key.
@@ -54,13 +54,9 @@ async function getRetrievalConfig(): Promise<{ apiKey: string; model: string } |
             console.warn('[Canon] API key failed to decrypt — web canon retrieval unavailable.');
             return null;
         }
-        // Use the configured background model first (these are background tasks); then the active
-        // model only if it's an OpenRouter slug (don't reuse a NanoGPT model id here); else a default.
-        const model =
-            backgroundModel ||
-            (activeProvider === 'openrouter' && activeModel && activeModel.includes('/')
-                ? activeModel
-                : 'google/gemini-3-flash-preview');
+        // The user's OpenRouter background override, else a cheap grounding-capable default.
+        // NEVER the active RP model — that silently billed canon fetches at foreground rates.
+        const model = backgroundModel || 'google/gemini-3-flash-preview';
         return { apiKey, model };
     } catch (e) {
         console.warn('[Canon] API key decryption error:', e);

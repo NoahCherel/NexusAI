@@ -9,6 +9,10 @@
 import { useSettingsStore } from '@/stores/settings-store';
 import { decryptApiKey } from '@/lib/crypto';
 
+// Window event asking the usage badge/panel to refetch the NanoGPT quota. Dispatched after
+// any generation or background call that consumed subscription tokens.
+export const NANOGPT_USAGE_REFRESH_EVENT = 'nanogpt-usage-refresh';
+
 export type UsageUnit = 'tokens' | 'images' | 'unités';
 
 export interface NanoGPTUsageWindow {

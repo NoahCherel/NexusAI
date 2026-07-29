@@ -39,3 +39,6 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Third-party SillyTavern extension kept as a local reference — not part of the app
+Megumin-Suite/

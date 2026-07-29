@@ -11,7 +11,6 @@
 
 import { useSettingsStore } from '@/stores/settings-store';
 import { useChatStore } from '@/stores/chat-store';
-import { decryptApiKey } from '@/lib/crypto';
 import { backgroundAICall } from '@/lib/ai/background-ai';
 import { getCanonDossiersByWork } from '@/lib/db';
 import { resolveWork, getActiveCanonNames } from '@/lib/ai/canon-context';
@@ -73,26 +72,6 @@ export function parseRelationshipDeltas(text: string): RawChange[] {
     }
 }
 
-async function getConfig(): Promise<{ apiKey: string; model: string } | null> {
-    const { apiKeys, activeProvider, activeModel, backgroundModel } = useSettingsStore.getState();
-    // Requires an OpenRouter key (background task on the OpenRouter endpoint). Don't fall back to
-    // a non-OpenRouter key (e.g. NanoGPT) — it would be sent to the wrong provider.
-    const keyConfig = apiKeys.find((k) => k.provider === 'openrouter');
-    if (!keyConfig) return null;
-    try {
-        const apiKey = await decryptApiKey(keyConfig.encryptedKey);
-        if (!apiKey) return null;
-        const model =
-            backgroundModel ||
-            (activeProvider === 'openrouter' && activeModel && activeModel.includes('/')
-                ? activeModel
-                : 'google/gemini-3-flash-preview');
-        return { apiKey, model };
-    } catch {
-        return null;
-    }
-}
-
 /** Build the per-relationship state lines fed to the analyst. */
 function describeRelationships(rels: DirectedRelationship[], userName: string): string {
     return rels
@@ -110,7 +89,8 @@ function describeRelationships(rels: DirectedRelationship[], userName: string): 
 
 /**
  * Analyze the latest beat and update NPC-origin relationships among the characters on stage.
- * Gated by the Canon Codex master switch and web/auto-fetch (it makes a background API call).
+ * Gated by the Canon Codex master switch and its own toggle (it makes a background API call
+ * on the unified background layer — NanoGPT quota or free OpenRouter models).
  */
 export async function analyzeAndUpdateRelationships(
     card: CharacterCard,
@@ -119,7 +99,7 @@ export async function analyzeAndUpdateRelationships(
     messageId?: string
 ): Promise<void> {
     const settings = useSettingsStore.getState();
-    if (!settings.useCanonCodex || !settings.useCanonAutoFetch) return;
+    if (!settings.useCanonCodex || !(settings.enableRelationshipAnalyst ?? true)) return;
     if (!newMessage.trim()) return;
 
     const work = resolveWork(card);
@@ -147,9 +127,6 @@ export async function analyzeAndUpdateRelationships(
         dossiers
     );
     if (changed) chat.setRelationships(conversationId, seeded);
-
-    const config = await getConfig();
-    if (!config) return;
 
     const activePersona = settings.personas.find((p) => p.id === settings.activePersonaId);
     const userName = activePersona?.name || 'the player';
@@ -187,8 +164,6 @@ export async function analyzeAndUpdateRelationships(
     const result = await backgroundAICall({
         systemPrompt: RELATIONSHIP_ANALYST_PROMPT,
         userPrompt,
-        apiKey: config.apiKey,
-        models: [config.model],
         temperature: 0.3,
         maxTokens: 1200,
         disableReasoning: true,

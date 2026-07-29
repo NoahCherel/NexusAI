@@ -37,6 +37,13 @@ export interface BuildConversationPayloadParams {
     longTermMemory?: string[];
     storyGuidance?: string;
     scratchpad?: string;
+    /**
+     * Per-response <scratchpad> working memory (settings.enableScratchpad). When false, the
+     * stored scratchpad is not injected AND the model is not asked to emit one — it costs
+     * output tokens on every reply and invalidates prompt caching. Defaults to true so
+     * explicit callers/tests keep the legacy behaviour.
+     */
+    enableScratchpad?: boolean;
     /** Canon Codex options spread into buildSystemPrompt (may carry `injectionMeta`). */
     canonOptions?: Partial<SystemPromptOptions> & { injectionMeta?: unknown };
     assistantPrefill?: string;
@@ -97,7 +104,12 @@ export async function buildConversationPayload(
 
     const recentMessages = params.recentMessages ?? history;
     const isImpersonation = mode === 'impersonate';
-    const userName = userPersona?.name;
+    const scratchpadOn = params.enableScratchpad ?? true;
+    const userName = userPersona?.name?.trim() || undefined;
+    // buildSystemPrompt resolves {{user}} to "User" when no persona is active. Keep the
+    // impersonation cleanup and contract on that exact same fallback so the default
+    // "Do not speak for User" instruction cannot survive and contradict impersonation.
+    const resolvedUserName = userName || 'User';
 
     // Engine system block carries the player-facing contract ("never write the player").
     // Impersonation must NOT receive it — it writes the player on purpose. The per-chat
@@ -126,10 +138,11 @@ export async function buildConversationPayload(
         storyGuidance,
         // Impersonation writes the player. It must neither emit a new <scratchpad> nor SEE
         // the prior one — that scratchpad holds the AI's private plans/secrets, and feeding
-        // it to the player model would be metagaming.
-        scratchpad: isImpersonation ? undefined : scratchpad,
+        // it to the player model would be metagaming. The scratchpad is also fully skippable
+        // via settings (enableScratchpad).
+        scratchpad: isImpersonation || !scratchpadOn ? undefined : scratchpad,
         engineSystemBlock,
-        suppressScratchpadInstruction: isImpersonation,
+        suppressScratchpadInstruction: isImpersonation || !scratchpadOn,
         ...(canonOptions ?? {}),
     });
 
@@ -139,24 +152,31 @@ export async function buildConversationPayload(
     if (isImpersonation) {
         // Strip the default template's "Do not speak for <user>." so it can't contradict the
         // impersonation contract, then assert the inverted contract after history.
-        if (userName) {
-            systemPrompt = systemPrompt.replace(
-                new RegExp(`\\s*Do not speak for ${escapeRegExp(userName)}\\.?`, 'gi'),
-                ''
-            );
-        }
+        systemPrompt = systemPrompt.replace(
+            new RegExp(`\\s*Do not speak for ${escapeRegExp(resolvedUserName)}\\.?`, 'gi'),
+            ''
+        );
         systemPrompt = systemPrompt.replace(/\s*Do not speak for \{\{user\}\}\.?/gi, '');
 
         // Precedence: a custom impersonationPrompt (explicit user config) wins; then the
         // engine's inverted contract; then a sane default.
-        contractBlock = activePreset?.impersonationPrompt
-            ? `[SYSTEM: ${activePreset.impersonationPrompt.replace(/\{\{user\}\}/gi, userName || 'User')}]`
-            : activeEngine
-              ? buildEnginePostHistory(activeEngine, 'impersonate', { userName })
-              : `[SYSTEM: ${'Write the next message for {{user}}. Stay in character as {{user}}. Do not respond as the AI/Assistant, and do not write or decide for the other characters.'.replace(
-                    /\{\{user\}\}/gi,
-                    userName || 'User'
-                )}]`;
+        const customImpersonationPrompt = activePreset?.impersonationPrompt?.replace(
+            /\{\{user\}\}/gi,
+            resolvedUserName
+        );
+        const draftingContext = `[ROLEPLAY DRAFTING CONTEXT — ${resolvedUserName} is the user's player-character/persona in this fictional roleplay. This is collaborative fiction drafting, not a request to claim or verify anyone's identity.]`;
+        const defaultDraftingContract = activeEngine
+            ? buildEnginePostHistory(activeEngine, 'impersonate', {
+                  userName: resolvedUserName,
+              })
+            : `${draftingContext}\n\n[Draft one candidate next message for ${resolvedUserName} in their established voice. Output only ${resolvedUserName}'s message; do not answer as the assistant and do not write the other characters.]`;
+        // A custom prompt remains authoritative; the neutral context only tells the model that
+        // this is fictional drafting, then the user's configured instruction closes the request.
+        // Avoid calling this "impersonation" in model-facing text: some models interpret that
+        // as identity impersonation instead of collaborative drafting for a fictional persona.
+        contractBlock = customImpersonationPrompt
+            ? `${draftingContext}\n\n${customImpersonationPrompt}`
+            : defaultDraftingContract;
     } else if (activeEngine) {
         contractBlock = buildEnginePostHistory(activeEngine, 'generate', { userName });
     }
@@ -195,6 +215,9 @@ export async function buildConversationPayload(
             maxContextTokens,
             maxOutputTokens,
             postHistoryInstructions: effectivePostHistory,
+            // A second system message after history is not portable across OpenAI-compatible
+            // providers. A final user drafting request is both valid chat structure and explicit.
+            postHistoryRole: isImpersonation ? 'user' : 'system',
             assistantPrefill,
             activeProvider,
         });

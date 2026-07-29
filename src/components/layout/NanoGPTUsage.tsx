@@ -9,13 +9,14 @@ import {
     formatUsageCount,
     formatUsageExact,
     formatUsagePercent,
+    NANOGPT_USAGE_REFRESH_EVENT,
     type NanoGPTUsage,
     type NanoGPTUsageWindow,
 } from '@/lib/ai/nanogpt-usage';
 
-// Window event other parts of the app dispatch to ask the badge/panel to refetch
-// (e.g. the chat page after a generation consumes quota).
-export const NANOGPT_USAGE_REFRESH_EVENT = 'nanogpt-usage-refresh';
+// Re-export for existing imports (the constant now lives in the lib so non-UI code can
+// dispatch the refresh event without importing a component module).
+export { NANOGPT_USAGE_REFRESH_EVENT };
 
 /** Shared hook: fetch + cache the subscription usage, refetch on the global refresh event. */
 function useNanoGPTUsage() {

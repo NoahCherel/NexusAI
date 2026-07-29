@@ -9,7 +9,6 @@
 
 import { useSettingsStore } from '@/stores/settings-store';
 import { useCharacterStore } from '@/stores/character-store';
-import { decryptApiKey } from '@/lib/crypto';
 import { backgroundAICall } from '@/lib/ai/background-ai';
 import { fetchCharacterDossier, fetchCastRoster } from '@/lib/ai/canon-retrieval';
 import { resolveWork } from '@/lib/ai/canon-context';
@@ -21,29 +20,6 @@ import type { CanonDossier } from '@/types/canon';
 function isAutoFetchAllowed(): boolean {
     const s = useSettingsStore.getState();
     return s.useCanonCodex && s.useCanonAutoFetch;
-}
-
-async function getModelConfig(): Promise<{ apiKey: string; model: string } | null> {
-    const { apiKeys, activeProvider, activeModel, backgroundModel } = useSettingsStore.getState();
-    // Director background tasks require an OpenRouter key — never fall back to a non-OpenRouter key
-    // (e.g. NanoGPT), which would be sent to the OpenRouter endpoint.
-    const keyConfig = apiKeys.find((k) => k.provider === 'openrouter');
-    if (!keyConfig) {
-        console.warn('[Director] No OpenRouter key — Director requires one.');
-        return null;
-    }
-    try {
-        const apiKey = await decryptApiKey(keyConfig.encryptedKey);
-        if (!apiKey) return null;
-        const model =
-            backgroundModel ||
-            (activeProvider === 'openrouter' && activeModel && activeModel.includes('/')
-                ? activeModel
-                : 'google/gemini-3-flash-preview');
-        return { apiKey, model };
-    } catch {
-        return null;
-    }
 }
 
 /**
@@ -128,8 +104,6 @@ export async function proposeScenes(
         console.log('[Director] Auto-fetch disabled — skipping scene proposal API call.');
         return [];
     }
-    const config = await getModelConfig();
-    if (!config) return [];
 
     const work = resolveWork(card);
     const outline = (await getArcOutline(work))?.outline || '';
@@ -150,11 +124,10 @@ export async function proposeScenes(
         .filter(Boolean)
         .join('\n');
 
+    // Unified background layer: NanoGPT quota (preferred) or free OpenRouter rotation.
     const result = await backgroundAICall({
         systemPrompt,
         userPrompt,
-        apiKey: config.apiKey,
-        models: [config.model],
         temperature: 0.9,
         // Generous budget: if a reasoning model ignores disableReasoning, leave room for the
         // list to still be produced (the <think> blocks are stripped by backgroundAICall).

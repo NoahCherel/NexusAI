@@ -8,13 +8,14 @@
 
 import type { WorldFact, VectorEntry, ContextSection } from '@/types/rag';
 import type { Message, WorldState } from '@/types/chat';
-import type { LorebookEntry } from '@/types/character';
+import type { Lorebook, LorebookEntry } from '@/types/character';
 import {
     getFactsByConversation,
     getVectorsByConversation,
     updateFact,
     saveVector,
 } from '@/lib/db';
+import { getActiveLorebookEntries } from './context-builder';
 import { embedText, cosineSimilarity } from './embedding-service';
 import { countTokens } from '@/lib/tokenizer';
 import { getBestContextSummary } from './hierarchical-summarizer';
@@ -315,6 +316,77 @@ function retrieveRelevantChunks(
         .sort((a, b) => b.score - a.score)
         .slice(0, topK)
         .map(({ item, score }) => ({ item, score }));
+}
+
+// ============================================
+// Lorebook Resolution (single entry point)
+// ============================================
+
+/** Subset of an API preset that drives lorebook resolution. */
+export interface LorebookPresetConfig {
+    useLorebooks?: boolean;
+    lorebookScanDepth?: number;
+    lorebookTokenBudget?: number;
+    lorebookRecursiveScanning?: boolean;
+    matchWholeWords?: boolean;
+}
+
+/**
+ * Single shared resolver for the active lorebook entries (chat generation, context preview,
+ * impersonation). Honours the preset's `useLorebooks` switch, optionally runs the hybrid
+ * keyword+semantic search, and falls back to the pure keyword scan on error or when hybrid
+ * is not applicable.
+ */
+export async function resolveActiveLorebookEntries(options: {
+    messages: Message[];
+    lorebook: Lorebook | null | undefined;
+    preset: LorebookPresetConfig | null;
+    characterName: string;
+    userPersonaName?: string;
+    /** Run the hybrid keyword+semantic search (embeds `queryText`). */
+    hybrid?: boolean;
+    /** Query for the semantic leg; defaults to the last message's content. */
+    queryText?: string;
+    /** Token budget for the selected entries (callers keep their historical defaults). */
+    tokenBudget?: number;
+}): Promise<LorebookEntry[]> {
+    const {
+        messages,
+        lorebook,
+        preset,
+        characterName,
+        userPersonaName,
+        hybrid = false,
+        queryText,
+        tokenBudget,
+    } = options;
+
+    if (!(preset?.useLorebooks ?? true)) return [];
+
+    if (hybrid && lorebook?.entries && lorebook.entries.length > 0) {
+        try {
+            const query = queryText ?? messages[messages.length - 1]?.content ?? '';
+            const queryEmbedding = await embedText(query);
+            return await hybridLorebookSearch(query, queryEmbedding, lorebook.entries, messages, {
+                scanDepth: preset?.lorebookScanDepth,
+                tokenBudget,
+                matchWholeWords: preset?.matchWholeWords,
+                characterName,
+                userPersonaName,
+            });
+        } catch (err) {
+            console.warn('[RAG] Hybrid lorebook search failed, falling back:', err);
+        }
+    }
+
+    return getActiveLorebookEntries(messages, lorebook ?? undefined, {
+        scanDepth: preset?.lorebookScanDepth,
+        tokenBudget,
+        recursive: preset?.lorebookRecursiveScanning,
+        matchWholeWords: preset?.matchWholeWords,
+        characterName,
+        userPersonaName,
+    });
 }
 
 // ============================================

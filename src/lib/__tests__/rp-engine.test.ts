@@ -65,8 +65,9 @@ describe('rp-engine builders', () => {
 
     it('impersonate post-history is the inverted contract', () => {
         const post = buildEnginePostHistory(immersive, 'impersonate', { userName: 'Alex' });
-        expect(post).toContain('IMPERSONATION');
-        expect(post).toContain('write ONLY Alex');
+        expect(post).toContain('ROLEPLAY DRAFTING TASK');
+        expect(post).toContain("Alex is the user's player-character/persona");
+        expect(post).toContain("Output only Alex's message");
         expect(post).not.toContain('BEFORE YOU SEND');
     });
 
@@ -212,9 +213,32 @@ describe('buildConversationPayload — impersonate (inverted contract)', () => {
         expect(system.content).not.toContain('Do not speak for Alex');
 
         const last = messagesPayload[messagesPayload.length - 1];
-        expect(last.role).toBe('system');
-        expect(last.content).toContain('IMPERSONATION');
-        expect(last.content).toContain('write ONLY Alex');
+        expect(last.role).toBe('user');
+        expect(last.content).toContain('ROLEPLAY DRAFTING TASK');
+        expect(last.content).toContain("Alex is the user's player-character/persona");
+    });
+
+    it('removes the default autonomy instruction when no persona is active', async () => {
+        const { messagesPayload } = await buildConversationPayload({
+            mode: 'impersonate',
+            character: card,
+            worldState,
+            activeEntries: [],
+            history: [userMsg('hello')],
+            recentMessages: [userMsg('hello')],
+            activePreset: preset(),
+            activeEngine: immersive,
+            userPersona: null,
+            maxContextTokens: 8192,
+            maxOutputTokens: 1000,
+        });
+
+        const system = messagesPayload[0];
+        expect(system.content).not.toContain('Do not speak for User');
+
+        const last = messagesPayload[messagesPayload.length - 1];
+        expect(last.role).toBe('user');
+        expect(last.content).toContain("User is the user's player-character/persona");
     });
 
     it('does not emit a duplicate system prompt (single system message at the head)', async () => {
@@ -230,10 +254,11 @@ describe('buildConversationPayload — impersonate (inverted contract)', () => {
             maxContextTokens: 8192,
             maxOutputTokens: 1000,
         });
-        // Exactly one leading system message; the only other system message is the trailing contract.
+        // Exactly one leading system message; the trailing drafting request uses the user role.
         const systemCount = messagesPayload.filter((m) => m.role === 'system').length;
         expect(messagesPayload[0].role).toBe('system');
-        expect(systemCount).toBe(2);
+        expect(messagesPayload[messagesPayload.length - 1].role).toBe('user');
+        expect(systemCount).toBe(1);
     });
 
     it('respects a custom impersonationPrompt over the engine contract', async () => {
@@ -251,7 +276,9 @@ describe('buildConversationPayload — impersonate (inverted contract)', () => {
         });
         const last = messagesPayload[messagesPayload.length - 1];
         expect(last.content).toContain('CUSTOM_IMP for Alex');
-        expect(last.content).not.toContain('write ONLY Alex'); // generic engine block not used
+        expect(last.content).toContain('ROLEPLAY DRAFTING CONTEXT');
+        expect(last.content).not.toContain("Output only Alex's message");
+        expect(last.content.endsWith('CUSTOM_IMP for Alex')).toBe(true);
     });
 
     it('places the inverted contract AFTER the user post-history (so it wins)', async () => {
@@ -269,9 +296,9 @@ describe('buildConversationPayload — impersonate (inverted contract)', () => {
         });
         const last = messagesPayload[messagesPayload.length - 1];
         expect(last.content).toContain('USER_POSTHISTORY_MARKER');
-        expect(last.content).toContain('IMPERSONATION');
+        expect(last.content).toContain('ROLEPLAY DRAFTING TASK');
         expect(last.content.indexOf('USER_POSTHISTORY_MARKER')).toBeLessThan(
-            last.content.indexOf('IMPERSONATION')
+            last.content.indexOf('ROLEPLAY DRAFTING TASK')
         );
     });
 

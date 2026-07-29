@@ -1,39 +1,18 @@
 'use client';
 
-import { useSettingsStore } from '@/stores/settings-store';
-import { decryptApiKey } from '@/lib/crypto';
+import { backgroundAICall } from '@/lib/ai/background-ai';
 import type { LorebookEntry } from '@/types/character';
 
 /**
  * Extract new world facts from AI response and format as lorebook entries.
- * Uses the selected AI model for extraction.
+ *
+ * Background task: runs on the unified background layer (NanoGPT quota or free OpenRouter
+ * rotation) — NEVER on the foreground RP provider/model, whose tokens are the expensive ones.
  */
 export async function extractLorebookEntries(
     aiResponse: string,
     existingKeys: string[]
 ): Promise<LorebookEntry[]> {
-    const { apiKeys, activeProvider, activeModel } = useSettingsStore.getState();
-
-    // Get encrypted key for active provider
-    const keyConfig = apiKeys.find((k) => k.provider === activeProvider);
-    if (!keyConfig) {
-        console.warn('No API key configured, skipping lorebook extraction');
-        return [];
-    }
-
-    // Decrypt the API key
-    let apiKey: string;
-    try {
-        apiKey = await decryptApiKey(keyConfig.encryptedKey);
-        if (!apiKey) {
-            console.warn('Failed to decrypt API key, skipping lorebook extraction');
-            return [];
-        }
-    } catch {
-        console.warn('API key decryption error, skipping lorebook extraction');
-        return [];
-    }
-
     const existingKeysStr =
         existingKeys.length > 0
             ? `Existing keys (you may still extract NEW info about these): ${existingKeys.join(', ')}`
@@ -65,34 +44,16 @@ Output format (JSON array only):
 [{"keys":["EntityName","AltName"],"content":"NEW facts about this entity","priority":10,"category":"character"}]`;
 
     try {
-        const response = await fetch('/api/chat', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                provider: activeProvider,
-                apiKey,
-                model: activeModel,
-                systemPrompt,
-                maxTokens: 8000,
-                messages: [
-                    {
-                        role: 'user',
-                        content: `Extract new world facts from this AI response:\n\n${aiResponse}`,
-                    },
-                ],
-            }),
+        const result = await backgroundAICall({
+            systemPrompt,
+            userPrompt: `Extract new world facts from this AI response:\n\n${aiResponse}`,
+            temperature: 0.2,
+            maxTokens: 2000,
+            disableReasoning: true,
         });
+        if (!result) return [];
 
-        if (!response.ok) {
-            console.error('Lorebook extraction API failed:', response.statusText);
-            return [];
-        }
-
-        // The API returns a streaming text response, consume it as text
-        const text = await response.text();
-
-        const cleanContent = text
-            .replace(/<think>[\s\S]*?<\/think>/gi, '')
+        const cleanContent = result.content
             .replace(/<reasoning>[\s\S]*?<\/reasoning>/gi, '')
             .replace(/```json\n?/g, '')
             .replace(/```\n?/g, '')
@@ -154,23 +115,13 @@ export const LOREBOOK_AUTO_EXTRACT_KEY = 'lorebook-auto-extract';
  * things a character did or learned) keyed by character. It deliberately does NOT capture
  * canonical/background identity — that lives in the immutable Canon Codex and must never be
  * overwritten by RP observations. The result is appended to the conversation's rpJournal.
+ *
+ * Background task: unified background layer, never the foreground RP model.
  */
 export async function extractRpDevelopments(
     aiResponse: string,
     roster: string[]
 ): Promise<{ character: string; note: string }[]> {
-    const { apiKeys, activeProvider, activeModel } = useSettingsStore.getState();
-    const keyConfig = apiKeys.find((k) => k.provider === activeProvider);
-    if (!keyConfig) return [];
-
-    let apiKey: string;
-    try {
-        apiKey = await decryptApiKey(keyConfig.encryptedKey);
-        if (!apiKey) return [];
-    } catch {
-        return [];
-    }
-
     const rosterStr =
         roster.length > 0
             ? `Known characters: ${roster.join(', ')}. Prefer these exact names.`
@@ -190,24 +141,16 @@ Output JSON array only:
 [{"character":"Name","note":"what happened to/with them in this scene"}]`;
 
     try {
-        const response = await fetch('/api/chat', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                provider: activeProvider,
-                apiKey,
-                model: activeModel,
-                systemPrompt,
-                maxTokens: 1500,
-                messages: [{ role: 'user', content: `Message:\n\n${aiResponse}` }],
-            }),
+        const result = await backgroundAICall({
+            systemPrompt,
+            userPrompt: `Message:\n\n${aiResponse}`,
+            temperature: 0.2,
+            maxTokens: 1200,
+            disableReasoning: true,
         });
-        if (!response.ok) return [];
-        const text = await response.text();
-        const clean = text
-            .replace(/<think>[\s\S]*?<\/think>/gi, '')
-            .replace(/```json\n?/gi, '')
-            .replace(/```\n?/g, '');
+        if (!result) return [];
+
+        const clean = result.content.replace(/```json\n?/gi, '').replace(/```\n?/g, '');
         const first = clean.indexOf('[');
         const last = clean.lastIndexOf(']');
         if (first === -1 || last === -1 || last < first) return [];

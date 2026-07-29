@@ -67,6 +67,8 @@ interface ChatBubbleProps {
     role: 'user' | 'assistant';
     content: string;
     thought?: string;
+    /** Generation failure for this message — rendered as a banner, never part of content. */
+    error?: string;
     avatar?: string;
     name?: string;
     showThoughts?: boolean;
@@ -75,6 +77,8 @@ interface ChatBubbleProps {
     onContinue?: (id: string) => void;
     onBranch?: (id: string) => void;
     onDelete?: (id: string) => void;
+    /** Retry a failed generation (replaces this errored message). */
+    onRetry?: (id: string) => void;
 
     // Branching props
     currentBranchIndex?: number; // 1-based index
@@ -87,6 +91,7 @@ export const ChatBubble = memo(function ChatBubble({
     role,
     content,
     thought,
+    error,
     avatar,
     name,
     showThoughts = true,
@@ -95,6 +100,7 @@ export const ChatBubble = memo(function ChatBubble({
     onContinue,
     onBranch,
     onDelete,
+    onRetry,
     currentBranchIndex = 0,
     totalBranches = 0,
     onNavigateBranch,
@@ -257,7 +263,7 @@ export const ChatBubble = memo(function ChatBubble({
                             isUser ? 'text-foreground' : 'text-foreground/90 font-medium'
                         }`}
                     >
-                        {!displayContent && !isUser ? (
+                        {!displayContent && !isUser && !error ? (
                             <div className="flex gap-1 py-1">
                                 <span className="w-1 h-1 bg-foreground/40 rounded-full" />
                                 <span className="w-1 h-1 bg-foreground/40 rounded-full opacity-60" />
@@ -267,6 +273,26 @@ export const ChatBubble = memo(function ChatBubble({
                             <ChatFormatter content={displayContent} isUser={isUser} />
                         )}
                     </motion.div>
+                )}
+
+                {/* Generation error banner — the error lives outside `content` so it is never
+                    sent back to the model; Retry replaces this failed message. */}
+                {error && !isEditing && (
+                    <div className="flex items-start gap-2 mt-1 px-3 py-2 rounded-lg border border-destructive/30 bg-destructive/10 text-destructive text-xs">
+                        <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+                        <div className="flex-1 min-w-0 break-words">{error}</div>
+                        {onRetry && (
+                            <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-6 px-2 gap-1 text-destructive hover:text-destructive shrink-0"
+                                onClick={() => onRetry(id)}
+                            >
+                                <RefreshCw className="h-3 w-3" />
+                                Retry
+                            </Button>
+                        )}
+                    </div>
                 )}
 
                 {/* Action buttons (always rendered to prevent layout shift, toggled via opacity) */}

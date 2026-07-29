@@ -10,6 +10,7 @@ import {
     X,
     Settings2,
     Bot,
+    Brain,
     ChevronDown,
     RefreshCw,
 } from 'lucide-react';
@@ -44,6 +45,43 @@ interface SettingsPanelProps {
     onOpenChange: (open: boolean) => void;
 }
 
+/** One AI-feature row: title, cost/effect explanation, On/Off. */
+function FeatureToggle({
+    title,
+    description,
+    value,
+    onChange,
+    disabled,
+}: {
+    title: string;
+    description: string;
+    value: boolean;
+    onChange: (value: boolean) => void;
+    disabled?: boolean;
+}) {
+    return (
+        <div
+            className={cn(
+                'flex items-center justify-between gap-4 p-4 border rounded-lg bg-card/50',
+                disabled && 'opacity-50 pointer-events-none'
+            )}
+        >
+            <div className="min-w-0">
+                <p className="text-sm font-medium">{title}</p>
+                <p className="text-xs text-muted-foreground mt-1">{description}</p>
+            </div>
+            <Button
+                variant={value ? 'default' : 'secondary'}
+                size="sm"
+                onClick={() => onChange(!value)}
+                className="w-16 shrink-0"
+            >
+                {value ? 'On' : 'Off'}
+            </Button>
+        </div>
+    );
+}
+
 export function SettingsPanel({ open, onOpenChange }: SettingsPanelProps) {
     const {
         apiKeys,
@@ -76,6 +114,22 @@ export function SettingsPanel({ open, onOpenChange }: SettingsPanelProps) {
         activeEngineId,
         setActiveEngineId,
         customEngines,
+        backgroundProvider,
+        setBackgroundProvider,
+        nanogptBackgroundModel,
+        setNanogptBackgroundModel,
+        enableScratchpad,
+        setEnableScratchpad,
+        enableRelationshipAnalyst,
+        setEnableRelationshipAnalyst,
+        enableMomentum,
+        setEnableMomentum,
+        enableFactExtraction,
+        setEnableFactExtraction,
+        enableHierarchicalSummaries,
+        setEnableHierarchicalSummaries,
+        enableRAGRetrieval,
+        setEnableRAGRetrieval,
     } = useSettingsStore();
 
     const allModels = [...DEFAULT_MODELS, ...customModels];
@@ -171,7 +225,7 @@ export function SettingsPanel({ open, onOpenChange }: SettingsPanelProps) {
                 <div className="flex-1 overflow-hidden">
                     <Tabs defaultValue="api" className="h-full flex flex-col">
                         <div className="px-6 py-2 border-b shrink-0 bg-muted/20">
-                            <TabsList className="w-full max-w-md grid grid-cols-3">
+                            <TabsList className="w-full max-w-xl grid grid-cols-4">
                                 <TabsTrigger value="api" className="gap-2">
                                     <Key className="h-4 w-4" />
                                     API
@@ -179,6 +233,10 @@ export function SettingsPanel({ open, onOpenChange }: SettingsPanelProps) {
                                 <TabsTrigger value="chat" className="gap-2">
                                     <Sliders className="h-4 w-4" />
                                     Chat
+                                </TabsTrigger>
+                                <TabsTrigger value="ai" className="gap-2">
+                                    <Brain className="h-4 w-4" />
+                                    Fonctions IA
                                 </TabsTrigger>
                                 <TabsTrigger value="presets" className="gap-2">
                                     <Settings2 className="h-4 w-4" />
@@ -364,182 +422,6 @@ export function SettingsPanel({ open, onOpenChange }: SettingsPanelProps) {
                                     </div>
                                 )}
 
-                                <div className="space-y-4">
-                                    <div className="flex items-center justify-between p-4 border rounded-lg bg-card/50">
-                                        <div>
-                                            <p className="text-sm font-medium">
-                                                Auto-Extract Lorebook
-                                            </p>
-                                            <p className="text-xs text-muted-foreground mt-1">
-                                                Automatically analyze chat to suggest new lorebook
-                                                entries or append to existing ones (Suggestions
-                                                Queue)
-                                            </p>
-                                        </div>
-                                        <Button
-                                            variant={lorebookAutoExtract ? 'default' : 'secondary'}
-                                            size="sm"
-                                            onClick={() =>
-                                                setLorebookAutoExtract(!lorebookAutoExtract)
-                                            }
-                                            className="w-16"
-                                        >
-                                            {lorebookAutoExtract ? 'On' : 'Off'}
-                                        </Button>
-                                    </div>
-                                </div>
-
-                                {/* Canon Codex master switch */}
-                                <div className="space-y-4">
-                                    <div className="flex items-center justify-between p-4 border rounded-lg bg-card/50">
-                                        <div>
-                                            <p className="text-sm font-medium">Canon Codex</p>
-                                            <p className="text-xs text-muted-foreground mt-1">
-                                                Master toggle for the Arc Compass, casting canon, and
-                                                Director system. Off ⇒ no canon/arc/casting injection
-                                                in the prompt at all.
-                                            </p>
-                                        </div>
-                                        <Button
-                                            variant={useCanonCodex ? 'default' : 'secondary'}
-                                            size="sm"
-                                            onClick={() => setUseCanonCodex(!useCanonCodex)}
-                                            className="w-16"
-                                        >
-                                            {useCanonCodex ? 'On' : 'Off'}
-                                        </Button>
-                                    </div>
-
-                                    {/* Sub-toggle: web auto-fetch */}
-                                    <div
-                                        className={cn(
-                                            'flex items-center justify-between p-4 border rounded-lg bg-card/50',
-                                            !useCanonCodex && 'opacity-50 pointer-events-none'
-                                        )}
-                                    >
-                                        <div>
-                                            <p className="text-sm font-medium">
-                                                Canon — Web Auto-Fetch
-                                            </p>
-                                            <p className="text-xs text-muted-foreground mt-1">
-                                                When off, no API calls are made for canon (no roster
-                                                populate, no dossier fetch, no arc map fetch).
-                                                Dossiers and arc map you wrote manually are still
-                                                injected. Use this for custom universes.
-                                            </p>
-                                        </div>
-                                        <Button
-                                            variant={useCanonAutoFetch ? 'default' : 'secondary'}
-                                            size="sm"
-                                            onClick={() =>
-                                                setUseCanonAutoFetch(!useCanonAutoFetch)
-                                            }
-                                            className="w-16"
-                                        >
-                                            {useCanonAutoFetch ? 'On' : 'Off'}
-                                        </Button>
-                                    </div>
-                                </div>
-
-                                {/* Background AI Model */}
-                                <div className="space-y-4">
-                                    <div className="p-4 border rounded-lg bg-card/50 space-y-3">
-                                        <div>
-                                            <p className="text-sm font-medium flex items-center gap-2">
-                                                <Bot className="h-4 w-4" />
-                                                Background AI Model
-                                            </p>
-                                            <p className="text-xs text-muted-foreground mt-1">
-                                                Model used for summaries, fact extraction, world
-                                                state analysis, and lorebook suggestions. &quot;Auto
-                                                (Free)&quot; rotates between free models with
-                                                fallback.
-                                            </p>
-                                        </div>
-                                        <DropdownMenu>
-                                            <DropdownMenuTrigger asChild>
-                                                <Button
-                                                    variant="outline"
-                                                    className="w-full h-9 justify-between font-normal"
-                                                >
-                                                    <span className="truncate">
-                                                        {backgroundModel
-                                                            ? (allModels.find(
-                                                                  (m) =>
-                                                                      m.modelId === backgroundModel
-                                                              )?.name ?? backgroundModel)
-                                                            : 'Auto (Free Models)'}
-                                                    </span>
-                                                    <ChevronDown className="h-4 w-4 opacity-50 shrink-0" />
-                                                </Button>
-                                            </DropdownMenuTrigger>
-                                            <DropdownMenuContent
-                                                align="start"
-                                                className="w-[var(--radix-dropdown-menu-trigger-width)] max-h-[300px] overflow-y-auto"
-                                            >
-                                                <DropdownMenuItem
-                                                    onClick={() => setBackgroundModel(null)}
-                                                    className="flex items-center justify-between"
-                                                >
-                                                    Auto (Free Models)
-                                                    {!backgroundModel && (
-                                                        <span className="w-1.5 h-1.5 bg-primary rounded-full" />
-                                                    )}
-                                                </DropdownMenuItem>
-                                                <DropdownMenuSeparator />
-                                                <div className="px-2 py-1.5 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
-                                                    Free Models
-                                                </div>
-                                                {allModels
-                                                    .filter((m) => m.isFree)
-                                                    .map((model) => (
-                                                        <DropdownMenuItem
-                                                            key={model.modelId}
-                                                            onClick={() =>
-                                                                setBackgroundModel(model.modelId)
-                                                            }
-                                                            className="flex items-center justify-between"
-                                                        >
-                                                            {model.name}
-                                                            {backgroundModel === model.modelId && (
-                                                                <span className="w-1.5 h-1.5 bg-primary rounded-full" />
-                                                            )}
-                                                        </DropdownMenuItem>
-                                                    ))}
-                                                {allModels.filter((m) => !m.isFree).length > 0 && (
-                                                    <>
-                                                        <DropdownMenuSeparator />
-                                                        <div className="px-2 py-1.5 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
-                                                            Premium Models
-                                                        </div>
-                                                        {allModels
-                                                            .filter((m) => !m.isFree)
-                                                            .map((model) => (
-                                                                <DropdownMenuItem
-                                                                    key={model.modelId}
-                                                                    onClick={() =>
-                                                                        setBackgroundModel(
-                                                                            model.modelId
-                                                                        )
-                                                                    }
-                                                                    className="flex items-center justify-between"
-                                                                >
-                                                                    {model.name}
-                                                                    {backgroundModel ===
-                                                                        model.modelId && (
-                                                                        <span className="w-1.5 h-1.5 bg-primary rounded-full" />
-                                                                    )}
-                                                                </DropdownMenuItem>
-                                                            ))}
-                                                    </>
-                                                )}
-                                            </DropdownMenuContent>
-                                        </DropdownMenu>
-                                    </div>
-                                </div>
-
-                                <Separator />
-
                                 {/* RP Engine */}
                                 <div className="space-y-4">
                                     <div>
@@ -644,6 +526,287 @@ export function SettingsPanel({ open, onOpenChange }: SettingsPanelProps) {
                                             </Button>
                                         </div>
                                     </div>
+                                </div>
+                            </div>
+                        </TabsContent>
+
+                        {/* Fonctions IA Tab — every AI subsystem is toggleable here, with its
+                            cost/effect explained. New AI features MUST land with a toggle. */}
+                        <TabsContent
+                            value="ai"
+                            className="flex-1 overflow-y-auto p-6 space-y-8 m-0 outline-none"
+                        >
+                            <div className="max-w-2xl mx-auto space-y-8">
+                                {/* Routage des tâches de fond */}
+                                <div className="space-y-4">
+                                    <div>
+                                        <label className="text-sm font-medium flex items-center gap-2">
+                                            <Bot className="h-4 w-4" />
+                                            Tâches de fond (résumés, facts, relations, lorebook)
+                                        </label>
+                                        <p className="text-xs text-muted-foreground mt-1">
+                                            Où tournent les analyses d&apos;arrière-plan. « Auto »
+                                            utilise votre quota d&apos;abonnement NanoGPT quand une
+                                            clé existe (meilleurs modèles, coût inclus), sinon la
+                                            rotation de modèles gratuits OpenRouter. La récupération
+                                            canon (recherche web) reste toujours sur OpenRouter.
+                                        </p>
+                                    </div>
+                                    <div className="flex flex-wrap gap-2">
+                                        {(
+                                            [
+                                                ['auto', 'Auto (NanoGPT → gratuit)'],
+                                                ['nanogpt', 'NanoGPT (abonnement)'],
+                                                ['openrouter-free', 'OpenRouter gratuit'],
+                                            ] as const
+                                        ).map(([value, label]) => (
+                                            <Button
+                                                key={value}
+                                                variant={
+                                                    (backgroundProvider ?? 'auto') === value
+                                                        ? 'default'
+                                                        : 'secondary'
+                                                }
+                                                size="sm"
+                                                onClick={() => setBackgroundProvider(value)}
+                                            >
+                                                {label}
+                                            </Button>
+                                        ))}
+                                    </div>
+
+                                    {/* Modèle NanoGPT de fond */}
+                                    {(backgroundProvider ?? 'auto') !== 'openrouter-free' && (
+                                        <div className="p-4 border rounded-lg bg-card/50 space-y-3">
+                                            <div>
+                                                <p className="text-sm font-medium">
+                                                    Modèle NanoGPT de fond
+                                                </p>
+                                                <p className="text-xs text-muted-foreground mt-1">
+                                                    « Auto » choisit un modèle économique de votre
+                                                    abonnement (DeepSeek, GLM, Qwen…).
+                                                </p>
+                                            </div>
+                                            <DropdownMenu>
+                                                <DropdownMenuTrigger asChild>
+                                                    <Button
+                                                        variant="outline"
+                                                        className="w-full h-9 justify-between font-normal"
+                                                    >
+                                                        <span className="truncate">
+                                                            {nanogptBackgroundModel
+                                                                ? (nanogptModels.find(
+                                                                      (m) =>
+                                                                          m.modelId ===
+                                                                          nanogptBackgroundModel
+                                                                  )?.name ?? nanogptBackgroundModel)
+                                                                : 'Auto (choix économique)'}
+                                                        </span>
+                                                        <ChevronDown className="h-4 w-4 opacity-50 shrink-0" />
+                                                    </Button>
+                                                </DropdownMenuTrigger>
+                                                <DropdownMenuContent
+                                                    align="start"
+                                                    className="w-[var(--radix-dropdown-menu-trigger-width)] max-h-[300px] overflow-y-auto"
+                                                >
+                                                    <DropdownMenuItem
+                                                        onClick={() =>
+                                                            setNanogptBackgroundModel(null)
+                                                        }
+                                                        className="flex items-center justify-between"
+                                                    >
+                                                        Auto (choix économique)
+                                                        {!nanogptBackgroundModel && (
+                                                            <span className="w-1.5 h-1.5 bg-primary rounded-full" />
+                                                        )}
+                                                    </DropdownMenuItem>
+                                                    {nanogptModels.length > 0 && (
+                                                        <DropdownMenuSeparator />
+                                                    )}
+                                                    {nanogptModels.map((model) => (
+                                                        <DropdownMenuItem
+                                                            key={model.modelId}
+                                                            onClick={() =>
+                                                                setNanogptBackgroundModel(
+                                                                    model.modelId
+                                                                )
+                                                            }
+                                                            className="flex items-center justify-between"
+                                                        >
+                                                            {model.name}
+                                                            {nanogptBackgroundModel ===
+                                                                model.modelId && (
+                                                                <span className="w-1.5 h-1.5 bg-primary rounded-full" />
+                                                            )}
+                                                        </DropdownMenuItem>
+                                                    ))}
+                                                </DropdownMenuContent>
+                                            </DropdownMenu>
+                                        </div>
+                                    )}
+
+                                    {/* Modèle OpenRouter de fond (fallback / mode gratuit) */}
+                                    <div className="p-4 border rounded-lg bg-card/50 space-y-3">
+                                        <div>
+                                            <p className="text-sm font-medium">
+                                                Modèle OpenRouter de fond
+                                            </p>
+                                            <p className="text-xs text-muted-foreground mt-1">
+                                                Utilisé en mode « OpenRouter gratuit » et comme
+                                                repli si NanoGPT échoue. « Auto » alterne entre
+                                                modèles gratuits.
+                                            </p>
+                                        </div>
+                                        <DropdownMenu>
+                                            <DropdownMenuTrigger asChild>
+                                                <Button
+                                                    variant="outline"
+                                                    className="w-full h-9 justify-between font-normal"
+                                                >
+                                                    <span className="truncate">
+                                                        {backgroundModel
+                                                            ? (allModels.find(
+                                                                  (m) =>
+                                                                      m.modelId === backgroundModel
+                                                              )?.name ?? backgroundModel)
+                                                            : 'Auto (Free Models)'}
+                                                    </span>
+                                                    <ChevronDown className="h-4 w-4 opacity-50 shrink-0" />
+                                                </Button>
+                                            </DropdownMenuTrigger>
+                                            <DropdownMenuContent
+                                                align="start"
+                                                className="w-[var(--radix-dropdown-menu-trigger-width)] max-h-[300px] overflow-y-auto"
+                                            >
+                                                <DropdownMenuItem
+                                                    onClick={() => setBackgroundModel(null)}
+                                                    className="flex items-center justify-between"
+                                                >
+                                                    Auto (Free Models)
+                                                    {!backgroundModel && (
+                                                        <span className="w-1.5 h-1.5 bg-primary rounded-full" />
+                                                    )}
+                                                </DropdownMenuItem>
+                                                <DropdownMenuSeparator />
+                                                <div className="px-2 py-1.5 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
+                                                    Free Models
+                                                </div>
+                                                {allModels
+                                                    .filter((m) => m.isFree)
+                                                    .map((model) => (
+                                                        <DropdownMenuItem
+                                                            key={model.modelId}
+                                                            onClick={() =>
+                                                                setBackgroundModel(model.modelId)
+                                                            }
+                                                            className="flex items-center justify-between"
+                                                        >
+                                                            {model.name}
+                                                            {backgroundModel === model.modelId && (
+                                                                <span className="w-1.5 h-1.5 bg-primary rounded-full" />
+                                                            )}
+                                                        </DropdownMenuItem>
+                                                    ))}
+                                                {allModels.filter((m) => !m.isFree).length > 0 && (
+                                                    <>
+                                                        <DropdownMenuSeparator />
+                                                        <div className="px-2 py-1.5 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
+                                                            Premium Models
+                                                        </div>
+                                                        {allModels
+                                                            .filter((m) => !m.isFree)
+                                                            .map((model) => (
+                                                                <DropdownMenuItem
+                                                                    key={model.modelId}
+                                                                    onClick={() =>
+                                                                        setBackgroundModel(
+                                                                            model.modelId
+                                                                        )
+                                                                    }
+                                                                    className="flex items-center justify-between"
+                                                                >
+                                                                    {model.name}
+                                                                    {backgroundModel ===
+                                                                        model.modelId && (
+                                                                        <span className="w-1.5 h-1.5 bg-primary rounded-full" />
+                                                                    )}
+                                                                </DropdownMenuItem>
+                                                            ))}
+                                                    </>
+                                                )}
+                                            </DropdownMenuContent>
+                                        </DropdownMenu>
+                                    </div>
+                                </div>
+
+                                <Separator />
+
+                                {/* Mémoire & RAG */}
+                                <div className="space-y-3">
+                                    <label className="text-sm font-medium">Mémoire & RAG</label>
+                                    <FeatureToggle
+                                        title="Extraction de facts"
+                                        description="1 appel de fond par réponse notable : mémorise les événements atomiques pour le rappel sémantique."
+                                        value={enableFactExtraction}
+                                        onChange={setEnableFactExtraction}
+                                    />
+                                    <FeatureToggle
+                                        title="Résumés hiérarchiques"
+                                        description="Résume l'histoire par paliers (~10 messages) pour la mémoire longue. Quelques appels de fond par session."
+                                        value={enableHierarchicalSummaries}
+                                        onChange={setEnableHierarchicalSummaries}
+                                    />
+                                    <FeatureToggle
+                                        title="Rappel RAG"
+                                        description="Injecte résumés, facts et scènes passées pertinents dans le contexte (recherche locale, gratuit)."
+                                        value={enableRAGRetrieval}
+                                        onChange={setEnableRAGRetrieval}
+                                    />
+                                    <FeatureToggle
+                                        title="Auto-extraction lorebook / journal RP"
+                                        description="1 appel de fond par message : suggère des entrées de lorebook (ou alimente le journal RP des cartes canon)."
+                                        value={lorebookAutoExtract}
+                                        onChange={setLorebookAutoExtract}
+                                    />
+                                    <FeatureToggle
+                                        title="Scratchpad (mémoire de travail)"
+                                        description="Le modèle écrit ses notes à chaque réponse : ~100-300 tokens de sortie par message au tarif RP et cache de prompt invalidé. Coûteux — off recommandé."
+                                        value={enableScratchpad}
+                                        onChange={setEnableScratchpad}
+                                    />
+                                </div>
+
+                                <Separator />
+
+                                {/* Canon & narration */}
+                                <div className="space-y-3">
+                                    <label className="text-sm font-medium">Canon & narration</label>
+                                    <FeatureToggle
+                                        title="Canon Codex"
+                                        description="Interrupteur principal : Arc Compass, casting canon et Directeur. Off ⇒ aucune injection canon/arc dans le prompt."
+                                        value={useCanonCodex}
+                                        onChange={setUseCanonCodex}
+                                    />
+                                    <FeatureToggle
+                                        title="Canon — récupération web"
+                                        description="Off ⇒ aucun appel API pour le canon (roster, fiches, carte des arcs). Vos fiches manuelles restent injectées. Pour univers custom."
+                                        value={useCanonAutoFetch}
+                                        onChange={setUseCanonAutoFetch}
+                                        disabled={!useCanonCodex}
+                                    />
+                                    <FeatureToggle
+                                        title="Analyste de relations"
+                                        description="1 appel de fond par beat : fait évoluer les liens dirigés (confiance/affection/respect/attirance) entre personnages."
+                                        value={enableRelationshipAnalyst ?? true}
+                                        onChange={setEnableRelationshipAnalyst}
+                                        disabled={!useCanonCodex}
+                                    />
+                                    <FeatureToggle
+                                        title="Anti-enlisement (momentum)"
+                                        description="Détecte les scènes qui piétinent et glisse une consigne de relance au tour suivant. Analyse locale, gratuit."
+                                        value={enableMomentum ?? true}
+                                        onChange={setEnableMomentum}
+                                    />
                                 </div>
                             </div>
                         </TabsContent>
