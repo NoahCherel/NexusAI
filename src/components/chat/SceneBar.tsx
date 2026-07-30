@@ -30,7 +30,7 @@ export function SceneBar({
     isSceneRunning: boolean;
     onAdvanceScene: () => void;
 }) {
-    const { setSceneMode, setSceneRoster } = useChatStore();
+    const { setSceneMode, setSceneRoster, setSceneStyle } = useChatStore();
     const [newName, setNewName] = useState('');
     const [showAdd, setShowAdd] = useState(false);
     // Known character names for typo-proof roster additions: canonCast + canon dossiers
@@ -50,7 +50,8 @@ export function SceneBar({
         };
     }, [character]);
 
-    const roster = conversation?.sceneRoster ?? [];
+    const rosterSource = conversation?.sceneRoster;
+    const roster = useMemo(() => rosterSource ?? [], [rosterSource]);
     const knownNames = useMemo(() => {
         const inRoster = new Set(roster.map((n) => n.toLowerCase()));
         const all = [
@@ -129,6 +130,32 @@ export function SceneBar({
 
             {sceneOn && (
                 <>
+                    {/* Rendering style: separate streamed turns vs one unified passage */}
+                    <div className="inline-flex rounded-md border border-border/50 overflow-hidden shrink-0">
+                        <button
+                            onClick={() => setSceneStyle(conversation.id, 'turns')}
+                            className={`px-2 h-6 text-[10px] font-medium transition-colors ${
+                                (conversation.sceneStyle ?? 'turns') === 'turns'
+                                    ? 'bg-primary/15 text-primary'
+                                    : 'text-muted-foreground hover:text-foreground'
+                            }`}
+                            title="Une bulle par personnage, régénération réplique par réplique"
+                        >
+                            Tours
+                        </button>
+                        <button
+                            onClick={() => setSceneStyle(conversation.id, 'unified')}
+                            className={`px-2 h-6 text-[10px] font-medium transition-colors ${
+                                conversation.sceneStyle === 'unified'
+                                    ? 'bg-primary/15 text-primary'
+                                    : 'text-muted-foreground hover:text-foreground'
+                            }`}
+                            title="Un seul message fluide qui entrelace narration et répliques (moins cher)"
+                        >
+                            Unifiée
+                        </button>
+                    </div>
+
                     {roster.map((name) => (
                         <span
                             key={name}

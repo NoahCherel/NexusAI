@@ -88,6 +88,19 @@ export interface BuildConversationPayloadParams {
     /** The Director's dramatic goal for the whole beat (shared context). */
     sceneGoal?: string;
     /**
+     * Scene Mode, 'unified' style: ONE generation writes the whole directed beat
+     * (narration + every on-stage character, interleaved) as a single message.
+     * Mutually exclusive with sceneSpeaker.
+     */
+    sceneEnsemble?: {
+        roster: string[];
+        directions: { name: string; direction?: string }[];
+        sceneGoal?: string;
+        /** Narration hint from the Director, to weave into the passage (not verbatim). */
+        narrationHint?: string;
+        userName?: string;
+    };
+    /**
      * Optional RAG retrieval. Invoked with a budget once the system prompt size is known.
      * Omit (e.g. impersonation) to skip RAG entirely.
      */
@@ -284,6 +297,26 @@ export async function buildConversationPayload(
     const continueBlock = params.continueFromAssistant
         ? `[CONTINUE — Your previous message above is INCOMPLETE. Continue it from exactly where it stops, mid-flow. Do not repeat any earlier text, do not summarize, do not start over. Output ONLY the continuation.]`
         : undefined;
+    // Scene Mode 'unified': one generation writes the whole directed beat as a single
+    // flowing passage — narration + on-stage characters interleaved, one distinct voice
+    // each, the player untouched.
+    const ensemble = params.sceneEnsemble;
+    const sceneEnsembleBlock = ensemble
+        ? [
+              `[ENSEMBLE SCENE — Write the next beat as ONE flowing passage: diegetic narration plus the reactions of the on-stage characters, interleaved naturally (action, dialogue, silence). On stage: ${ensemble.roster.join(', ')}.`,
+              ensemble.sceneGoal ? `\nDramatic goal of this beat: ${ensemble.sceneGoal}` : '',
+              ensemble.narrationHint
+                  ? `\nScene development to weave in (rephrase, don't quote): ${ensemble.narrationHint}`
+                  : '',
+              ensemble.directions.length > 0
+                  ? `\nStage directions:\n${ensemble.directions
+                        .map((d) => `- ${d.name}: ${d.direction || 'react in character'}`)
+                        .join('\n')}`
+                  : '',
+              `\nEach character keeps their OWN canon voice; a character whose reaction doesn't matter may stay silent. Never write, decide or speak for ${ensemble.userName || 'the player'}. 2 to 5 paragraphs.]`,
+          ].join('')
+        : undefined;
+
     // Scene Mode: per-speaker contract (one character per turn, their voice only), with
     // the Director's stage direction when provided.
     const sceneSpeakerBlock = params.sceneSpeaker
@@ -304,6 +337,7 @@ export async function buildConversationPayload(
                   contractBlock,
                   activePreset?.postHistoryInstructions,
                   sceneSpeakerBlock,
+                  sceneEnsembleBlock,
                   continueBlock,
               ]
         )

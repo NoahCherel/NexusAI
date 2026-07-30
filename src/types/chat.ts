@@ -62,6 +62,9 @@ export interface Conversation {
     // Scene Mode (Troupe): AI narrator + one reply per on-stage character.
     sceneMode?: boolean;
     sceneRoster?: string[]; // characters currently on stage
+    // 'turns' (default): one streamed message per speaker, fine-grained regen.
+    // 'unified': ONE RP call writes the whole directed scene as a single message (cheaper).
+    sceneStyle?: 'turns' | 'unified';
     createdAt: Date;
     updatedAt: Date;
 }

@@ -37,6 +37,7 @@ interface ChatState {
     setStickyCast: (conversationId: string, stickyCast: Record<string, number>) => void;
     setSceneMode: (conversationId: string, sceneMode: boolean) => void;
     setSceneRoster: (conversationId: string, roster: string[]) => void;
+    setSceneStyle: (conversationId: string, style: 'turns' | 'unified') => void;
     setBanList: (conversationId: string, banList: string[]) => void;
     getActiveBranchBanList: (conversationId: string) => string[];
     setRelationships: (conversationId: string, relationships: DirectedRelationship[]) => void;
@@ -544,6 +545,20 @@ export const useChatStore = create<ChatState>()((set, get) => ({
             conversations: state.conversations.map((c) => {
                 if (c.id === conversationId) {
                     conversationToUpdate = { ...c, sceneRoster: roster };
+                    return conversationToUpdate;
+                }
+                return c;
+            }),
+        }));
+        if (conversationToUpdate) saveConversation(conversationToUpdate).catch(console.error);
+    },
+
+    setSceneStyle: (conversationId, style) => {
+        let conversationToUpdate: Conversation | undefined;
+        set((state) => ({
+            conversations: state.conversations.map((c) => {
+                if (c.id === conversationId) {
+                    conversationToUpdate = { ...c, sceneStyle: style };
                     return conversationToUpdate;
                 }
                 return c;

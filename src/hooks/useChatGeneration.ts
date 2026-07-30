@@ -117,6 +117,8 @@ export function useChatGeneration({
             sceneDirection?: string;
             /** Director dramatic goal for the beat (Scene Mode, first speaker only). */
             sceneGoal?: string;
+            /** Unified scene style: one generation writes the whole directed beat. */
+            sceneEnsemble?: import('@/lib/ai/payload-builder').BuildConversationPayloadParams['sceneEnsemble'];
         } = {}
     ): Promise<{ id: string; content: string } | undefined> => {
         if (!currentApiKey || !character) return;
@@ -215,6 +217,7 @@ export function useChatGeneration({
                     options.speaker?.kind === 'character' ? options.speaker.name : undefined,
                 sceneDirection: options.sceneDirection,
                 sceneGoal: options.sceneGoal,
+                sceneEnsemble: options.sceneEnsemble,
                 retrieveRag:
                     enableRAGRetrieval && activeConversationId
                         ? (ragBudget) =>
@@ -541,6 +544,23 @@ export function useChatGeneration({
             const newRoster = applySceneChange(roster, decision.sceneChange);
             if (newRoster.join('|') !== roster.join('|')) {
                 useChatStore.getState().setSceneRoster(activeConversationId, newRoster);
+            }
+
+            // 'unified' style: ONE RP call writes the whole directed beat as a single
+            // message (narration woven in — no separate narrator bubble, no per-speaker
+            // turns). Cheaper than turn-by-turn; regen redoes the whole beat.
+            if ((conv.sceneStyle ?? 'turns') === 'unified') {
+                await triggerAiReponse(withSpeakerPrefixes(beatHistory), {
+                    sceneEnsemble: {
+                        roster: newRoster,
+                        directions: decision.speakers,
+                        sceneGoal: decision.sceneGoal,
+                        narrationHint: decision.narration,
+                        userName,
+                    },
+                    skipFactExtraction: false,
+                });
+                return;
             }
 
             // 3. Narration (already written by the Director — no extra LLM call).

@@ -177,6 +177,41 @@ describe('continue-in-place (providers without prefill)', () => {
     });
 });
 
+describe('unified ensemble scene (single-call style)', () => {
+    it('appends the ENSEMBLE SCENE block with roster, goal and per-character directions', async () => {
+        const { messagesPayload, systemPrompt } = await buildConversationPayload({
+            mode: 'generate',
+            character: card,
+            activeEntries: [],
+            history: [msg('hello')],
+            activePreset: preset(),
+            activeEngine: null,
+            sceneEnsemble: {
+                roster: ['Rukia Kuchiki', 'Renji Abarai'],
+                directions: [
+                    { name: 'Rukia Kuchiki', direction: 'DIRECTION_RUKIA' },
+                    { name: 'Renji Abarai' },
+                ],
+                sceneGoal: 'GOAL_MARKER',
+                narrationHint: 'NARRATION_HINT',
+                userName: 'Alex',
+            },
+            maxContextTokens: 8192,
+            maxOutputTokens: 1000,
+        });
+        const last = messagesPayload[messagesPayload.length - 1].content;
+        expect(last).toContain('[ENSEMBLE SCENE');
+        expect(last).toContain('Rukia Kuchiki, Renji Abarai');
+        expect(last).toContain('GOAL_MARKER');
+        expect(last).toContain('NARRATION_HINT');
+        expect(last).toContain('- Rukia Kuchiki: DIRECTION_RUKIA');
+        expect(last).toContain('- Renji Abarai: react in character');
+        expect(last).toContain('speak for Alex');
+        // The stable prefix must not carry the per-beat block.
+        expect(systemPrompt).not.toContain('ENSEMBLE SCENE');
+    });
+});
+
 describe('history window hysteresis', () => {
     const opts = { maxContextTokens: 450, maxOutputTokens: 100 };
     const longHistory = Array.from({ length: 40 }, (_, i) =>
