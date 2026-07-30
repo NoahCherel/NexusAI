@@ -212,6 +212,25 @@ describe('unified ensemble scene (single-call style)', () => {
     });
 });
 
+describe('scene narrator regeneration', () => {
+    it('adds the narrator-only contract (no dialogue) when regenerating a narrator message', async () => {
+        const { messagesPayload } = await buildConversationPayload({
+            mode: 'generate',
+            character: card,
+            activeEntries: [],
+            history: [msg('hello')],
+            activePreset: preset(),
+            activeEngine: null,
+            sceneNarrator: true,
+            maxContextTokens: 8192,
+            maxOutputTokens: 1000,
+        });
+        const last = messagesPayload[messagesPayload.length - 1].content;
+        expect(last).toContain('Write ONLY the narrator');
+        expect(last).toContain('No character dialogue');
+    });
+});
+
 describe('history window hysteresis', () => {
     const opts = { maxContextTokens: 450, maxOutputTokens: 100 };
     const longHistory = Array.from({ length: 40 }, (_, i) =>

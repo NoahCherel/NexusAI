@@ -191,6 +191,29 @@ describe('buildConversationPayload — generate', () => {
 });
 
 describe('buildConversationPayload — impersonate (inverted contract)', () => {
+    it('does NOT inherit the character card system prompt (ghost-writes the player only)', async () => {
+        const { messagesPayload } = await buildConversationPayload({
+            mode: 'impersonate',
+            character: card, // description carries DESC_MARKER
+            activeEntries: [],
+            history: [userMsg('hello')],
+            activePreset: preset(),
+            activeEngine: immersive,
+            userPersona: { name: 'Alex', bio: 'a ranger' },
+            maxContextTokens: 8192,
+            maxOutputTokens: 1000,
+        });
+        const system = messagesPayload[0];
+        expect(system.role).toBe('system');
+        // The card body ("you are Mara…") must NOT frame the ghost-writer.
+        expect(system.content).not.toContain('DESC_MARKER');
+        expect(system.content).not.toContain('gruff but fair');
+        // The system is persona-centric instead.
+        expect(system.content).toContain('ghost-writing');
+        expect(system.content).toContain('Alex');
+        expect(system.content).toContain('a ranger');
+    });
+
     it('omits the player-autonomy engine block and asserts the impersonation contract last', async () => {
         const { messagesPayload } = await buildConversationPayload({
             mode: 'impersonate',

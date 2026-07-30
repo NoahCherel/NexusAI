@@ -85,6 +85,8 @@ export interface BuildConversationPayloadParams {
     sceneSpeaker?: string;
     /** The Director's stage direction for this speaker's turn (goal/emotion/initiative). */
     sceneDirection?: string;
+    /** Scene Mode: regenerating a NARRATOR message — pure diegetic narration, no dialogue. */
+    sceneNarrator?: boolean;
     /** The Director's dramatic goal for the whole beat (shared context). */
     sceneGoal?: string;
     /**
@@ -127,10 +129,6 @@ export interface BuildConversationPayloadResult {
         postHistory: number;
         total: number;
     };
-}
-
-function escapeRegExp(s: string): string {
-    return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 export async function buildConversationPayload(
@@ -196,10 +194,23 @@ export async function buildConversationPayload(
 
     // STABLE zone: character card, persona, RP engine, canon dossiers (sticky cast,
     // deterministic order), arc map. Byte-identical between turns → provider cache prefix.
-    let systemPrompt = buildSystemPrompt(
-        character,
-        templatePlacesLorebook ? activeEntries : [],
-        {
+    //
+    // IMPERSONATION EXCEPTION: the player's ghost-writer must NOT inherit the character's
+    // system prompt — no card template, no "you are {char}" framing, no engine, no bans.
+    // It drafts the PLAYER's message from the persona + chat history alone (story context
+    // still arrives via the dynamic block; the inverted contract closes the request).
+    let systemPrompt: string;
+    if (isImpersonation) {
+        const bio = userPersona?.description || userPersona?.bio || '';
+        systemPrompt = [
+            `You are ghost-writing the next message of ${resolvedUserName}, the PLAYER's character in an ongoing fictional roleplay. You write as ${resolvedUserName} and ONLY ${resolvedUserName} — never as ${character.name}, the narrator, or any other character.`,
+            bio ? `About ${resolvedUserName}: ${bio}` : '',
+            `Match ${resolvedUserName}'s established voice, knowledge and current situation from the chat history.`,
+        ]
+            .filter(Boolean)
+            .join('\n\n');
+    } else {
+        systemPrompt = buildSystemPrompt(character, templatePlacesLorebook ? activeEntries : [], {
             template,
             preHistory: activePreset?.preHistoryInstructions,
             postHistory: activePreset?.postHistoryInstructions,
@@ -208,28 +219,18 @@ export async function buildConversationPayload(
             recentMessages,
             excludePostHistory: true,
             engineSystemBlock,
-            // Impersonation must not emit a <scratchpad> (it would leak into the player's
-            // line); the instruction is also skipped entirely when scratchpad is disabled.
-            suppressScratchpadInstruction: isImpersonation || !scratchpadOn,
+            suppressScratchpadInstruction: !scratchpadOn,
             canonDossiers: canon.canonDossiers,
             arc: canon.arc,
             arcOutline: canon.arcOutline,
             canonTokenBudget: canon.canonTokenBudget,
-        }
-    );
+        });
+    }
 
     // Mode-aware behavioural contract, placed AFTER history (strongest position) and merged
     // with the user's own post-history instructions (never replacing them).
     let contractBlock: string | undefined;
     if (isImpersonation) {
-        // Strip the default template's "Do not speak for <user>." so it can't contradict the
-        // impersonation contract, then assert the inverted contract after history.
-        systemPrompt = systemPrompt.replace(
-            new RegExp(`\\s*Do not speak for ${escapeRegExp(resolvedUserName)}\\.?`, 'gi'),
-            ''
-        );
-        systemPrompt = systemPrompt.replace(/\s*Do not speak for \{\{user\}\}\.?/gi, '');
-
         // Precedence: a custom impersonationPrompt (explicit user config) wins; then the
         // engine's inverted contract; then a sane default.
         const customImpersonationPrompt = activePreset?.impersonationPrompt?.replace(
@@ -317,6 +318,11 @@ export async function buildConversationPayload(
           ].join('')
         : undefined;
 
+    // Scene Mode: narrator regeneration — scene description only, no character dialogue.
+    const sceneNarratorBlock = params.sceneNarrator
+        ? `[SCENE TURN — Write ONLY the narrator: 1 to 3 sentences of diegetic scene narration (atmosphere, events, environment, passage of time). No character dialogue, no player actions, no meta.]`
+        : undefined;
+
     // Scene Mode: per-speaker contract (one character per turn, their voice only), with
     // the Director's stage direction when provided.
     const sceneSpeakerBlock = params.sceneSpeaker
@@ -337,6 +343,7 @@ export async function buildConversationPayload(
                   contractBlock,
                   activePreset?.postHistoryInstructions,
                   sceneSpeakerBlock,
+                  sceneNarratorBlock,
                   sceneEnsembleBlock,
                   continueBlock,
               ]

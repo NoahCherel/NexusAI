@@ -215,6 +215,7 @@ export function useChatGeneration({
                 continueFromAssistant: !!options.continueTargetId,
                 sceneSpeaker:
                     options.speaker?.kind === 'character' ? options.speaker.name : undefined,
+                sceneNarrator: options.speaker?.kind === 'narrator',
                 sceneDirection: options.sceneDirection,
                 sceneGoal: options.sceneGoal,
                 sceneEnsemble: options.sceneEnsemble,
@@ -799,10 +800,15 @@ export function useChatGeneration({
 
         const msgToRegen = messages[msgIndex];
 
-        // Only assistant messages can be regenerated — this creates a sibling.
+        // Only assistant messages can be regenerated — this creates a sibling. A Scene
+        // Mode turn keeps its speaker: same attribution, same voice contract, and the
+        // history keeps its 'Name:' prefixes so the model knows who said what.
         if (msgToRegen.role === 'assistant') {
             const history = messages.slice(0, msgIndex);
-            await triggerAiReponse(history, { skipFactExtraction: true });
+            await triggerAiReponse(
+                msgToRegen.speaker ? withSpeakerPrefixes(history) : history,
+                { skipFactExtraction: true, speaker: msgToRegen.speaker }
+            );
         }
     };
 
@@ -824,7 +830,10 @@ export function useChatGeneration({
             const prefill = msgToContinue.content + ' ';
             const history = messages.slice(0, msgIndex);
             deleteMessage(id);
-            await triggerAiReponse(history, { prefill, skipFactExtraction: true });
+            await triggerAiReponse(
+                msgToContinue.speaker ? withSpeakerPrefixes(history) : history,
+                { prefill, skipFactExtraction: true, speaker: msgToContinue.speaker }
+            );
         } else {
             // No prefill support (NanoGPT/OpenAI): keep the message in place and in the
             // history, instruct an explicit continuation, append it (overlap-deduped).
@@ -838,9 +847,13 @@ export function useChatGeneration({
     const retry = async (id: string) => {
         const msgIndex = messages.findIndex((m) => m.id === id);
         if (msgIndex === -1) return;
+        const msgToRetry = messages[msgIndex];
         const history = messages.slice(0, msgIndex);
         deleteMessage(id);
-        await triggerAiReponse(history, { skipFactExtraction: true });
+        await triggerAiReponse(
+            msgToRetry.speaker ? withSpeakerPrefixes(history) : history,
+            { skipFactExtraction: true, speaker: msgToRetry.speaker }
+        );
     };
 
     return {

@@ -339,12 +339,22 @@ export const useChatStore = create<ChatState>()((set, get) => ({
     },
 
     deleteMessage: (id) => {
+        const idsToDelete: string[] = [id];
         set((state) => {
             const msgToDelete = state.messages.find((m) => m.id === id);
             if (!msgToDelete) return state;
 
+            // The confirm dialog promises "this message and all subsequent messages in this
+            // branch": delete the whole subtree. Leaving descendants orphaned (parentId
+            // pointing at a deleted id) corrupts the active-branch path computation.
+            const convMessages = state.messages.filter(
+                (m) => m.conversationId === msgToDelete.conversationId
+            );
+            getDescendantIds(convMessages, id).forEach((d) => idsToDelete.push(d));
+            const deleteSet = new Set(idsToDelete);
+
             // If deleting an active message, try to activate a sibling
-            let newMessages = state.messages.filter((m) => m.id !== id);
+            let newMessages = state.messages.filter((m) => !deleteSet.has(m.id));
 
             if (msgToDelete.isActiveBranch && msgToDelete.parentId) {
                 const siblings = newMessages.filter((m) => m.parentId === msgToDelete.parentId);
@@ -360,8 +370,8 @@ export const useChatStore = create<ChatState>()((set, get) => ({
             return { messages: newMessages };
         });
 
-        // Persist deletion
-        deleteMessagedb(id).catch(console.error);
+        // Persist deletions (subtree included)
+        idsToDelete.forEach((d) => deleteMessagedb(d).catch(console.error));
     },
 
     getConversationMessages: (conversationId) => {
