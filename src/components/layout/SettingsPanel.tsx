@@ -26,7 +26,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Separator } from '@/components/ui/separator';
 import { useSettingsStore } from '@/stores';
-import { DEFAULT_MODELS, type CustomModel } from '@/stores/settings-store';
+import { DEFAULT_MODELS, currentWeekStart, type CustomModel } from '@/stores/settings-store';
 import { encryptApiKey, decryptApiKey, validateApiKey } from '@/lib/crypto';
 import { type Provider } from '@/lib/ai';
 import { NanoGPTUsagePanel } from '@/components/layout/NanoGPTUsage';
@@ -124,6 +124,9 @@ export function SettingsPanel({ open, onOpenChange }: SettingsPanelProps) {
         setEnableTroupeMode,
         maxSceneSpeakers,
         setMaxSceneSpeakers,
+        weeklyBudgetUsd,
+        setWeeklyBudgetUsd,
+        weeklySpend,
         enableRelationshipAnalyst,
         setEnableRelationshipAnalyst,
         enableMomentum,
@@ -372,6 +375,48 @@ export function SettingsPanel({ open, onOpenChange }: SettingsPanelProps) {
                                         <NanoGPTUsagePanel />
                                     </div>
                                 )}
+
+                                {/* Weekly OpenRouter budget — feeds the toolbar badge */}
+                                <div className="p-4 border rounded-lg bg-card/50 space-y-2">
+                                    <p className="text-sm font-medium">
+                                        Budget hebdomadaire OpenRouter
+                                    </p>
+                                    <p className="text-xs text-muted-foreground">
+                                        Cumule les coûts réellement facturés par OpenRouter
+                                        (remis à zéro chaque lundi). Le badge de la barre
+                                        d&apos;outils affiche le restant et l&apos;équivalent en
+                                        tokens au prix du modèle actif. Vide = désactivé.
+                                    </p>
+                                    <div className="flex items-center gap-2">
+                                        <Input
+                                            type="number"
+                                            min="0"
+                                            step="0.5"
+                                            value={weeklyBudgetUsd ?? ''}
+                                            onChange={(e) => {
+                                                const v = parseFloat(e.target.value);
+                                                setWeeklyBudgetUsd(
+                                                    Number.isFinite(v) && v > 0 ? v : null
+                                                );
+                                            }}
+                                            placeholder="ex. 5"
+                                            className="h-9 w-32"
+                                        />
+                                        <span className="text-sm text-muted-foreground">
+                                            $ / semaine
+                                        </span>
+                                        {weeklyBudgetUsd != null && (
+                                            <span className="text-xs text-muted-foreground ml-auto">
+                                                Dépensé cette semaine :{' '}
+                                                {(weeklySpend.weekStart === currentWeekStart()
+                                                    ? weeklySpend.cost
+                                                    : 0
+                                                ).toFixed(2)}{' '}
+                                                $
+                                            </span>
+                                        )}
+                                    </div>
+                                </div>
                             </div>
                         </TabsContent>
 

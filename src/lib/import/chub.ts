@@ -70,23 +70,37 @@ export const CHUB_DOWNLOAD_URL = 'https://api.chub.ai/api/characters/download';
 
 export const CHUB_ALLOWED_SORTS = new Set([
     'star_count',
+    'download_count',
     'trending_downloads',
     'created_at',
     'last_activity_at',
     'rating',
     'n_favorites',
+    'n_tokens',
 ]);
+
+/** Sanitize a tag list for the `topics` filter (AND semantics on Chub's side). */
+export function sanitizeChubTopics(topics: unknown): string[] {
+    if (!Array.isArray(topics)) return [];
+    return topics
+        .filter((t): t is string => typeof t === 'string')
+        .map((t) => t.trim().slice(0, 40))
+        .filter(Boolean)
+        .slice(0, 6);
+}
 
 export function buildChubSearchParams(options: {
     query?: string;
     page?: number;
     nsfw?: boolean;
     sort?: string;
+    /** Tag filter — results must carry ALL of these topics. */
+    topics?: string[];
 }): URLSearchParams {
     const query = typeof options.query === 'string' ? options.query.slice(0, 200) : '';
     const page = Number.isInteger(options.page) && options.page! > 0 ? options.page! : 1;
     const sort = CHUB_ALLOWED_SORTS.has(options.sort || '') ? options.sort! : 'star_count';
-    return new URLSearchParams({
+    const params = new URLSearchParams({
         first: '24',
         page: String(page),
         namespace: 'characters',
@@ -97,6 +111,9 @@ export function buildChubSearchParams(options: {
         asc: 'false',
         sort,
     });
+    const topics = sanitizeChubTopics(options.topics);
+    if (topics.length > 0) params.set('topics', topics.join(','));
+    return params;
 }
 
 /**

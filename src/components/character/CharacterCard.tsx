@@ -12,6 +12,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import type { CharacterCard as CharacterCardType } from '@/types';
 import { cn } from '@/lib/utils';
+import { htmlToPlainText } from '@/lib/html-text';
 
 interface CharacterCardProps {
     character: CharacterCardType;
@@ -123,14 +124,15 @@ export function CharacterCard({
                     </div>
 
                     <p className="text-[11px] text-muted-foreground line-clamp-2 leading-relaxed opacity-80 break-words overflow-hidden min-w-0">
-                        {(character.description || character.personality || 'No description')
-                            .length > 16
-                            ? (
-                                  character.description ||
-                                  character.personality ||
-                                  'No description'
-                              ).slice(0, 16) + '...'
-                            : character.description || character.personality || 'No description'}
+                        {(() => {
+                            // Imported cards may carry raw HTML in their description —
+                            // display readable text (data stays untouched).
+                            const text = htmlToPlainText(
+                                character.description || character.personality || ''
+                            );
+                            if (!text) return 'No description';
+                            return text.length > 16 ? text.slice(0, 16) + '...' : text;
+                        })()}
                     </p>
                     {lastPlayed && (
                         <p className="text-[9px] text-muted-foreground/60 mt-0.5 flex items-center gap-1">

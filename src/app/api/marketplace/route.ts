@@ -63,6 +63,7 @@ export async function POST(req: NextRequest) {
             page?: number;
             nsfw?: boolean;
             sort?: string;
+            topics?: string[];
             /** Detail mode: fullPath of a card to preview (creator/project). */
             detail?: string;
         };

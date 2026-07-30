@@ -421,6 +421,12 @@ export function useChatGeneration({
                     .trim();
             }
 
+            // Weekly OpenRouter budget: accumulate the REAL accounted cost (never the
+            // local estimates — the tracker only counts what OpenRouter actually billed).
+            if (usage?.cost && usage.cost > 0) {
+                useSettingsStore.getState().addWeeklySpend(usage.cost);
+            }
+
             // No provider-reported usage (e.g. NanoGPT) → local tokenizer estimate, so the
             // per-message badge and quota tracking still work.
             if (!usage) {

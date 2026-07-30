@@ -22,10 +22,12 @@ import {
     Shuffle,
     Cpu,
     ExternalLink,
+    X,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import type { CharacterCard } from '@/types';
+import { htmlToPlainText } from '@/lib/html-text';
 import {
     CHUB_SEARCH_URL,
     buildChubSearchParams,
@@ -51,9 +53,14 @@ function formatAge(iso?: string): string {
     return `${Math.floor(days / 365)} ans`;
 }
 
-/** Resolve card placeholders for a readable preview (display only). */
+/**
+ * Readable preview text (display only): strip the HTML that Chub descriptions often are
+ * (styled pages), decode entities (accents/apostrophes), resolve card placeholders.
+ */
 function humanize(text: string, charName: string): string {
-    return text.replace(/\{\{char\}\}/gi, charName).replace(/\{\{user\}\}/gi, 'Vous');
+    return htmlToPlainText(text)
+        .replace(/\{\{char\}\}/gi, charName)
+        .replace(/\{\{user\}\}/gi, 'Vous');
 }
 
 function Section({ label, children }: { label: string; children: React.ReactNode }) {
@@ -77,6 +84,9 @@ export function MarketplaceBrowser({
     const [query, setQuery] = useState('');
     const [sort, setSort] = useState('star_count');
     const [nsfw, setNsfw] = useState(false);
+    // Tag filter (AND semantics on Chub's side). Row/detail tag chips add to it.
+    const [tags, setTags] = useState<string[]>([]);
+    const [tagInput, setTagInput] = useState('');
     const [results, setResults] = useState<MarketplaceCard[]>([]);
     const [page, setPage] = useState(1);
     const [isLoading, setIsLoading] = useState(false);
@@ -105,7 +115,7 @@ export function MarketplaceBrowser({
                     const res = await fetch('/api/marketplace', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ query, page: targetPage, nsfw, sort }),
+                        body: JSON.stringify({ query, page: targetPage, nsfw, sort, topics: tags }),
                     });
                     const data = await res.json();
                     if (res.ok) {
@@ -127,6 +137,7 @@ export function MarketplaceBrowser({
                         page: targetPage,
                         nsfw,
                         sort,
+                        topics: tags,
                     });
                     const res = await fetch(`${CHUB_SEARCH_URL}?${params}`, {
                         headers: { Accept: 'application/json' },
@@ -148,8 +159,17 @@ export function MarketplaceBrowser({
                 if (seq === searchSeq.current) setIsLoading(false);
             }
         },
-        [query, nsfw, sort]
+        [query, nsfw, sort, tags]
     );
+
+    const addTag = (t: string) => {
+        const clean = t.trim();
+        if (clean && !tags.some((x) => x.toLowerCase() === clean.toLowerCase())) {
+            setTags((prev) => [...prev, clean]);
+        }
+        setTagInput('');
+    };
+    const removeTag = (t: string) => setTags((prev) => prev.filter((x) => x !== t));
 
     // Initial load + debounced re-search when query/sort/nsfw change.
     useEffect(() => {
@@ -346,12 +366,17 @@ export function MarketplaceBrowser({
                         )}
                         <div className="flex items-center gap-1 flex-wrap">
                             {(detail?.topics ?? selected.topics).map((t) => (
-                                <span
+                                <button
                                     key={t}
-                                    className="px-1.5 py-0.5 rounded bg-muted text-[10px] text-muted-foreground"
+                                    onClick={() => {
+                                        addTag(t);
+                                        setSelected(null);
+                                    }}
+                                    className="px-1.5 py-0.5 rounded bg-muted text-[10px] text-muted-foreground hover:text-primary hover:bg-primary/10"
+                                    title={`Filtrer par ${t}`}
                                 >
                                     {t}
-                                </span>
+                                </button>
                             ))}
                         </div>
                     </div>
@@ -371,7 +396,9 @@ export function MarketplaceBrowser({
                 )}
 
                 {(detail?.tagline || selected.tagline) && (
-                    <Section label="Accroche">{detail?.tagline || selected.tagline}</Section>
+                    <Section label="Accroche">
+                        {humanize(detail?.tagline || selected.tagline, selected.name)}
+                    </Section>
                 )}
                 {(detail?.description || selected.description) && (
                     <Section label="Description">
@@ -414,9 +441,11 @@ export function MarketplaceBrowser({
                     onChange={(e) => setSort(e.target.value)}
                     className="h-9 rounded-md border border-input bg-background px-2 text-sm min-w-0 max-sm:flex-1"
                 >
-                    <option value="star_count">Populaires</option>
+                    <option value="star_count">Favoris ★</option>
+                    <option value="download_count">Téléchargements</option>
                     <option value="trending_downloads">Tendance</option>
                     <option value="created_at">Récents</option>
+                    <option value="last_activity_at">Activité récente</option>
                     <option value="rating">Mieux notés</option>
                 </select>
                 <Button
@@ -428,6 +457,44 @@ export function MarketplaceBrowser({
                 >
                     NSFW
                 </Button>
+            </div>
+
+            {/* Tag filter: active chips (removable), free input, quick presets. Clicking a
+                tag on any card also adds it here. */}
+            <div className="flex flex-wrap items-center gap-1.5 shrink-0">
+                {tags.map((t) => (
+                    <span
+                        key={t}
+                        className="inline-flex items-center gap-1 px-2 h-6 rounded-full bg-primary/15 text-primary text-[11px] font-medium"
+                    >
+                        {t}
+                        <button onClick={() => removeTag(t)} title={`Retirer le filtre ${t}`}>
+                            <X className="w-3 h-3 hover:text-destructive" />
+                        </button>
+                    </span>
+                ))}
+                <Input
+                    value={tagInput}
+                    onChange={(e) => setTagInput(e.target.value)}
+                    onKeyDown={(e) => {
+                        if (e.key === 'Enter') addTag(tagInput);
+                        if (e.key === 'Backspace' && !tagInput && tags.length > 0) {
+                            removeTag(tags[tags.length - 1]);
+                        }
+                    }}
+                    placeholder="+ filtrer par tag…"
+                    className="h-6 w-32 text-[11px] px-2"
+                />
+                {tags.length === 0 &&
+                    ['RPG', 'Anime', 'Fantasy', 'Game', 'Female', 'Male'].map((t) => (
+                        <button
+                            key={t}
+                            onClick={() => addTag(t)}
+                            className="px-2 h-6 rounded-full border border-border/50 text-[11px] text-muted-foreground hover:text-primary hover:border-primary/40"
+                        >
+                            {t}
+                        </button>
+                    ))}
             </div>
 
             {error && <p className="text-xs text-destructive shrink-0">{error}</p>}
@@ -458,16 +525,24 @@ export function MarketplaceBrowser({
                                     </span>
                                 </div>
                                 <p className="text-[11px] text-muted-foreground line-clamp-2 sm:line-clamp-3">
-                                    {card.tagline || card.description || '(pas de description)'}
+                                    {humanize(
+                                        card.tagline || card.description || '(pas de description)',
+                                        card.name
+                                    )}
                                 </p>
                                 <div className="flex items-center gap-1 flex-wrap mt-auto">
                                     {card.topics.slice(0, 5).map((t) => (
-                                        <span
+                                        <button
                                             key={t}
-                                            className="px-1.5 py-0.5 rounded bg-muted text-[10px] text-muted-foreground"
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                addTag(t);
+                                            }}
+                                            className="px-1.5 py-0.5 rounded bg-muted text-[10px] text-muted-foreground hover:text-primary hover:bg-primary/10"
+                                            title={`Filtrer par ${t}`}
                                         >
                                             {t}
-                                        </span>
+                                        </button>
                                     ))}
                                 </div>
                             </div>

@@ -6,6 +6,14 @@ import type { RPEngine } from '@/types/engine';
 import { IMMERSIVE_NEXUS_KEY, getEngineById } from '@/lib/ai/rp-engine';
 import type { Provider } from '@/lib/ai/providers';
 
+/** Monday of the current week (local time), as YYYY-MM-DD — the weekly-budget anchor. */
+export function currentWeekStart(): string {
+    const now = new Date();
+    const monday = new Date(now);
+    monday.setDate(now.getDate() - ((now.getDay() + 6) % 7));
+    return `${monday.getFullYear()}-${String(monday.getMonth() + 1).padStart(2, '0')}-${String(monday.getDate()).padStart(2, '0')}`;
+}
+
 export interface ApiKeyConfig {
     provider: Provider;
     encryptedKey: string;
@@ -192,6 +200,10 @@ interface SettingsState {
     enableScratchpad: boolean;
     // Per-message token/cost badge under assistant replies.
     showUsageBadge: boolean;
+    // Weekly OpenRouter budget (USD). null = tracking off. Real accounted costs only.
+    weeklyBudgetUsd: number | null;
+    // Cumulated OpenRouter cost for the current week (rolls over on Monday).
+    weeklySpend: { weekStart: string; cost: number };
     // Scene Mode (Troupe): AI narrator + one reply per on-stage character. Global gate;
     // each conversation opts in via its own 🎬 toggle.
     enableTroupeMode: boolean;
@@ -238,6 +250,8 @@ interface SettingsState {
     setNanogptBackgroundModel: (model: string | null) => void;
     setEnableScratchpad: (enabled: boolean) => void;
     setShowUsageBadge: (enabled: boolean) => void;
+    setWeeklyBudgetUsd: (usd: number | null) => void;
+    addWeeklySpend: (cost: number) => void;
     setEnableTroupeMode: (enabled: boolean) => void;
     setMaxSceneSpeakers: (max: number) => void;
     setEnableRelationshipAnalyst: (enabled: boolean) => void;
@@ -294,6 +308,8 @@ export const useSettingsStore = create<SettingsState>()(
             nanogptBackgroundModel: null,
             enableScratchpad: false,
             showUsageBadge: true,
+            weeklyBudgetUsd: null,
+            weeklySpend: { weekStart: '', cost: 0 },
             enableTroupeMode: true,
             maxSceneSpeakers: 5,
             enableRelationshipAnalyst: true,
@@ -360,6 +376,14 @@ export const useSettingsStore = create<SettingsState>()(
             setNanogptBackgroundModel: (nanogptBackgroundModel) => set({ nanogptBackgroundModel }),
             setEnableScratchpad: (enableScratchpad) => set({ enableScratchpad }),
             setShowUsageBadge: (showUsageBadge) => set({ showUsageBadge }),
+            setWeeklyBudgetUsd: (weeklyBudgetUsd) => set({ weeklyBudgetUsd }),
+            addWeeklySpend: (cost) =>
+                set((state) => {
+                    const week = currentWeekStart();
+                    const prev =
+                        state.weeklySpend.weekStart === week ? state.weeklySpend.cost : 0;
+                    return { weeklySpend: { weekStart: week, cost: prev + cost } };
+                }),
             setEnableTroupeMode: (enableTroupeMode) => set({ enableTroupeMode }),
             setMaxSceneSpeakers: (maxSceneSpeakers) =>
                 set({ maxSceneSpeakers: Math.max(1, Math.min(8, Math.round(maxSceneSpeakers))) }),

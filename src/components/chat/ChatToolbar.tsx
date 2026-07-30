@@ -4,6 +4,7 @@ import { Book, Brain, Clapperboard, Eye, GitBranch, Heart as HeartIcon } from 'l
 import { Button } from '@/components/ui/button';
 import { PersonaSelector, ModelSelector } from '@/components/chat';
 import { NanoGPTUsageBadge } from '@/components/layout/NanoGPTUsage';
+import { OpenRouterBudgetBadge } from '@/components/layout/OpenRouterBudget';
 
 interface ChatToolbarProps {
     onOpenLorebook: () => void;
@@ -29,6 +30,7 @@ export function ChatToolbar({
             <PersonaSelector />
             <ModelSelector />
             <NanoGPTUsageBadge />
+            <OpenRouterBudgetBadge />
 
             <Button
                 variant="ghost"
