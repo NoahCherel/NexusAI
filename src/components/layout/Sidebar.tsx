@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useCharacterStore } from '@/stores';
 import { CharacterCard } from '@/components/character/CharacterCard';
 import { CharacterFolder } from '@/components/character/CharacterFolder';
@@ -10,14 +10,15 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
-import { Search, Plus, PanelLeftClose, PanelLeftOpen, Settings, Users, Upload } from 'lucide-react';
+import { Search, Plus, PanelLeftClose, PanelLeftOpen, Users, Upload } from 'lucide-react';
 
 import { CharacterImporter } from '@/components/character/CharacterImporter';
 import { cn } from '@/lib/utils';
-import { exportToJson } from '@/lib/export-utils';
-import { useChatStore } from '@/stores/chat-store';
 import { useCharacterFolderDrag } from '@/hooks/useCharacterFolderDrag';
 import type { CharacterCard as CharacterCardType } from '@/types';
+import { exportConversationForCharacter } from '@/lib/conversation-transfer';
+import { searchConversations, type ConversationSearchHit } from '@/lib/conversation-search';
+import { useChatStore } from '@/stores/chat-store';
 
 interface SidebarProps {
     isCollapsed: boolean;
@@ -29,6 +30,26 @@ export function Sidebar({ isCollapsed, onToggle }: SidebarProps) {
     const { characters, activeCharacterId, setActiveCharacterId, removeCharacter } =
         useCharacterStore();
     const [searchTerm, setSearchTerm] = useState('');
+    // Debounced full-text search across conversation titles + message contents.
+    const [conversationHits, setConversationHits] = useState<ConversationSearchHit[]>([]);
+    useEffect(() => {
+        let cancelled = false;
+        const t = setTimeout(() => {
+            if (searchTerm.trim().length < 3) {
+                if (!cancelled) setConversationHits([]);
+                return;
+            }
+            searchConversations(searchTerm)
+                .then((hits) => {
+                    if (!cancelled) setConversationHits(hits);
+                })
+                .catch(() => {});
+        }, 300);
+        return () => {
+            cancelled = true;
+            clearTimeout(t);
+        };
+    }, [searchTerm]);
     const [isEditorOpen, setIsEditorOpen] = useState(false);
     const [editingCharacter, setEditingCharacter] = useState<CharacterCardType | null>(null);
     const { DragOverlay, draggedCharacterId, isDragging, startCharacterDrag, targetFolder } =
@@ -59,51 +80,8 @@ export function Sidebar({ isCollapsed, onToggle }: SidebarProps) {
         setEditingCharacter(null);
     };
 
-    const { getConversationMessages, conversations: allConversations } = useChatStore();
-
     const handleExport = async (character: CharacterCardType) => {
-        // Find most recent conversation for this character
-        const charConvs = allConversations
-            .filter((c) => c.characterId === character.id)
-            .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime());
-
-        if (charConvs.length === 0) {
-            alert('No conversation found for this character.');
-            return;
-        }
-
-        const latestConv = charConvs[0];
-        const messages = await getConversationMessages(latestConv.id);
-
-        const exportData = {
-            character: {
-                name: character.name,
-                description: character.description,
-                personality: character.personality,
-                scenario: character.scenario,
-                first_mes: character.first_mes,
-                mes_example: character.mes_example,
-            },
-            conversation: {
-                title: latestConv.title,
-                createdAt: latestConv.createdAt,
-                updatedAt: latestConv.updatedAt,
-                worldState: latestConv.worldState,
-            },
-            messages: messages.map((m) => ({
-                role: m.role,
-                content: m.content,
-                thought: m.thought,
-                createdAt: m.createdAt,
-                isActiveBranch: m.isActiveBranch,
-            })),
-            exportedAt: new Date().toISOString(),
-        };
-
-        exportToJson(
-            exportData,
-            `Conversation_${character.name}_${new Date().toISOString().split('T')[0]}`
-        );
+        await exportConversationForCharacter(character);
     };
 
     return (
@@ -204,6 +182,38 @@ export function Sidebar({ isCollapsed, onToggle }: SidebarProps) {
                 {/* List */}
                 <div className="flex-1 min-h-0 overflow-hidden">
                     <ScrollArea className="h-full w-full">
+                        {/* Full-text hits in conversations (titles + messages) */}
+                        {!isCollapsed && conversationHits.length > 0 && (
+                            <div className="px-4 pt-4 space-y-1.5">
+                                <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium">
+                                    Conversations
+                                </p>
+                                {conversationHits.map((hit) => (
+                                    <button
+                                        key={hit.conversationId}
+                                        className="w-full text-left p-2 rounded-lg border border-border/40 bg-card/40 hover:bg-card/80 transition-colors"
+                                        onClick={() => {
+                                            setActiveCharacterId(hit.characterId);
+                                            useChatStore
+                                                .getState()
+                                                .setActiveConversation(hit.conversationId);
+                                        }}
+                                    >
+                                        <p className="text-xs font-medium truncate">
+                                            {hit.title}
+                                            <span className="text-muted-foreground font-normal">
+                                                {' '}
+                                                · {hit.matchCount} match
+                                                {hit.matchCount > 1 ? 's' : ''}
+                                            </span>
+                                        </p>
+                                        <p className="text-[11px] text-muted-foreground line-clamp-2">
+                                            {hit.snippet}
+                                        </p>
+                                    </button>
+                                ))}
+                            </div>
+                        )}
                         <div
                             className={cn(
                                 'space-y-3 pb-10 transition-all duration-300 w-full',

@@ -85,6 +85,8 @@ interface ChatBubbleProps {
     usage?: UsageInfo;
     avatar?: string;
     name?: string;
+    /** Scene Mode: narration by the AI director — rendered italic and slightly muted. */
+    narrator?: boolean;
     showThoughts?: boolean;
     onEdit?: (id: string, newContent: string) => void;
     onRegenerate?: (id: string) => void;
@@ -109,6 +111,7 @@ export const ChatBubble = memo(function ChatBubble({
     usage,
     avatar,
     name,
+    narrator = false,
     showThoughts = true,
     onEdit,
     onRegenerate,
@@ -276,7 +279,7 @@ export const ChatBubble = memo(function ChatBubble({
                         whileHover="hover"
                         className={`text-sm sm:text-base leading-relaxed whitespace-pre-wrap break-words min-h-[1.5em] ${
                             isUser ? 'text-foreground' : 'text-foreground/90 font-medium'
-                        }`}
+                        } ${narrator ? 'italic text-muted-foreground text-center' : ''}`}
                     >
                         {!displayContent && !isUser && !error ? (
                             <div className="flex gap-1 py-1">

@@ -8,6 +8,14 @@
 
 import type { CharacterCard } from '@/types/character';
 import { useChatStore, useCharacterStore } from '@/stores';
+import { useNotificationStore } from '@/components/ui/api-notification';
+
+/** In-app toast replacing the old blocking window.alert(). */
+function notify(message: string, status: 'success' | 'error' = 'error'): void {
+    const { addNotification, updateNotification } = useNotificationStore.getState();
+    const id = addNotification(message, 'world');
+    updateNotification(id, status, message);
+}
 
 /** Export the most recent conversation of a character as a JSON download. */
 export async function exportConversationForCharacter(character: CharacterCard): Promise<void> {
@@ -19,7 +27,7 @@ export async function exportConversationForCharacter(character: CharacterCard): 
         .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime());
 
     if (charConvs.length === 0) {
-        alert('No conversation found for this character.');
+        notify('Aucune conversation à exporter pour ce personnage.');
         return;
     }
 
@@ -74,7 +82,7 @@ export function importConversationFromFile(): void {
 
             // Validate structure
             if (!data.character || !data.conversation || !Array.isArray(data.messages)) {
-                alert('Invalid conversation export format');
+                notify("Format d'export de conversation invalide.");
                 return;
             }
 
@@ -118,13 +126,18 @@ export function importConversationFromFile(): void {
                 data.conversation.title || `Imported Chat - ${new Date().toLocaleDateString()}`
             );
 
-            // Import messages (single main branch)
+            // Import messages as ONE chained branch. parentId must link each message to
+            // the previous one: with every message at the root, they'd all be siblings —
+            // addMessage deactivates prior sibling branches, leaving only the last message
+            // visible (and root messages are swipable greeting alternates).
+            let prevId: string | null = null;
             for (let i = 0; i < data.messages.length; i++) {
                 const msg = data.messages[i];
+                const msgId = crypto.randomUUID();
                 useChatStore.getState().addMessage({
-                    id: crypto.randomUUID(),
+                    id: msgId,
                     conversationId: convId,
-                    parentId: null,
+                    parentId: prevId,
                     role: msg.role,
                     content: msg.content,
                     thought: msg.thought,
@@ -133,6 +146,7 @@ export function importConversationFromFile(): void {
                     messageOrder: i + 1,
                     regenerationIndex: 0,
                 });
+                prevId = msgId;
             }
 
             // Update world state if present
@@ -143,13 +157,14 @@ export function importConversationFromFile(): void {
             // Switch to the imported conversation
             useChatStore.getState().setActiveConversation(convId);
 
-            alert(
-                `Successfully imported conversation "${data.conversation.title}" with ${data.messages.length} messages!`
+            notify(
+                `Conversation « ${data.conversation.title} » importée (${data.messages.length} messages).`,
+                'success'
             );
         } catch (error) {
             console.error('Import error:', error);
-            alert(
-                `Failed to import conversation: ${error instanceof Error ? error.message : 'Unknown error'}`
+            notify(
+                `Import de conversation échoué : ${error instanceof Error ? error.message : 'erreur inconnue'}`
             );
         }
     };

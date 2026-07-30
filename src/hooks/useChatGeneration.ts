@@ -24,6 +24,11 @@ import {
     resolveActiveLorebookEntries,
 } from '@/lib/ai/rag-service';
 import { extractLorebookEntries, extractRpDevelopments } from '@/lib/lorebook-extractor';
+import {
+    directorDecide,
+    applySceneChange,
+    MAX_SPEAKERS_PER_BEAT,
+} from '@/lib/ai/scene-orchestrator';
 import { NANOGPT_USAGE_REFRESH_EVENT } from '@/lib/ai/nanogpt-usage';
 import { countTokens } from '@/lib/tokenizer';
 import type { PostBeatParams } from '@/lib/ai/post-beat';
@@ -79,6 +84,10 @@ export function useChatGeneration({
 }: UseChatGenerationParams) {
     const [isLoading, setIsLoading] = useState(false);
     const abortControllerRef = useRef<AbortController | null>(null);
+    // Scene Mode: cancels the remaining character turns of a running beat (Stop button or
+    // a new user message).
+    const stopRequestedRef = useRef(false);
+    const [isSceneRunning, setIsSceneRunning] = useState(false);
 
     const {
         activeProvider,
@@ -108,8 +117,10 @@ export function useChatGeneration({
              * the message (overlap-deduped) instead of creating a new one.
              */
             continueTargetId?: string;
+            /** Scene Mode: attribute the generated message to this speaker (one turn). */
+            speaker?: CAMessage['speaker'];
         } = {}
-    ) => {
+    ): Promise<{ id: string; content: string } | undefined> => {
         if (!currentApiKey || !character) return;
         setIsLoading(true);
 
@@ -203,6 +214,8 @@ export function useChatGeneration({
                 maxOutputTokens,
                 historyCutMessageId: currentConv?.historyCutMessageId,
                 continueFromAssistant: !!options.continueTargetId,
+                sceneSpeaker:
+                    options.speaker?.kind === 'character' ? options.speaker.name : undefined,
                 retrieveRag:
                     enableRAGRetrieval && activeConversationId
                         ? (ragBudget) =>
@@ -269,6 +282,7 @@ export function useChatGeneration({
                 createdAt: new Date(),
                 messageOrder: history.length + 1,
                 regenerationIndex: 0,
+                speaker: options.speaker,
             });
         }
 
@@ -384,6 +398,13 @@ export function useChatGeneration({
 
             // Extract scratchpad
             let finalContent = finalResult.content;
+
+            // Scene Mode: the history carries "Name: " prefixes so models often imitate the
+            // pattern — strip the speaker's own prefix from their reply.
+            if (options.speaker?.kind === 'character') {
+                const escaped = options.speaker.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                finalContent = finalContent.replace(new RegExp(`^\\s*${escaped}\\s*:\\s*`), '');
+            }
             const scratchpadMatch = finalContent.match(/<scratchpad>([\s\S]*?)<\/scratchpad>/i);
             if (scratchpadMatch) {
                 const scratchpadContent = scratchpadMatch[1].trim();
@@ -431,6 +452,8 @@ export function useChatGeneration({
                     skipFactExtraction: !!options.skipFactExtraction,
                 });
             }
+
+            return { id: targetId, content: finalContent };
         } catch (error) {
             if (error instanceof Error && error.name === 'AbortError') {
                 return;
@@ -469,9 +492,103 @@ export function useChatGeneration({
     };
 
     const stop = () => {
+        stopRequestedRef.current = true;
         if (abortControllerRef.current) {
             abortControllerRef.current.abort();
             setIsLoading(false);
+        }
+    };
+
+    /** Prefix scene-attributed messages with their speaker so the model knows who spoke. */
+    const withSpeakerPrefixes = (history: CAMessage[]): CAMessage[] =>
+        history.map((m) =>
+            m.role === 'assistant' && m.speaker
+                ? { ...m, content: `${m.speaker.name}: ${m.content}` }
+                : m
+        );
+
+    /**
+     * Scene Mode beat: one cheap Director call (background AI) decides narration, roster
+     * changes and up to 3 speakers; each speaker then gets their own streamed generation
+     * attributed via `speaker`. Post-beat analyses (facts/relations/journal) run ONCE, on
+     * the last turn, over the whole beat.
+     */
+    const runSceneBeat = async (historyOverride?: CAMessage[]) => {
+        if (!activeConversationId || !character) return;
+        const conv = useChatStore
+            .getState()
+            .conversations.find((c) => c.id === activeConversationId);
+        if (!conv?.sceneMode) return;
+        const roster = (conv.sceneRoster ?? []).filter(Boolean);
+        if (roster.length === 0) return;
+
+        stopRequestedRef.current = false;
+        const beatHistory: CAMessage[] = [...(historyOverride ?? messages)];
+        const activePersona = personas.find((p) => p.id === activePersonaId);
+        const userName = activePersona?.name || 'the player';
+
+        setIsSceneRunning(true);
+        try {
+            // 1. Director decision (never on the paid RP model).
+            const decision = await directorDecide({
+                roster,
+                userName,
+                recentMessages: beatHistory,
+                relationships: conv.relationships,
+                arcPosition: conv.arc?.currentPosition,
+            });
+            if (stopRequestedRef.current) return;
+
+            // 2. Roster enter/exit.
+            const newRoster = applySceneChange(roster, decision.sceneChange);
+            if (newRoster.join('|') !== roster.join('|')) {
+                useChatStore.getState().setSceneRoster(activeConversationId, newRoster);
+            }
+
+            // 3. Narration (already written by the Director — no extra LLM call).
+            if (decision.narration) {
+                const narratorMsg: CAMessage = {
+                    id: crypto.randomUUID(),
+                    conversationId: activeConversationId,
+                    parentId: beatHistory[beatHistory.length - 1]?.id || null,
+                    role: 'assistant',
+                    content: decision.narration,
+                    isActiveBranch: true,
+                    createdAt: new Date(),
+                    messageOrder: beatHistory.length + 1,
+                    regenerationIndex: 0,
+                    speaker: { kind: 'narrator', name: 'Narrateur' },
+                };
+                addMessage(narratorMsg);
+                beatHistory.push(narratorMsg);
+            }
+
+            // 4. Character turns, sequential and streamed. Hard cap; Stop (or a new user
+            // message) cancels the remaining turns.
+            const speakers = decision.speakers.slice(0, MAX_SPEAKERS_PER_BEAT);
+            for (let i = 0; i < speakers.length; i++) {
+                if (stopRequestedRef.current) break;
+                const speaker = { kind: 'character' as const, name: speakers[i] };
+                const result = await triggerAiReponse(withSpeakerPrefixes(beatHistory), {
+                    speaker,
+                    skipFactExtraction: i < speakers.length - 1,
+                });
+                if (!result) break;
+                beatHistory.push({
+                    id: result.id,
+                    conversationId: activeConversationId,
+                    parentId: beatHistory[beatHistory.length - 1]?.id || null,
+                    role: 'assistant',
+                    content: result.content,
+                    isActiveBranch: true,
+                    createdAt: new Date(),
+                    messageOrder: beatHistory.length + 1,
+                    regenerationIndex: 0,
+                    speaker,
+                });
+            }
+        } finally {
+            setIsSceneRunning(false);
         }
     };
 
@@ -539,6 +656,20 @@ export function useChatGeneration({
 
         // Construct history for API (include the new message)
         const history = [...messages, newUserMessage];
+
+        // Scene Mode: the beat is orchestrated (director + up to 3 character turns). A new
+        // user message always cancels any still-running beat first.
+        stopRequestedRef.current = true;
+        const convForSend = conversations.find((c) => c.id === activeConversationId);
+        if (
+            convForSend?.sceneMode &&
+            (convForSend.sceneRoster?.length ?? 0) > 0 &&
+            useSettingsStore.getState().enableTroupeMode
+        ) {
+            await runSceneBeat(history);
+            return;
+        }
+
         await triggerAiReponse(history, { prefill });
     };
 
@@ -695,11 +826,13 @@ export function useChatGeneration({
 
     return {
         isLoading,
+        isSceneRunning,
         send,
         stop,
         regenerate,
         continueMessage,
         impersonate,
         retry,
+        runSceneBeat,
     };
 }

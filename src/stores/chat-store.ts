@@ -36,6 +36,8 @@ interface ChatState {
     setMomentumNudge: (conversationId: string, nudge: string | undefined) => void;
     setHistoryCut: (conversationId: string, messageId: string | undefined) => void;
     setStickyCast: (conversationId: string, stickyCast: Record<string, number>) => void;
+    setSceneMode: (conversationId: string, sceneMode: boolean) => void;
+    setSceneRoster: (conversationId: string, roster: string[]) => void;
     setBanList: (conversationId: string, banList: string[]) => void;
     getActiveBranchBanList: (conversationId: string) => string[];
     setRelationships: (conversationId: string, relationships: DirectedRelationship[]) => void;
@@ -601,6 +603,34 @@ export const useChatStore = create<ChatState>()((set, get) => ({
             conversations: state.conversations.map((c) => {
                 if (c.id === conversationId) {
                     conversationToUpdate = { ...c, historyCutMessageId: messageId };
+                    return conversationToUpdate;
+                }
+                return c;
+            }),
+        }));
+        if (conversationToUpdate) saveConversation(conversationToUpdate).catch(console.error);
+    },
+
+    setSceneMode: (conversationId, sceneMode) => {
+        let conversationToUpdate: Conversation | undefined;
+        set((state) => ({
+            conversations: state.conversations.map((c) => {
+                if (c.id === conversationId) {
+                    conversationToUpdate = { ...c, sceneMode, updatedAt: new Date() };
+                    return conversationToUpdate;
+                }
+                return c;
+            }),
+        }));
+        if (conversationToUpdate) saveConversation(conversationToUpdate).catch(console.error);
+    },
+
+    setSceneRoster: (conversationId, roster) => {
+        let conversationToUpdate: Conversation | undefined;
+        set((state) => ({
+            conversations: state.conversations.map((c) => {
+                if (c.id === conversationId) {
+                    conversationToUpdate = { ...c, sceneRoster: roster };
                     return conversationToUpdate;
                 }
                 return c;

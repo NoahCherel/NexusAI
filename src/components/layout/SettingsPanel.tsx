@@ -122,6 +122,8 @@ export function SettingsPanel({ open, onOpenChange }: SettingsPanelProps) {
         setEnableScratchpad,
         showUsageBadge,
         setShowUsageBadge,
+        enableTroupeMode,
+        setEnableTroupeMode,
         enableRelationshipAnalyst,
         setEnableRelationshipAnalyst,
         enableMomentum,
@@ -508,6 +510,30 @@ export function SettingsPanel({ open, onOpenChange }: SettingsPanelProps) {
                                                 className="w-16"
                                             >
                                                 {showWorldState ? 'On' : 'Off'}
+                                            </Button>
+                                        </div>
+
+                                        <div className="flex items-center justify-between p-3 border rounded-lg bg-card/50">
+                                            <div>
+                                                <p className="text-sm">Mode Troupe (scènes)</p>
+                                                <p className="text-xs text-muted-foreground mt-0.5">
+                                                    Narrateur IA + une réponse par personnage en
+                                                    scène (le Réalisateur tourne sur le quota
+                                                    background, les répliques sur le modèle RP —
+                                                    jusqu&apos;à 3 par beat)
+                                                </p>
+                                            </div>
+                                            <Button
+                                                variant={
+                                                    enableTroupeMode ? 'default' : 'secondary'
+                                                }
+                                                size="sm"
+                                                onClick={() =>
+                                                    setEnableTroupeMode(!enableTroupeMode)
+                                                }
+                                                className="w-16"
+                                            >
+                                                {enableTroupeMode ? 'On' : 'Off'}
                                             </Button>
                                         </div>
 

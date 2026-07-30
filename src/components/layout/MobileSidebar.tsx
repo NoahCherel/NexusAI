@@ -12,10 +12,10 @@ import { CharacterFolder } from '@/components/character/CharacterFolder';
 import { CharacterImporter } from '@/components/character/CharacterImporter';
 import { CharacterEditor } from '@/components/character/CharacterEditor';
 import { buildCharacterGroups } from '@/lib/character-folders';
-import { useCharacterStore, useChatStore } from '@/stores';
-import { exportToJson } from '@/lib/export-utils';
+import { useCharacterStore } from '@/stores';
 import { useCharacterFolderDrag } from '@/hooks/useCharacterFolderDrag';
 import type { CharacterCard as CharacterCardType } from '@/types';
+import { exportConversationForCharacter } from '@/lib/conversation-transfer';
 
 interface MobileSidebarProps {
     onCharacterSelect?: (characterId: string) => void;
@@ -82,51 +82,8 @@ export function MobileSidebar({ onCharacterSelect, onSettingsClick }: MobileSide
         setEditingCharacter(null);
     };
 
-    const { getConversationMessages, conversations: allConversations } = useChatStore();
-
     const handleExport = async (character: CharacterCardType) => {
-        // Find most recent conversation for this character
-        const charConvs = allConversations
-            .filter((c) => c.characterId === character.id)
-            .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime());
-
-        if (charConvs.length === 0) {
-            alert('Aucune conversation trouvée pour ce personnage.');
-            return;
-        }
-
-        const latestConv = charConvs[0];
-        const messages = await getConversationMessages(latestConv.id);
-
-        const exportData = {
-            character: {
-                name: character.name,
-                description: character.description,
-                personality: character.personality,
-                scenario: character.scenario,
-                first_mes: character.first_mes,
-                mes_example: character.mes_example,
-            },
-            conversation: {
-                title: latestConv.title,
-                createdAt: latestConv.createdAt,
-                updatedAt: latestConv.updatedAt,
-                worldState: latestConv.worldState,
-            },
-            messages: messages.map((m) => ({
-                role: m.role,
-                content: m.content,
-                thought: m.thought,
-                createdAt: m.createdAt,
-                isActiveBranch: m.isActiveBranch,
-            })),
-            exportedAt: new Date().toISOString(),
-        };
-
-        exportToJson(
-            exportData,
-            `Conversation_${character.name}_${new Date().toISOString().split('T')[0]}`
-        );
+        await exportConversationForCharacter(character);
     };
 
     return (

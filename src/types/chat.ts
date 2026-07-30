@@ -30,6 +30,12 @@ export interface Message {
         cost?: number; // USD (OpenRouter credits)
         estimated?: boolean;
     };
+
+    // Scene Mode (Troupe): who is talking. Absent = the card's main character (legacy).
+    speaker?: {
+        kind: 'user' | 'character' | 'narrator';
+        name: string;
+    };
 }
 
 export interface Conversation {
@@ -54,6 +60,9 @@ export interface Conversation {
     // injected for a window of beats after its last mention so the (cached) system prompt
     // doesn't flap when a name drops out of the recent-scan window.
     stickyCast?: Record<string, number>;
+    // Scene Mode (Troupe): AI narrator + one reply per on-stage character.
+    sceneMode?: boolean;
+    sceneRoster?: string[]; // characters currently on stage
     createdAt: Date;
     updatedAt: Date;
 }

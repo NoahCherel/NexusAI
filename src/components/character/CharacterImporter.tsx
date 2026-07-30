@@ -3,10 +3,11 @@
 import { useCallback, useState } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Upload, FileImage, AlertCircle, CheckCircle, Plus, Link2 } from 'lucide-react';
+import { Upload, FileImage, AlertCircle, CheckCircle, Plus, Link2, Store } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { detectImportUrl } from '@/lib/import/url-detector';
+import { MarketplaceBrowser } from '@/components/character/MarketplaceBrowser';
 import {
     Dialog,
     DialogContent,
@@ -32,6 +33,7 @@ export function CharacterImporter({ trigger, onImported, isCollapsed }: Characte
     const [error, setError] = useState<string | null>(null);
     const [importedChar, setImportedChar] = useState<CharacterCard | null>(null);
     const [importUrl, setImportUrl] = useState('');
+    const [mode, setMode] = useState<'import' | 'browse'>('import');
 
     const addCharacter = useCharacterStore((state) => state.addCharacter);
 
@@ -163,14 +165,57 @@ export function CharacterImporter({ trigger, onImported, isCollapsed }: Characte
                         </Button>
                     ))}
             </DialogTrigger>
-            <DialogContent className="sm:max-w-md">
-                <DialogHeader>
-                    <DialogTitle>Import Character</DialogTitle>
+            <DialogContent
+                className={cn(
+                    mode === 'browse'
+                        ? 'sm:max-w-4xl w-[95vw] h-[85vh] flex flex-col overflow-hidden max-sm:w-screen max-sm:h-dvh max-sm:max-w-none max-sm:rounded-none max-sm:border-0 max-sm:top-0 max-sm:left-0 max-sm:translate-x-0 max-sm:translate-y-0'
+                        : 'sm:max-w-md'
+                )}
+            >
+                <DialogHeader className="shrink-0">
+                    <DialogTitle>Personnages</DialogTitle>
                     <DialogDescription>
-                        Collez une URL de carte, ou glissez un fichier Character Card (PNG/JSON).
+                        {mode === 'browse'
+                            ? 'Parcourez le catalogue et importez en un clic.'
+                            : 'Collez une URL de carte, ou glissez un fichier Character Card (PNG/JSON).'}
                     </DialogDescription>
                 </DialogHeader>
 
+                {/* Mode switcher */}
+                <div className="flex gap-1 p-1 bg-muted/50 rounded-lg shrink-0">
+                    <Button
+                        variant={mode === 'import' ? 'default' : 'ghost'}
+                        size="sm"
+                        className="flex-1 h-8 gap-1.5"
+                        onClick={() => setMode('import')}
+                    >
+                        <Upload className="w-3.5 h-3.5" />
+                        Importer
+                    </Button>
+                    <Button
+                        variant={mode === 'browse' ? 'default' : 'ghost'}
+                        size="sm"
+                        className="flex-1 h-8 gap-1.5"
+                        onClick={() => setMode('browse')}
+                    >
+                        <Store className="w-3.5 h-3.5" />
+                        Catalogue Chub
+                    </Button>
+                </div>
+
+                {mode === 'browse' && (
+                    <MarketplaceBrowser
+                        onImported={(character) => {
+                            // Multi-import friendly: register the character but keep the
+                            // dialog open (the card button flips to "Importé ✓").
+                            addCharacter(character);
+                            onImported?.(character);
+                        }}
+                    />
+                )}
+
+                {mode === 'import' && (
+                    <>
                 {/* Import by URL */}
                 <div className="mt-2 space-y-1.5">
                     <div className="flex gap-2">
@@ -314,6 +359,8 @@ export function CharacterImporter({ trigger, onImported, isCollapsed }: Characte
                         )}
                     </AnimatePresence>
                 </div>
+                    </>
+                )}
             </DialogContent>
         </Dialog>
     );

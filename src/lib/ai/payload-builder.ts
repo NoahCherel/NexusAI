@@ -79,6 +79,12 @@ export interface BuildConversationPayloadParams {
      */
     continueFromAssistant?: boolean;
     /**
+     * Scene Mode: this generation is ONE character's turn. A final contract restricts the
+     * reply to that character's voice/POV (the narrator and other characters have their
+     * own turns).
+     */
+    sceneSpeaker?: string;
+    /**
      * Optional RAG retrieval. Invoked with a budget once the system prompt size is known.
      * Omit (e.g. impersonation) to skip RAG entirely.
      */
@@ -277,10 +283,20 @@ export async function buildConversationPayload(
     const continueBlock = params.continueFromAssistant
         ? `[CONTINUE — Your previous message above is INCOMPLETE. Continue it from exactly where it stops, mid-flow. Do not repeat any earlier text, do not summarize, do not start over. Output ONLY the continuation.]`
         : undefined;
+    // Scene Mode: per-speaker contract (one character per turn, their voice only).
+    const sceneSpeakerBlock = params.sceneSpeaker
+        ? `[SCENE TURN — This reply belongs to ${params.sceneSpeaker} ALONE. Write only ${params.sceneSpeaker}: their voice, their point of view, only what they can know. React to the latest beats. Do not write for the player, the narrator, or any other character — they get their own turns. 1 to 3 paragraphs.]`
+        : undefined;
     const effectivePostHistory =
         (isImpersonation
             ? [dynamicBlock, activePreset?.postHistoryInstructions, contractBlock]
-            : [dynamicBlock, contractBlock, activePreset?.postHistoryInstructions, continueBlock]
+            : [
+                  dynamicBlock,
+                  contractBlock,
+                  activePreset?.postHistoryInstructions,
+                  sceneSpeakerBlock,
+                  continueBlock,
+              ]
         )
             .filter(Boolean)
             .join('\n\n') || undefined;

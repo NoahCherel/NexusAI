@@ -13,6 +13,8 @@ import {
     importConversationFromFile,
 } from '@/lib/conversation-transfer';
 import { SettingsPanel, CharacterPanel } from '@/components/layout';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import { SceneBar } from '@/components/chat/SceneBar';
 import { CharacterEditor } from '@/components/character';
 import { useCharacterStore, useSettingsStore, useChatStore, useLorebookStore } from '@/stores';
 import { buildConversationPayload } from '@/lib/ai/payload-builder';
@@ -43,6 +45,7 @@ import type { ContextSection } from '@/types/rag';
 
 export default function ChatPage() {
     const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+    const [isDeleteCharacterOpen, setIsDeleteCharacterOpen] = useState(false);
     const [isLorebookOpen, setIsLorebookOpen] = useState(false);
     const [isTreeOpen, setIsTreeOpen] = useState(false);
     const [isMemoryOpen, setIsMemoryOpen] = useState(false);
@@ -116,6 +119,7 @@ export default function ChatPage() {
         activeModel,
         showThoughts,
         showUsageBadge,
+        enableTroupeMode,
         showWorldState,
         activePersonaId,
         personas,
@@ -256,12 +260,14 @@ export default function ChatPage() {
     // extracted to useChatGeneration; behaviour unchanged.
     const {
         isLoading,
+        isSceneRunning,
         send: handleSend,
         stop: handleStop,
         regenerate: handleRegenerate,
         continueMessage: handleContinue,
         impersonate: handleImpersonate,
         retry: handleRetry,
+        runSceneBeat,
     } = useChatGeneration({
         character,
         activeConversationId,
@@ -410,32 +416,25 @@ export default function ChatPage() {
         setIsCharacterEditorOpen(true);
     };
 
-    const handleDeleteCharacter = async () => {
+    const handleDeleteCharacter = () => {
         if (!character) return;
+        setIsDeleteCharacterOpen(true);
+    };
 
-        // Count conversations for this character
+    const confirmDeleteCharacter = async () => {
+        if (!character) return;
         const charConvs = conversations.filter((c) => c.characterId === character.id);
-        const convCount = charConvs.length;
-
-        const message =
-            convCount > 0
-                ? `Are you sure you want to delete ${character.name}?\n\nThis will also delete ${convCount} conversation${convCount > 1 ? 's' : ''} associated with this character.`
-                : `Are you sure you want to delete ${character.name}?`;
-
-        if (confirm(message)) {
-            // Delete all conversations for this character first
-            for (const conv of charConvs) {
-                try {
-                    const { deleteConversation } = await import('@/lib/db');
-                    await deleteConversation(conv.id);
-                } catch (err) {
-                    console.error('Failed to delete conversation:', err);
-                }
+        // Delete all conversations for this character first
+        for (const conv of charConvs) {
+            try {
+                const { deleteConversation } = await import('@/lib/db');
+                await deleteConversation(conv.id);
+            } catch (err) {
+                console.error('Failed to delete conversation:', err);
             }
-
-            // Then delete the character
-            await removeCharacter(character.id);
         }
+        // Then delete the character
+        await removeCharacter(character.id);
     };
 
     const handleExportCharacter = async () => {
@@ -549,7 +548,11 @@ export default function ChatPage() {
                                                                       (p) =>
                                                                           p.id === activePersonaId
                                                                   )?.name || 'You'
-                                                                : character.name
+                                                                : msg.speaker?.name ||
+                                                                  character.name
+                                                        }
+                                                        narrator={
+                                                            msg.speaker?.kind === 'narrator'
                                                         }
                                                         showThoughts={showThoughts}
                                                         onEdit={handleEditMessage}
@@ -586,6 +589,17 @@ export default function ChatPage() {
                             <div
                                 className={`mx-auto w-full space-y-2 ${immersiveMode ? 'p-4 max-w-3xl' : 'max-w-4xl'}`}
                             >
+                                {enableTroupeMode && !immersiveMode && (
+                                    <SceneBar
+                                        conversation={conversations.find(
+                                            (c) => c.id === activeConversationId
+                                        )}
+                                        character={character}
+                                        messages={messages}
+                                        isSceneRunning={isSceneRunning}
+                                        onAdvanceScene={() => void runSceneBeat()}
+                                    />
+                                )}
                                 {!immersiveMode && (
                                     <ChatToolbar
                                         showWorldState={showWorldState}
@@ -664,6 +678,23 @@ export default function ChatPage() {
             </main>
 
             <SettingsPanel open={isSettingsOpen} onOpenChange={setIsSettingsOpen} />
+
+            <ConfirmDialog
+                open={isDeleteCharacterOpen}
+                onOpenChange={setIsDeleteCharacterOpen}
+                title={`Supprimer ${character?.name ?? 'ce personnage'} ?`}
+                description={(() => {
+                    const n = character
+                        ? conversations.filter((c) => c.characterId === character.id).length
+                        : 0;
+                    return n > 0
+                        ? `Ses ${n} conversation${n > 1 ? 's' : ''} seront supprimées aussi. Cette action est irréversible.`
+                        : 'Cette action est irréversible.';
+                })()}
+                confirmLabel="Supprimer"
+                destructive
+                onConfirm={() => void confirmDeleteCharacter()}
+            />
 
             <Dialog open={isLorebookOpen} onOpenChange={setIsLorebookOpen}>
                 <DialogContent className="!max-w-[95vw] !w-[95vw] h-[90vh] p-0 overflow-hidden [&>button]:hidden flex flex-col max-sm:!w-screen max-sm:!max-w-none max-sm:h-dvh max-sm:rounded-none max-sm:border-0 max-sm:top-0 max-sm:left-0 max-sm:translate-x-0 max-sm:translate-y-0">
