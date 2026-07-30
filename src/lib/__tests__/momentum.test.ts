@@ -20,25 +20,20 @@ describe('lexicalSimilarity', () => {
 
 describe('detectStall', () => {
     it('is not stalled without a previous beat', () => {
-        expect(detectStall('anything', undefined, false).stalled).toBe(false);
+        expect(detectStall('anything', undefined).stalled).toBe(false);
     });
 
-    it('flags near-identical consecutive beats when state did not change', () => {
+    it('flags near-identical consecutive beats', () => {
         const beat = 'Rukia stares at the rain, saying nothing, waiting for a sign.';
-        const res = detectStall(beat, beat, false);
+        const res = detectStall(beat, beat);
         expect(res.stalled).toBe(true);
         expect(res.similarity).toBeGreaterThan(0.5);
-    });
-
-    it('does not flag when the world state moved', () => {
-        const beat = 'Rukia stares at the rain, saying nothing.';
-        expect(detectStall(beat, beat, true).stalled).toBe(false);
     });
 
     it('does not flag genuinely novel beats', () => {
         const a = 'Rukia draws her zanpakuto and lunges at the hollow.';
         const b = 'Renji bursts through the door with urgent news from Soul Society.';
-        expect(detectStall(a, b, false).stalled).toBe(false);
+        expect(detectStall(a, b).stalled).toBe(false);
     });
 });
 

@@ -360,7 +360,7 @@ function SideTab({
                     : 'border-transparent text-muted-foreground hover:bg-muted/50'
             )}
         >
-            <Icon className="w-3.5 h-3.5" />
+            <Icon className="w-3.5 h-3.5 shrink-0" />
             <span className="truncate">{label}</span>
         </button>
     );

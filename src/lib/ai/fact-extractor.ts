@@ -6,7 +6,6 @@
  */
 
 import type { WorldFact, FactCategory } from '@/types/rag';
-import type { WorldState } from '@/types/chat';
 import { cosineSimilarity } from './embedding-service';
 
 export const FACT_EXTRACTION_PROMPT = `You are a RPG chronicle keeper. Extract atomic facts from this roleplay exchange.
@@ -144,20 +143,10 @@ function validateCategory(cat: string): FactCategory {
  */
 export function buildFactExtractionPrompt(
     messageContent: string,
-    worldState: WorldState,
     characterName: string,
     userName: string
 ): string {
-    const context = `Current world state:
-- Location: ${worldState.location || 'Unknown'}
-- Inventory: ${worldState.inventory.join(', ') || 'Empty'}  
-- Key relationships: ${
-        Object.entries(worldState.relationships)
-            .map(([n, v]) => `${n}: ${v}`)
-            .join(', ') || 'None'
-    }
-
-Characters: ${characterName} (NPC), ${userName} (Player)
+    const context = `Characters: ${characterName} (NPC), ${userName} (Player)
 
 Message to analyze:
 "${messageContent}"

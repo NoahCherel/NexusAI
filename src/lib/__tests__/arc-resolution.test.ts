@@ -9,7 +9,7 @@ import { describe, it, expect } from 'vitest';
 import { buildSystemPrompt, buildDynamicContextBlock } from '@/lib/ai/context-builder';
 import { resolveActiveArcNames } from '@/lib/ai/canon-context';
 import type { CharacterCard } from '@/types/character';
-import type { WorldState } from '@/types/chat';
+
 
 const card: CharacterCard = {
     id: 'c1',
@@ -20,7 +20,7 @@ const card: CharacterCard = {
     first_mes: '',
     mes_example: '',
 };
-const ws: WorldState = { inventory: [], location: '', relationships: {} };
+
 
 const NARUTO_OUTLINE = `1. Kazekage Rescue Mission — Naruto returns to Konoha…
 2. Tenchi Bridge Reconnaissance Mission — A new Team 7…
@@ -65,7 +65,7 @@ describe('resolveActiveArcNames — maps free-form positions to canonical arc na
 
 describe('Arc-block injection with free-form positions', () => {
     it('injects the Director framing (stable) and the free-form cursor (dynamic zone)', () => {
-        const prompt = buildSystemPrompt(card, ws, [], {
+        const prompt = buildSystemPrompt(card, [], {
             template: '{{scenario}}',
             arc: {
                 enabled: true,
@@ -86,7 +86,7 @@ describe('Arc-block injection with free-form positions', () => {
     });
 
     it('Director block is omitted when arc is disabled', () => {
-        const prompt = buildSystemPrompt(card, ws, [], {
+        const prompt = buildSystemPrompt(card, [], {
             template: '{{scenario}}',
             arc: { enabled: false, work: 'naruto' },
             arcOutline: NARUTO_OUTLINE,

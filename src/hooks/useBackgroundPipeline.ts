@@ -47,8 +47,7 @@ interface UseBackgroundPipelineParams {
     messages: Message[];
     /** Gate: no background work without a usable foreground key (historical behaviour). */
     currentApiKey: string | null;
-    /** Current location, recorded as metadata on indexed chunks. */
-    worldStateLocation: string;
+
 }
 
 export function useBackgroundPipeline({
@@ -56,7 +55,6 @@ export function useBackgroundPipeline({
     activeConversationId,
     messages,
     currentApiKey,
-    worldStateLocation,
 }: UseBackgroundPipelineParams): { runPostBeat: (params: PostBeatParams) => void } {
     const lastSummarizedCount = useRef(0); // Track last summarized message count
     const isSummarizingRef = useRef(false); // Concurrency guard for summarization
@@ -142,7 +140,7 @@ export function useBackgroundPipeline({
                                     parsed.summary,
                                     {
                                         characters: [character.name],
-                                        location: worldStateLocation,
+                                        location: '',
                                         importance: 5,
                                     },
                                     branchPath
@@ -248,7 +246,7 @@ export function useBackgroundPipeline({
         };
 
         runHierarchicalSummary();
-    }, [messages, character, activeConversationId, currentApiKey, worldStateLocation]);
+    }, [messages, character, activeConversationId, currentApiKey]);
 
     return { runPostBeat: runPostBeatAnalyses };
 }

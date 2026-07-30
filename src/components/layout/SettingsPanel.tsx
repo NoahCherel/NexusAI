@@ -87,7 +87,6 @@ export function SettingsPanel({ open, onOpenChange }: SettingsPanelProps) {
         apiKeys,
         temperature,
         showThoughts,
-        showWorldState,
         enableReasoning,
         useFlexTier,
         immersiveMode,
@@ -97,7 +96,6 @@ export function SettingsPanel({ open, onOpenChange }: SettingsPanelProps) {
         setActiveProvider,
         setTemperature,
         setShowThoughts,
-        setShowWorldState,
         setEnableReasoning,
         setUseFlexTier,
         setImmersiveMode,
@@ -124,6 +122,8 @@ export function SettingsPanel({ open, onOpenChange }: SettingsPanelProps) {
         setShowUsageBadge,
         enableTroupeMode,
         setEnableTroupeMode,
+        maxSceneSpeakers,
+        setMaxSceneSpeakers,
         enableRelationshipAnalyst,
         setEnableRelationshipAnalyst,
         enableMomentum,
@@ -228,21 +228,23 @@ export function SettingsPanel({ open, onOpenChange }: SettingsPanelProps) {
 
                 <div className="flex-1 overflow-hidden">
                     <Tabs defaultValue="api" className="h-full flex flex-col">
-                        <div className="px-6 py-2 border-b shrink-0 bg-muted/20">
-                            <TabsList className="w-full max-w-xl grid grid-cols-4">
-                                <TabsTrigger value="api" className="gap-2">
+                        {/* 4 columns can't fit 375px ("Fonctions IA" alone ≈ 118px min):
+                            mobile switches to a scrollable row. */}
+                        <div className="px-6 max-sm:px-3 py-2 border-b shrink-0 bg-muted/20">
+                            <TabsList className="w-full max-w-xl grid grid-cols-4 max-sm:flex max-sm:max-w-none max-sm:justify-start max-sm:overflow-x-auto no-scrollbar">
+                                <TabsTrigger value="api" className="gap-2 max-sm:shrink-0">
                                     <Key className="h-4 w-4" />
                                     API
                                 </TabsTrigger>
-                                <TabsTrigger value="chat" className="gap-2">
+                                <TabsTrigger value="chat" className="gap-2 max-sm:shrink-0">
                                     <Sliders className="h-4 w-4" />
                                     Chat
                                 </TabsTrigger>
-                                <TabsTrigger value="ai" className="gap-2">
+                                <TabsTrigger value="ai" className="gap-2 max-sm:shrink-0">
                                     <Brain className="h-4 w-4" />
                                     Fonctions IA
                                 </TabsTrigger>
-                                <TabsTrigger value="presets" className="gap-2">
+                                <TabsTrigger value="presets" className="gap-2 max-sm:shrink-0">
                                     <Settings2 className="h-4 w-4" />
                                     Presets
                                 </TabsTrigger>
@@ -498,23 +500,6 @@ export function SettingsPanel({ open, onOpenChange }: SettingsPanelProps) {
 
                                         <div className="flex items-center justify-between p-3 border rounded-lg bg-card/50">
                                             <div>
-                                                <p className="text-sm">World State Panel</p>
-                                                <p className="text-xs text-muted-foreground mt-0.5">
-                                                    Show Inventory, Location & Relationships
-                                                </p>
-                                            </div>
-                                            <Button
-                                                variant={showWorldState ? 'default' : 'secondary'}
-                                                size="sm"
-                                                onClick={() => setShowWorldState(!showWorldState)}
-                                                className="w-16"
-                                            >
-                                                {showWorldState ? 'On' : 'Off'}
-                                            </Button>
-                                        </div>
-
-                                        <div className="flex items-center justify-between p-3 border rounded-lg bg-card/50">
-                                            <div>
                                                 <p className="text-sm">Mode Troupe (scènes)</p>
                                                 <p className="text-xs text-muted-foreground mt-0.5">
                                                     Narrateur IA + une réponse par personnage en
@@ -536,6 +521,36 @@ export function SettingsPanel({ open, onOpenChange }: SettingsPanelProps) {
                                                 {enableTroupeMode ? 'On' : 'Off'}
                                             </Button>
                                         </div>
+
+                                        {enableTroupeMode && (
+                                            <div className="flex items-center justify-between p-3 border rounded-lg bg-card/50 ml-4">
+                                                <div>
+                                                    <p className="text-sm">
+                                                        Intervenants max par beat
+                                                    </p>
+                                                    <p className="text-xs text-muted-foreground mt-0.5">
+                                                        Le Réalisateur choisit qui répond, jusqu&apos;à
+                                                        cette limite (chaque réplique = une
+                                                        génération sur le modèle RP)
+                                                    </p>
+                                                </div>
+                                                <select
+                                                    value={maxSceneSpeakers}
+                                                    onChange={(e) =>
+                                                        setMaxSceneSpeakers(
+                                                            Number(e.target.value)
+                                                        )
+                                                    }
+                                                    className="h-8 rounded-md border border-input bg-background px-2 text-sm shrink-0"
+                                                >
+                                                    {[1, 2, 3, 4, 5, 6, 7, 8].map((n) => (
+                                                        <option key={n} value={n}>
+                                                            {n}
+                                                        </option>
+                                                    ))}
+                                                </select>
+                                            </div>
+                                        )}
 
                                         <div className="flex items-center justify-between p-3 border rounded-lg bg-card/50">
                                             <div>

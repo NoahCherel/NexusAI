@@ -6,14 +6,16 @@
  * narration / NPC initiative / time passing).
  */
 
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Clapperboard, Play, X, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useChatStore } from '@/stores/chat-store';
+import { USER_REL_KEY } from '@/types/chat';
 import type { CharacterCard } from '@/types/character';
 import type { Conversation, Message } from '@/types/chat';
-import { getActiveCanonNames } from '@/lib/ai/canon-context';
+import { getActiveCanonNames, resolveWork } from '@/lib/ai/canon-context';
+import { getCanonDossiersByWork } from '@/lib/db';
 
 export function SceneBar({
     conversation,
@@ -31,10 +33,50 @@ export function SceneBar({
     const { setSceneMode, setSceneRoster } = useChatStore();
     const [newName, setNewName] = useState('');
     const [showAdd, setShowAdd] = useState(false);
+    // Known character names for typo-proof roster additions: canonCast + canon dossiers
+    // of the work + names seen in the relationship system.
+    const [dossierNames, setDossierNames] = useState<string[]>([]);
+    useEffect(() => {
+        const work = character ? resolveWork(character) : undefined;
+        if (!work) return;
+        let cancelled = false;
+        getCanonDossiersByWork(work)
+            .then((dossiers) => {
+                if (!cancelled) setDossierNames(dossiers.map((d) => d.character));
+            })
+            .catch(() => {});
+        return () => {
+            cancelled = true;
+        };
+    }, [character]);
+
+    const roster = conversation?.sceneRoster ?? [];
+    const knownNames = useMemo(() => {
+        const inRoster = new Set(roster.map((n) => n.toLowerCase()));
+        const all = [
+            ...(character.canonCast ?? []),
+            ...dossierNames,
+            ...(conversation?.relationships ?? [])
+                .flatMap((r) => [r.from, r.to])
+                .filter((n) => n !== USER_REL_KEY),
+        ];
+        const seen = new Set<string>();
+        return all.filter((n) => {
+            const k = n.toLowerCase();
+            if (inRoster.has(k) || seen.has(k)) return false;
+            seen.add(k);
+            return true;
+        });
+    }, [character, dossierNames, conversation?.relationships, roster]);
+
+    const suggestions = useMemo(() => {
+        const q = newName.trim().toLowerCase();
+        const pool = q ? knownNames.filter((n) => n.toLowerCase().includes(q)) : knownNames;
+        return pool.slice(0, 6);
+    }, [newName, knownNames]);
 
     if (!conversation) return null;
     const sceneOn = !!conversation.sceneMode;
-    const roster = conversation.sceneRoster ?? [];
 
     const toggleScene = () => {
         if (!sceneOn) {
@@ -63,10 +105,10 @@ export function SceneBar({
         );
     };
 
-    const addToRoster = () => {
-        const name = newName.trim();
-        if (name && !roster.some((n) => n.toLowerCase() === name.toLowerCase())) {
-            setSceneRoster(conversation.id, [...roster, name]);
+    const addToRoster = (name: string) => {
+        const clean = name.trim();
+        if (clean && !roster.some((n) => n.toLowerCase() === clean.toLowerCase())) {
+            setSceneRoster(conversation.id, [...roster, clean]);
         }
         setNewName('');
         setShowAdd(false);
@@ -104,18 +146,45 @@ export function SceneBar({
                     ))}
 
                     {showAdd ? (
-                        <Input
-                            autoFocus
-                            value={newName}
-                            onChange={(e) => setNewName(e.target.value)}
-                            onKeyDown={(e) => {
-                                if (e.key === 'Enter') addToRoster();
-                                if (e.key === 'Escape') setShowAdd(false);
-                            }}
-                            onBlur={addToRoster}
-                            placeholder="Nom…"
-                            className="h-6 w-28 text-[11px] px-2"
-                        />
+                        <span className="relative inline-block">
+                            <Input
+                                autoFocus
+                                value={newName}
+                                onChange={(e) => setNewName(e.target.value)}
+                                onKeyDown={(e) => {
+                                    if (e.key === 'Enter') {
+                                        // Enter picks the top suggestion (typo-proof) when
+                                        // one matches, else the raw text.
+                                        addToRoster(suggestions[0] ?? newName);
+                                    }
+                                    if (e.key === 'Escape') setShowAdd(false);
+                                }}
+                                onBlur={() => {
+                                    // Delay so a suggestion mousedown can win over blur.
+                                    setTimeout(() => setShowAdd(false), 150);
+                                }}
+                                placeholder="Nom…"
+                                className="h-6 w-32 text-[11px] px-2"
+                            />
+                            {suggestions.length > 0 && (
+                                <div className="absolute bottom-full left-0 mb-1 z-50 min-w-40 rounded-lg border border-border/60 bg-popover shadow-xl overflow-hidden">
+                                    {suggestions.map((name) => (
+                                        <button
+                                            key={name}
+                                            // mousedown (not click) so it fires before the
+                                            // input's blur closes the list.
+                                            onMouseDown={(e) => {
+                                                e.preventDefault();
+                                                addToRoster(name);
+                                            }}
+                                            className="block w-full text-left px-2.5 py-1.5 text-[11px] hover:bg-primary/10 hover:text-primary"
+                                        >
+                                            {name}
+                                        </button>
+                                    ))}
+                                </div>
+                            )}
+                        </span>
                     ) : (
                         <button
                             onClick={() => setShowAdd(true)}
@@ -129,7 +198,7 @@ export function SceneBar({
                     <Button
                         variant="secondary"
                         size="sm"
-                        className="h-7 gap-1.5 text-xs shrink-0"
+                        className="h-7 gap-1.5 text-xs shrink-0 max-sm:w-full max-sm:h-9"
                         disabled={isSceneRunning || roster.length === 0}
                         onClick={onAdvanceScene}
                         title="Le narrateur fait avancer la scène sans message du joueur"

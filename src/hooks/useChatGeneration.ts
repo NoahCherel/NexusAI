@@ -11,7 +11,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import type { CharacterCard } from '@/types/character';
-import type { Message as CAMessage, WorldState } from '@/types/chat';
+import type { Message as CAMessage } from '@/types/chat';
 import type { Message } from '@/types';
 import { useSettingsStore, useChatStore, useLorebookStore } from '@/stores';
 import { useNotificationStore } from '@/components/ui/api-notification';
@@ -24,11 +24,7 @@ import {
     resolveActiveLorebookEntries,
 } from '@/lib/ai/rag-service';
 import { extractLorebookEntries, extractRpDevelopments } from '@/lib/lorebook-extractor';
-import {
-    directorDecide,
-    applySceneChange,
-    MAX_SPEAKERS_PER_BEAT,
-} from '@/lib/ai/scene-orchestrator';
+import { directorDecide, applySceneChange } from '@/lib/ai/scene-orchestrator';
 import { NANOGPT_USAGE_REFRESH_EVENT } from '@/lib/ai/nanogpt-usage';
 import { countTokens } from '@/lib/tokenizer';
 import type { PostBeatParams } from '@/lib/ai/post-beat';
@@ -67,7 +63,6 @@ interface UseChatGenerationParams {
     activeConversationId: string | null;
     /** Active-branch messages. */
     messages: CAMessage[];
-    worldState: WorldState;
     /** Decrypted key of the active provider (from useActiveApiKey). */
     currentApiKey: string | null;
     /** Post-response background pipeline (from useBackgroundPipeline). */
@@ -78,7 +73,6 @@ export function useChatGeneration({
     character,
     activeConversationId,
     messages,
-    worldState,
     currentApiKey,
     runPostBeat,
 }: UseChatGenerationParams) {
@@ -119,6 +113,10 @@ export function useChatGeneration({
             continueTargetId?: string;
             /** Scene Mode: attribute the generated message to this speaker (one turn). */
             speaker?: CAMessage['speaker'];
+            /** Director stage direction for this speaker (Scene Mode). */
+            sceneDirection?: string;
+            /** Director dramatic goal for the beat (Scene Mode, first speaker only). */
+            sceneGoal?: string;
         } = {}
     ): Promise<{ id: string; content: string } | undefined> => {
         if (!currentApiKey || !character) return;
@@ -193,8 +191,7 @@ export function useChatGeneration({
         } = await buildConversationPayload({
                 mode: options.isImpersonation ? 'impersonate' : 'generate',
                 character,
-                worldState,
-                activeEntries,
+                        activeEntries,
                 history,
                 recentMessages: history,
                 activePreset,
@@ -216,6 +213,8 @@ export function useChatGeneration({
                 continueFromAssistant: !!options.continueTargetId,
                 sceneSpeaker:
                     options.speaker?.kind === 'character' ? options.speaker.name : undefined,
+                sceneDirection: options.sceneDirection,
+                sceneGoal: options.sceneGoal,
                 retrieveRag:
                     enableRAGRetrieval && activeConversationId
                         ? (ragBudget) =>
@@ -224,8 +223,7 @@ export function useChatGeneration({
                                   activeConversationId,
                                   ragBudget,
                                   {
-                                      worldState,
-                                      recentMessages: history,
+                                                                    recentMessages: history,
                                       activeBranchMessageIds: messages.map((m) => m.id),
                                       minConfidence: minRAGConfidence,
                                       // Priority of truth: facts restating canon/lorebook
@@ -446,8 +444,7 @@ export function useChatGeneration({
                     targetId,
                     history,
                     branchMessageIds: messages.map((m) => m.id),
-                    worldState,
-                    personaName: activePersona?.name,
+                                personaName: activePersona?.name,
                     isImpersonation: !!options.isImpersonation,
                     skipFactExtraction: !!options.skipFactExtraction,
                 });
@@ -536,6 +533,7 @@ export function useChatGeneration({
                 recentMessages: beatHistory,
                 relationships: conv.relationships,
                 arcPosition: conv.arc?.currentPosition,
+                maxSpeakers: useSettingsStore.getState().maxSceneSpeakers,
             });
             if (stopRequestedRef.current) return;
 
@@ -565,12 +563,14 @@ export function useChatGeneration({
 
             // 4. Character turns, sequential and streamed. Hard cap; Stop (or a new user
             // message) cancels the remaining turns.
-            const speakers = decision.speakers.slice(0, MAX_SPEAKERS_PER_BEAT);
+            const speakers = decision.speakers;
             for (let i = 0; i < speakers.length; i++) {
                 if (stopRequestedRef.current) break;
-                const speaker = { kind: 'character' as const, name: speakers[i] };
+                const speaker = { kind: 'character' as const, name: speakers[i].name };
                 const result = await triggerAiReponse(withSpeakerPrefixes(beatHistory), {
                     speaker,
+                    sceneDirection: speakers[i].direction,
+                    sceneGoal: i === 0 ? decision.sceneGoal : undefined,
                     skipFactExtraction: i < speakers.length - 1,
                 });
                 if (!result) break;
@@ -705,8 +705,7 @@ export function useChatGeneration({
             const { messagesPayload } = await buildConversationPayload({
                 mode: 'impersonate',
                 character,
-                worldState,
-                activeEntries,
+                        activeEntries,
                 history: messages,
                 recentMessages: messages,
                 activePreset,

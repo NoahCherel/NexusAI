@@ -50,8 +50,8 @@ export default function ChatPage() {
     const [isTreeOpen, setIsTreeOpen] = useState(false);
     const [isMemoryOpen, setIsMemoryOpen] = useState(false);
     const [isCanonOpen, setIsCanonOpen] = useState(false);
-    const [isWorldStateSheetOpen, setIsWorldStateSheetOpen] = useState(false);
-    const [isWorldStateDialogOpen, setIsWorldStateDialogOpen] = useState(false);
+    const [isRelationsSheetOpen, setIsRelationsSheetOpen] = useState(false);
+    const [isRelationsDialogOpen, setIsRelationsDialogOpen] = useState(false);
     const currentApiKey = useActiveApiKey();
     const [isCharacterEditorOpen, setIsCharacterEditorOpen] = useState(false);
 
@@ -120,7 +120,6 @@ export default function ChatPage() {
         showThoughts,
         showUsageBadge,
         enableTroupeMode,
-        showWorldState,
         activePersonaId,
         personas,
         immersiveMode,
@@ -136,13 +135,6 @@ export default function ChatPage() {
         initializeDefaultPresets();
     }, [initializeDefaultPresets]);
 
-    // Get current world state from active conversation
-    const currentConversation = conversations.find((c) => c.id === activeConversationId);
-    const worldState = currentConversation?.worldState || {
-        inventory: [],
-        location: '',
-        relationships: {},
-    };
 
     // Auto-scroll to bottom when switching conversations or loading
     useEffect(() => {
@@ -253,7 +245,7 @@ export default function ChatPage() {
         activeConversationId,
         messages,
         currentApiKey,
-        worldStateLocation: worldState.location,
+
     });
 
     // Generation flow (send / stop / regenerate / continue / impersonate / retry) —
@@ -272,7 +264,6 @@ export default function ChatPage() {
         character,
         activeConversationId,
         messages,
-        worldState,
         currentApiKey,
         runPostBeat,
     });
@@ -339,7 +330,6 @@ export default function ChatPage() {
         } = await buildConversationPayload({
             mode: 'preview',
             character,
-            worldState,
             activeEntries,
             history: simulatedMessages as CAMessage[],
             recentMessages: simulatedMessages as CAMessage[],
@@ -360,7 +350,7 @@ export default function ChatPage() {
             historyCutMessageId: conv?.historyCutMessageId,
             retrieveRag: (ragBudget) =>
                 retrieveRelevantContext(lastMsg, activeConversationId, ragBudget, {
-                    worldState,
+
                     recentMessages: simulatedMessages as CAMessage[],
                     activeBranchMessageIds: simulatedMessages.map((m) => m.id),
                     minConfidence: previewMinConf,
@@ -377,7 +367,6 @@ export default function ChatPage() {
             maxContextTokens,
             maxOutputTokens,
             activeEntries,
-            worldState,
             previewCanonOptions.injectionMeta
         );
 
@@ -602,14 +591,13 @@ export default function ChatPage() {
                                 )}
                                 {!immersiveMode && (
                                     <ChatToolbar
-                                        showWorldState={showWorldState}
                                         onOpenLorebook={() => setIsLorebookOpen(true)}
                                         onOpenRelations={() => {
                                             // Desktop: dialog — Mobile: bottom sheet
                                             if (window.innerWidth >= 1024) {
-                                                setIsWorldStateDialogOpen(true);
+                                                setIsRelationsDialogOpen(true);
                                             } else {
-                                                setIsWorldStateSheetOpen(true);
+                                                setIsRelationsSheetOpen(true);
                                             }
                                         }}
                                         onOpenTree={() => setIsTreeOpen(true)}
@@ -721,7 +709,7 @@ export default function ChatPage() {
             </Dialog>
 
             {/* Desktop Relationships Dialog */}
-            <Dialog open={isWorldStateDialogOpen} onOpenChange={setIsWorldStateDialogOpen}>
+            <Dialog open={isRelationsDialogOpen} onOpenChange={setIsRelationsDialogOpen}>
                 <DialogContent className="!max-w-[640px] !w-[640px] h-[85vh] p-0 overflow-hidden flex flex-col">
                     <DialogTitle className="sr-only">Relations</DialogTitle>
                     <DialogDescription className="sr-only">
@@ -742,7 +730,7 @@ export default function ChatPage() {
             </Dialog>
 
             {/* Mobile Relationships Bottom Sheet */}
-            <Sheet open={isWorldStateSheetOpen} onOpenChange={setIsWorldStateSheetOpen}>
+            <Sheet open={isRelationsSheetOpen} onOpenChange={setIsRelationsSheetOpen}>
                 <SheetContent side="bottom" className="h-[75vh] p-0">
                     <SheetHeader className="p-4 border-b">
                         <SheetTitle>💞 Relations</SheetTitle>

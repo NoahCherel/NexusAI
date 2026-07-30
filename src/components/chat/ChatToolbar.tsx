@@ -6,7 +6,6 @@ import { PersonaSelector, ModelSelector } from '@/components/chat';
 import { NanoGPTUsageBadge } from '@/components/layout/NanoGPTUsage';
 
 interface ChatToolbarProps {
-    showWorldState: boolean;
     onOpenLorebook: () => void;
     /** Relations panel — the page decides dialog (desktop) vs sheet (mobile). */
     onOpenRelations: () => void;
@@ -18,7 +17,6 @@ interface ChatToolbarProps {
 
 /** Row of quick-access tools above the chat input (hidden in immersive mode). */
 export function ChatToolbar({
-    showWorldState,
     onOpenLorebook,
     onOpenRelations,
     onOpenTree,
@@ -41,17 +39,15 @@ export function ChatToolbar({
             >
                 <Book className="h-4 w-4" />
             </Button>
-            {showWorldState && (
-                <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-8 w-8 pointer-coarse:h-10 pointer-coarse:w-10 p-0 text-muted-foreground hover:text-foreground shrink-0"
-                    onClick={onOpenRelations}
-                    title="Relations"
-                >
-                    <HeartIcon className="h-4 w-4" />
-                </Button>
-            )}
+            <Button
+                variant="ghost"
+                size="sm"
+                className="h-8 w-8 pointer-coarse:h-10 pointer-coarse:w-10 p-0 text-muted-foreground hover:text-foreground shrink-0"
+                onClick={onOpenRelations}
+                title="Relations"
+            >
+                <HeartIcon className="h-4 w-4" />
+            </Button>
             <Button
                 variant="ghost"
                 size="sm"

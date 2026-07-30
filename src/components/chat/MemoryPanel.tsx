@@ -280,11 +280,7 @@ export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
                 role: m.role,
                 content: m.content,
             }));
-            const summary = await generateMemorySummary(
-                formattedMessages,
-                conversation.worldState,
-                character.name
-            );
+            const summary = await generateMemorySummary(formattedMessages, character.name);
             const formattedEntry = formatMemoryEntry(summary);
             const updated = [...memories, formattedEntry];
             updateConversationNotes(activeConversationId, updated);
@@ -670,20 +666,21 @@ export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
                     </Button>
                 </div>
 
-                {/* Tabs */}
-                <div className="flex border-b bg-muted/10 shrink-0">
+                {/* Tabs — 6 entries can't fit 375px as flex-1 (min-content ≈ 500px): on
+                    mobile the bar scrolls horizontally instead of clipping tabs. */}
+                <div className="flex border-b bg-muted/10 shrink-0 overflow-x-auto no-scrollbar">
                     {tabs.map((tab) => (
                         <button
                             key={tab.key}
                             onClick={() => setActiveTab(tab.key)}
                             className={cn(
-                                'flex-1 flex items-center justify-center gap-1.5 py-2.5 text-xs font-medium transition-colors relative',
+                                'sm:flex-1 max-sm:shrink-0 max-sm:px-3 flex items-center justify-center gap-1.5 py-2.5 text-xs font-medium transition-colors relative whitespace-nowrap',
                                 activeTab === tab.key
                                     ? 'text-foreground'
                                     : 'text-muted-foreground hover:text-foreground/70'
                             )}
                         >
-                            <tab.icon className="w-3.5 h-3.5" />
+                            <tab.icon className="w-3.5 h-3.5 shrink-0" />
                             <span>{tab.label}</span>
                             {tab.count !== undefined && tab.count > 0 && (
                                 <span

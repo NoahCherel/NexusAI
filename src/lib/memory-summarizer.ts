@@ -9,7 +9,6 @@ import { decryptApiKey } from '@/lib/crypto';
  */
 export async function generateMemorySummary(
     recentMessages: { role: string; content: string }[],
-    worldState: { location: string; inventory: string[]; relationships: Record<string, number> },
     characterName: string
 ): Promise<string> {
     const { apiKeys, activeProvider, activeModel } = useSettingsStore.getState();
@@ -26,7 +25,7 @@ export async function generateMemorySummary(
         throw new Error('Failed to decrypt API key');
     }
 
-    const systemPrompt = `You are a concise RPG session summarizer. Given the recent conversation and world state, create a VERY brief summary (max 3-4 sentences) capturing:
+    const systemPrompt = `You are a concise RPG session summarizer. Given the recent conversation, create a VERY brief summary (max 3-4 sentences) capturing:
 - Current situation/location
 - Key recent events
 - Important relationship changes
@@ -34,20 +33,6 @@ export async function generateMemorySummary(
 
 Be extremely concise. This summary will be used as long-term memory to reduce token costs.
 Output ONLY the summary text, no extra formatting.`;
-
-    const worldContext = `
-Current World State:
-- Location: ${worldState.location || 'Unknown'}
-- Inventory: ${worldState.inventory.length > 0 ? worldState.inventory.join(', ') : 'Empty'}
-- Relationships: ${
-        Object.entries(worldState.relationships)
-            .map(
-                ([name, value]) =>
-                    `${name}: ${value > 0 ? 'Friendly' : value < 0 ? 'Hostile' : 'Neutral'}`
-            )
-            .join(', ') || 'None established'
-    }
-`;
 
     const messagesContext = recentMessages
         .slice(-10)
@@ -66,7 +51,7 @@ Current World State:
                 messages: [
                     {
                         role: 'user',
-                        content: `${worldContext}\n\nRecent conversation with ${characterName}:\n${messagesContext}\n\nGenerate a concise summary:`,
+                        content: `Recent conversation with ${characterName}:\n${messagesContext}\n\nGenerate a concise summary:`,
                     },
                 ],
             }),

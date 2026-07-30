@@ -4,7 +4,7 @@
 // sites can't drift apart or double-inject.
 
 import type { CharacterCard, LorebookEntry } from '@/types/character';
-import type { ArcCompass, Message, WorldState } from '@/types/chat';
+import type { ArcCompass, Message } from '@/types/chat';
 import type { CanonDossier } from '@/types/canon';
 import type { APIPreset } from '@/types/preset';
 import type { RPEngine } from '@/types/engine';
@@ -44,7 +44,6 @@ export type ConversationMode = 'generate' | 'preview' | 'impersonate';
 export interface BuildConversationPayloadParams {
     mode: ConversationMode;
     character: CharacterCard;
-    worldState: WorldState;
     activeEntries: LorebookEntry[];
     /** Messages placed after the system prompt (history / simulated history). */
     history: Message[];
@@ -84,6 +83,10 @@ export interface BuildConversationPayloadParams {
      * own turns).
      */
     sceneSpeaker?: string;
+    /** The Director's stage direction for this speaker's turn (goal/emotion/initiative). */
+    sceneDirection?: string;
+    /** The Director's dramatic goal for the whole beat (shared context). */
+    sceneGoal?: string;
     /**
      * Optional RAG retrieval. Invoked with a budget once the system prompt size is known.
      * Omit (e.g. impersonation) to skip RAG entirely.
@@ -123,7 +126,6 @@ export async function buildConversationPayload(
     const {
         mode,
         character,
-        worldState,
         activeEntries,
         history,
         activePreset,
@@ -183,7 +185,6 @@ export async function buildConversationPayload(
     // deterministic order), arc map. Byte-identical between turns → provider cache prefix.
     let systemPrompt = buildSystemPrompt(
         character,
-        worldState,
         templatePlacesLorebook ? activeEntries : [],
         {
             template,
@@ -283,9 +284,17 @@ export async function buildConversationPayload(
     const continueBlock = params.continueFromAssistant
         ? `[CONTINUE — Your previous message above is INCOMPLETE. Continue it from exactly where it stops, mid-flow. Do not repeat any earlier text, do not summarize, do not start over. Output ONLY the continuation.]`
         : undefined;
-    // Scene Mode: per-speaker contract (one character per turn, their voice only).
+    // Scene Mode: per-speaker contract (one character per turn, their voice only), with
+    // the Director's stage direction when provided.
     const sceneSpeakerBlock = params.sceneSpeaker
-        ? `[SCENE TURN — This reply belongs to ${params.sceneSpeaker} ALONE. Write only ${params.sceneSpeaker}: their voice, their point of view, only what they can know. React to the latest beats. Do not write for the player, the narrator, or any other character — they get their own turns. 1 to 3 paragraphs.]`
+        ? [
+              `[SCENE TURN — This reply belongs to ${params.sceneSpeaker} ALONE. Write only ${params.sceneSpeaker}: their voice, their point of view, only what they can know. React to the latest beats. Do not write for the player, the narrator, or any other character — they get their own turns. 1 to 3 paragraphs.`,
+              params.sceneGoal ? ` Dramatic goal of this beat: ${params.sceneGoal}.` : '',
+              params.sceneDirection
+                  ? ` Director's guidance for this turn: ${params.sceneDirection}`
+                  : '',
+              ']',
+          ].join('')
         : undefined;
     const effectivePostHistory =
         (isImpersonation

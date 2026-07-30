@@ -6,23 +6,16 @@ import {
 } from '@/lib/ai/rag-ranking';
 
 describe('rag-ranking', () => {
-    it('builds a retrieval query from the current turn, recent scene, and world anchors', () => {
+    it('builds a retrieval query from the current turn and the recent scene', () => {
         const query = buildRetrievalQueryText('Where did Serana hide the ring?', {
             recentMessages: [
                 { role: 'assistant', content: 'Serana whispered near the old harbor.' },
                 { role: 'user', content: 'I check my satchel.' },
             ],
-            worldState: {
-                location: 'Old Harbor',
-                inventory: ['silver ring'],
-                relationships: { Serana: 24 },
-            },
         });
 
         expect(query).toContain('Where did Serana hide the ring?');
         expect(query).toContain('Serana whispered near the old harbor.');
-        expect(query).toContain('Location: Old Harbor');
-        expect(query).toContain('Inventory: silver ring');
     });
 
     it('extracts useful search terms while dropping common filler words', () => {

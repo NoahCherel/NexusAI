@@ -1,10 +1,9 @@
-import type { Message, WorldState } from '@/types/chat';
+import type { Message } from '@/types/chat';
 
 type SearchableMessage = Pick<Message, 'role' | 'content'>;
 
 interface RetrievalQueryOptions {
     recentMessages?: SearchableMessage[];
-    worldState?: WorldState;
     maxRecentMessages?: number;
 }
 
@@ -103,7 +102,7 @@ export function buildRetrievalQueryText(
     queryText: string,
     options: RetrievalQueryOptions = {}
 ): string {
-    const { recentMessages = [], worldState, maxRecentMessages = 5 } = options;
+    const { recentMessages = [], maxRecentMessages = 5 } = options;
     const parts: string[] = [];
     const trimmedQuery = queryText.trim();
 
@@ -118,11 +117,6 @@ export function buildRetrievalQueryText(
 
     if (recent.length > 0) {
         parts.push(`Recent scene:\n${recent.join('\n')}`);
-    }
-
-    const worldStateText = formatWorldStateForSearch(worldState);
-    if (worldStateText) {
-        parts.push(worldStateText);
     }
 
     return parts.join('\n\n').slice(0, 4000);
@@ -169,17 +163,3 @@ function normalizeForSearch(text: string): string {
         .replace(/[^a-z0-9'\-\s]/g, ' ');
 }
 
-function formatWorldStateForSearch(worldState?: WorldState): string {
-    if (!worldState) return '';
-
-    const parts: string[] = [];
-    if (worldState.location?.trim()) parts.push(`Location: ${worldState.location.trim()}`);
-    if (worldState.inventory?.length) parts.push(`Inventory: ${worldState.inventory.join(', ')}`);
-
-    const relationshipNames = Object.keys(worldState.relationships || {});
-    if (relationshipNames.length > 0) {
-        parts.push(`Known relationships: ${relationshipNames.join(', ')}`);
-    }
-
-    return parts.length > 0 ? `Scene anchors:\n${parts.join('\n')}` : '';
-}

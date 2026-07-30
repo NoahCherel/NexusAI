@@ -310,29 +310,30 @@ export function PresetEditor() {
                     </div>
 
                     <Tabs defaultValue="prompt" className="w-full">
-                        <div className="px-4">
-                            <TabsList className="w-full justify-start h-auto p-1 bg-muted/50 rounded-lg grid grid-cols-4">
+                        <div className="px-4 max-sm:px-2">
+                            {/* grid-cols-4 overflows 375px — mobile scrolls horizontally. */}
+                            <TabsList className="w-full justify-start h-auto p-1 bg-muted/50 rounded-lg grid grid-cols-4 max-sm:flex max-sm:overflow-x-auto no-scrollbar">
                                 <TabsTrigger
                                     value="prompt"
-                                    className="gap-2 data-[state=active]:bg-background"
+                                    className="gap-2 data-[state=active]:bg-background max-sm:shrink-0"
                                 >
                                     <MessageSquare className="h-3.5 w-3.5" /> Prompt
                                 </TabsTrigger>
                                 <TabsTrigger
                                     value="generation"
-                                    className="gap-2 data-[state=active]:bg-background"
+                                    className="gap-2 data-[state=active]:bg-background max-sm:shrink-0"
                                 >
                                     <Sliders className="h-3.5 w-3.5" /> Generation
                                 </TabsTrigger>
                                 <TabsTrigger
                                     value="lorebook"
-                                    className="gap-2 data-[state=active]:bg-background"
+                                    className="gap-2 data-[state=active]:bg-background max-sm:shrink-0"
                                 >
                                     <BookOpen className="h-3.5 w-3.5" /> Lorebook
                                 </TabsTrigger>
                                 <TabsTrigger
                                     value="advanced"
-                                    className="gap-2 data-[state=active]:bg-background"
+                                    className="gap-2 data-[state=active]:bg-background max-sm:shrink-0"
                                 >
                                     <Zap className="h-3.5 w-3.5" /> Advanced
                                 </TabsTrigger>
@@ -373,7 +374,7 @@ export function PresetEditor() {
                                     </Button>
                                 </Label>
                                 <p className="text-xs text-muted-foreground">
-                                    Use placeholders: {'{{character_name}}'}, {'{{world_state}}'},{' '}
+                                    Use placeholders: {'{{character_name}}'}, 
                                     {'{{lorebook}}'}
                                 </p>
                                 <Textarea

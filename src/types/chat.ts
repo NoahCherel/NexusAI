@@ -14,7 +14,6 @@ export interface Message {
     isActiveBranch: boolean;
     childrenIds?: string[];
     createdAt: Date;
-    worldStateSnapshot?: WorldState;
     banListSnapshot?: string[]; // Style Guard ban list as of this branch tip (branch-aware)
 
     // Message ordering and regeneration tracking
@@ -42,8 +41,8 @@ export interface Conversation {
     id: string;
     characterId: string;
     title: string;
-    worldState: WorldState; // Kept for backward compatibility (maps to root branch)
-    worldStates?: Record<string, WorldState>; // Branch-specific states (branchId -> state)
+    // NOTE: legacy `worldState`/`worldStates` fields may still exist on persisted rows in
+    // IndexedDB — they are simply ignored (the loader spreads the stored object).
     notes?: string[]; // Conversation-scoped persona notes/memories
     storyGuidance?: string; // User-written memo to guide the AI's narrative direction
     scratchpad?: string; // AI's working memory from the previous turn
@@ -112,14 +111,6 @@ export interface ArcCompass {
     work?: string;
     currentPosition?: string; // auto-captured from the GM's trailing [timeline …]; = canon timelineCap
     nextBeat?: string; // the specific canonical beat to steer toward, subtly
-}
-
-export interface WorldState {
-    inventory: string[];
-    location: string;
-    relationships: Record<string, number>;
-    customState?: Record<string, unknown>;
-    dismissedInventoryItems?: string[]; // Items manually removed by user — prevents re-adding
 }
 
 export interface ChatSettings {

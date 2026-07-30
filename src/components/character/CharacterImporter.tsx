@@ -99,6 +99,23 @@ export function CharacterImporter({ trigger, onImported, isCollapsed }: Characte
                 }
             }
 
+            // WAF fallback (Chub): download + parse the card ENTIRELY in the browser —
+            // the real Chrome TLS fingerprint passes where the server's undici gets 403.
+            if (!res.ok && detected.platform === 'chub') {
+                const { downloadChubCardInBrowser } = await import('@/lib/import/chub');
+                const browserCard = await downloadChubCardInBrowser(detected.id);
+                if (browserCard) {
+                    const character: CharacterCard = {
+                        ...browserCard.card,
+                        id: crypto.randomUUID(),
+                        avatar: browserCard.avatarDataUrl || browserCard.card.avatar || '',
+                    };
+                    setImportUrl('');
+                    finishImport(character);
+                    return;
+                }
+            }
+
             if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
 
             const character: CharacterCard = {
@@ -168,7 +185,7 @@ export function CharacterImporter({ trigger, onImported, isCollapsed }: Characte
             <DialogContent
                 className={cn(
                     mode === 'browse'
-                        ? 'sm:max-w-4xl w-[95vw] h-[85vh] flex flex-col overflow-hidden max-sm:w-screen max-sm:h-dvh max-sm:max-w-none max-sm:rounded-none max-sm:border-0 max-sm:top-0 max-sm:left-0 max-sm:translate-x-0 max-sm:translate-y-0'
+                        ? 'sm:max-w-4xl w-[95vw] h-[85vh] flex flex-col overflow-hidden max-sm:w-screen max-sm:h-dvh max-sm:max-w-none max-sm:rounded-none max-sm:border-0 max-sm:top-0 max-sm:left-0 max-sm:translate-x-0 max-sm:translate-y-0 max-sm:p-3 max-sm:gap-3'
                         : 'sm:max-w-md'
                 )}
             >

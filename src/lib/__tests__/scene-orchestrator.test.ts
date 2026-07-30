@@ -2,35 +2,44 @@ import { describe, it, expect } from 'vitest';
 import {
     parseDirectorResponse,
     applySceneChange,
-    MAX_SPEAKERS_PER_BEAT,
+    DEFAULT_MAX_SPEAKERS,
+    MAX_SPEAKERS_CEILING,
 } from '@/lib/ai/scene-orchestrator';
 
 const roster = ['Naruto Uzumaki', 'Sakura Haruno', 'Kakashi Hatake', 'Gaara'];
 
 describe('parseDirectorResponse', () => {
-    it('parses a clean decision and resolves speaker casing against the roster', () => {
+    it('parses the directed format ({name, direction}) and resolves casing against the roster', () => {
         const raw = JSON.stringify({
             narration: 'A cold wind sweeps the training ground.',
-            speakers: ['naruto uzumaki', 'SAKURA HARUNO'],
+            sceneGoal: 'Force Naruto to admit the plan.',
+            speakers: [
+                { name: 'naruto uzumaki', direction: 'Deflect with a joke, but sweat.' },
+                { name: 'SAKURA HARUNO', direction: 'Press the question, arms crossed.' },
+            ],
             sceneChange: { event: 'storm coming' },
         });
         const d = parseDirectorResponse(raw, roster, 'Alex');
         expect(d.narration).toBe('A cold wind sweeps the training ground.');
-        expect(d.speakers).toEqual(['Naruto Uzumaki', 'Sakura Haruno']);
+        expect(d.sceneGoal).toBe('Force Naruto to admit the plan.');
+        expect(d.speakers).toEqual([
+            { name: 'Naruto Uzumaki', direction: 'Deflect with a joke, but sweat.' },
+            { name: 'Sakura Haruno', direction: 'Press the question, arms crossed.' },
+        ]);
         expect(d.sceneChange?.event).toBe('storm coming');
     });
 
-    it('tolerates code fences and chatter around the JSON', () => {
-        const raw = 'Sure! Here is the decision:\n```json\n{"speakers": ["Gaara"]}\n``` Done.';
+    it('still accepts the legacy string[] speakers format (direction undefined)', () => {
+        const raw = 'Sure! ```json\n{"speakers": ["Gaara"]}\n``` Done.';
         const d = parseDirectorResponse(raw, roster);
-        expect(d.speakers).toEqual(['Gaara']);
+        expect(d.speakers).toEqual([{ name: 'Gaara', direction: undefined }]);
     });
 
-    it('caps speakers, dedupes, drops unknown names and the player', () => {
+    it('caps speakers at the given max, dedupes, drops unknown names and the player', () => {
         const raw = JSON.stringify({
             speakers: [
                 'Naruto Uzumaki',
-                'Naruto Uzumaki',
+                { name: 'Naruto Uzumaki', direction: 'dup' },
                 'Alex',
                 'Random Stranger',
                 'Sakura Haruno',
@@ -38,9 +47,20 @@ describe('parseDirectorResponse', () => {
                 'Gaara',
             ],
         });
-        const d = parseDirectorResponse(raw, [...roster, 'Alex'], 'Alex');
-        expect(d.speakers.length).toBeLessThanOrEqual(MAX_SPEAKERS_PER_BEAT);
-        expect(d.speakers).toEqual(['Naruto Uzumaki', 'Sakura Haruno', 'Kakashi Hatake']);
+        const d2 = parseDirectorResponse(raw, [...roster, 'Alex'], 'Alex', 2);
+        expect(d2.speakers.map((s) => s.name)).toEqual(['Naruto Uzumaki', 'Sakura Haruno']);
+
+        const dDefault = parseDirectorResponse(raw, [...roster, 'Alex'], 'Alex');
+        expect(dDefault.speakers.length).toBeLessThanOrEqual(DEFAULT_MAX_SPEAKERS);
+        expect(dDefault.speakers.map((s) => s.name)).not.toContain('Alex');
+        expect(dDefault.speakers.map((s) => s.name)).not.toContain('Random Stranger');
+    });
+
+    it('never exceeds the hard ceiling even with an absurd max', () => {
+        const many = Array.from({ length: 20 }, (_, i) => `P${i}`);
+        const raw = JSON.stringify({ speakers: many });
+        const d = parseDirectorResponse(raw, many, undefined, 99);
+        expect(d.speakers.length).toBeLessThanOrEqual(MAX_SPEAKERS_CEILING);
     });
 
     it('returns a silent decision on malformed or empty output', () => {

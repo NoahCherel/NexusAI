@@ -146,7 +146,7 @@ export function RelationshipPanel() {
                     <select
                         value={newFrom}
                         onChange={(e) => setNewFrom(e.target.value)}
-                        className="h-8 text-xs bg-background border rounded px-2 flex-1"
+                        className="h-8 text-xs bg-background border rounded px-2 flex-1 min-w-0"
                     >
                         <option value="">De… (qui ressent)</option>
                         {names.map((n) => (
@@ -159,7 +159,7 @@ export function RelationshipPanel() {
                     <select
                         value={newTo}
                         onChange={(e) => setNewTo(e.target.value)}
-                        className="h-8 text-xs bg-background border rounded px-2 flex-1"
+                        className="h-8 text-xs bg-background border rounded px-2 flex-1 min-w-0"
                     >
                         <option value={USER_REL_KEY}>{userName} (joueur)</option>
                         {names.map((n) => (

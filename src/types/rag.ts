@@ -117,7 +117,7 @@ export interface ContextSection {
     content: string;
     tokens: number;
     label: string; // For context preview UI
-    type: 'system' | 'memory' | 'fact' | 'summary' | 'lorebook' | 'history' | 'post-history' | 'world-state' | 'canon';
+    type: 'system' | 'memory' | 'fact' | 'summary' | 'lorebook' | 'history' | 'post-history' | 'canon';
     confidence?: number; // 0–1 relevance confidence score
 }
 

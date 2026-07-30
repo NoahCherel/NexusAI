@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { buildSystemPrompt, buildDynamicContextBlock } from '@/lib/ai/context-builder';
 import type { CharacterCard } from '@/types/character';
-import type { WorldState } from '@/types/chat';
+
 import type { CanonDossier } from '@/types/canon';
 
 const card: CharacterCard = {
@@ -14,7 +14,7 @@ const card: CharacterCard = {
     mes_example: '',
 };
 
-const worldState: WorldState = { inventory: [], location: '', relationships: {} };
+
 
 const dossier: CanonDossier = {
     work: 'Bleach',
@@ -29,7 +29,7 @@ const dossier: CanonDossier = {
 
 describe('buildSystemPrompt canon injection', () => {
     it('injects an immutable canon block scoped to the timeline cap', () => {
-        const prompt = buildSystemPrompt(card, worldState, [], {
+        const prompt = buildSystemPrompt(card, [], {
             template: '{{scenario}}',
             canonDossiers: [dossier],
         });
@@ -50,19 +50,19 @@ describe('buildSystemPrompt canon injection', () => {
     });
 
     it('does not inject canon when no dossiers are active', () => {
-        const prompt = buildSystemPrompt(card, worldState, [], { template: '{{scenario}}' });
+        const prompt = buildSystemPrompt(card, [], { template: '{{scenario}}' });
         expect(prompt).not.toContain('CANON —');
     });
 
     it('injects the Director framing + arc map only when the arc is enabled (stable zone)', () => {
-        const disabled = buildSystemPrompt(card, worldState, [], {
+        const disabled = buildSystemPrompt(card, [], {
             template: '{{scenario}}',
             arc: { enabled: false, work: 'Bleach' },
             arcOutline: '1. Agent of the Shinigami\n2. Soul Society',
         });
         expect(disabled).not.toContain('NARRATIVE DIRECTOR');
 
-        const enabled = buildSystemPrompt(card, worldState, [], {
+        const enabled = buildSystemPrompt(card, [], {
             template: '{{scenario}}',
             arc: { enabled: true, work: 'Bleach', nextBeat: 'the Soul Society arc' },
             arcOutline: '1. Agent of the Shinigami\n2. Soul Society',

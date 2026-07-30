@@ -17,7 +17,7 @@ import { buildConversationPayload } from '@/lib/ai/payload-builder';
 import { buildRAGEnhancedPayload } from '@/lib/ai/context-builder';
 import { LEGACY_DEFAULT_SYSTEM_PROMPT_TEMPLATE } from '@/types/preset';
 import type { CharacterCard } from '@/types/character';
-import type { Message, WorldState } from '@/types/chat';
+import type { Message } from '@/types/chat';
 import type { APIPreset } from '@/types/preset';
 
 const card: CharacterCard = {
@@ -30,7 +30,7 @@ const card: CharacterCard = {
     mes_example: '',
 };
 
-const worldState: WorldState = { inventory: [], location: '', relationships: {} };
+
 
 let counter = 0;
 function msg(content: string, role: 'user' | 'assistant' = 'user'): Message {
@@ -59,7 +59,7 @@ describe('stable/dynamic zone split', () => {
         const base = {
             mode: 'generate' as const,
             character: card,
-            worldState,
+
             activePreset: preset(),
             activeEngine: null,
             maxContextTokens: 8192,
@@ -87,7 +87,7 @@ describe('stable/dynamic zone split', () => {
         const { messagesPayload, systemPrompt } = await buildConversationPayload({
             mode: 'generate',
             character: card,
-            worldState,
+
             activeEntries: lore,
             history: [msg('tell me about Konoha')],
             activePreset: preset(),
@@ -110,7 +110,7 @@ describe('stable/dynamic zone split', () => {
         const { systemPrompt } = await buildConversationPayload({
             mode: 'generate',
             character: card,
-            worldState,
+
             activeEntries: lore,
             history: [msg('hello')],
             activePreset: preset({ systemPromptTemplate: 'CUSTOM {{lorebook}}' }),
@@ -125,7 +125,7 @@ describe('stable/dynamic zone split', () => {
         const { systemPrompt, messagesPayload } = await buildConversationPayload({
             mode: 'generate',
             character: card,
-            worldState,
+
             activeEntries: lore,
             history: [msg('hello')],
             activePreset: preset({ systemPromptTemplate: LEGACY_DEFAULT_SYSTEM_PROMPT_TEMPLATE }),
@@ -145,7 +145,7 @@ describe('continue-in-place (providers without prefill)', () => {
         const { messagesPayload } = await buildConversationPayload({
             mode: 'generate',
             character: card,
-            worldState,
+
             activeEntries: [],
             history: [msg('hello'), msg('The story begins…', 'assistant')],
             activePreset: preset({ postHistoryInstructions: 'USER_POSTHISTORY_MARKER' }),
@@ -165,7 +165,7 @@ describe('continue-in-place (providers without prefill)', () => {
         const { messagesPayload } = await buildConversationPayload({
             mode: 'generate',
             character: card,
-            worldState,
+
             activeEntries: [],
             history: [msg('hello')],
             activePreset: preset(),

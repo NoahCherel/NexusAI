@@ -47,7 +47,6 @@ export async function exportConversationForCharacter(character: CharacterCard): 
             title: latestConv.title,
             createdAt: latestConv.createdAt,
             updatedAt: latestConv.updatedAt,
-            worldState: latestConv.worldState,
         },
         messages: messages.map((m) => ({
             role: m.role,
@@ -149,10 +148,8 @@ export function importConversationFromFile(): void {
                 prevId = msgId;
             }
 
-            // Update world state if present
-            if (data.conversation.worldState) {
-                useChatStore.getState().updateWorldState(convId, data.conversation.worldState);
-            }
+            // NOTE: legacy exports may carry a conversation.worldState — deliberately ignored
+            // (the scalar world-state system is removed).
 
             // Switch to the imported conversation
             useChatStore.getState().setActiveConversation(convId);

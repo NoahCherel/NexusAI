@@ -170,7 +170,6 @@ interface SettingsState {
     // UI Settings
     theme: 'dark' | 'light' | 'system';
     showThoughts: boolean;
-    showWorldState: boolean;
     immersiveMode: boolean;
     lorebookAutoExtract: boolean;
 
@@ -196,6 +195,8 @@ interface SettingsState {
     // Scene Mode (Troupe): AI narrator + one reply per on-stage character. Global gate;
     // each conversation opts in via its own 🎬 toggle.
     enableTroupeMode: boolean;
+    // Max character turns per scene beat (the Director may pick fewer). 1..8.
+    maxSceneSpeakers: number;
     // Directional relationship analyst (one background call per beat).
     enableRelationshipAnalyst: boolean;
     // Anti-stall detection + one-shot momentum nudge.
@@ -230,7 +231,6 @@ interface SettingsState {
 
     setTheme: (theme: 'dark' | 'light' | 'system') => void;
     setShowThoughts: (show: boolean) => void;
-    setShowWorldState: (show: boolean) => void;
     setImmersiveMode: (immersive: boolean) => void;
     setLorebookAutoExtract: (enabled: boolean) => void;
     setBackgroundProvider: (provider: 'auto' | 'nanogpt' | 'openrouter-free') => void;
@@ -239,6 +239,7 @@ interface SettingsState {
     setEnableScratchpad: (enabled: boolean) => void;
     setShowUsageBadge: (enabled: boolean) => void;
     setEnableTroupeMode: (enabled: boolean) => void;
+    setMaxSceneSpeakers: (max: number) => void;
     setEnableRelationshipAnalyst: (enabled: boolean) => void;
     setEnableMomentum: (enabled: boolean) => void;
     setEnableFactExtraction: (enabled: boolean) => void;
@@ -286,7 +287,6 @@ export const useSettingsStore = create<SettingsState>()(
             customEngines: [],
             theme: 'dark',
             showThoughts: true,
-            showWorldState: true,
             immersiveMode: false,
             lorebookAutoExtract: true,
             backgroundProvider: 'auto',
@@ -295,6 +295,7 @@ export const useSettingsStore = create<SettingsState>()(
             enableScratchpad: false,
             showUsageBadge: true,
             enableTroupeMode: true,
+            maxSceneSpeakers: 5,
             enableRelationshipAnalyst: true,
             enableMomentum: true,
             enableFactExtraction: true,
@@ -352,7 +353,6 @@ export const useSettingsStore = create<SettingsState>()(
 
             setTheme: (theme) => set({ theme }),
             setShowThoughts: (showThoughts) => set({ showThoughts }),
-            setShowWorldState: (showWorldState) => set({ showWorldState }),
             setImmersiveMode: (immersiveMode) => set({ immersiveMode }),
             setLorebookAutoExtract: (lorebookAutoExtract) => set({ lorebookAutoExtract }),
             setBackgroundProvider: (backgroundProvider) => set({ backgroundProvider }),
@@ -361,6 +361,8 @@ export const useSettingsStore = create<SettingsState>()(
             setEnableScratchpad: (enableScratchpad) => set({ enableScratchpad }),
             setShowUsageBadge: (showUsageBadge) => set({ showUsageBadge }),
             setEnableTroupeMode: (enableTroupeMode) => set({ enableTroupeMode }),
+            setMaxSceneSpeakers: (maxSceneSpeakers) =>
+                set({ maxSceneSpeakers: Math.max(1, Math.min(8, Math.round(maxSceneSpeakers))) }),
             setEnableRelationshipAnalyst: (enableRelationshipAnalyst) =>
                 set({ enableRelationshipAnalyst }),
             setEnableMomentum: (enableMomentum) => set({ enableMomentum }),

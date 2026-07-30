@@ -31,7 +31,6 @@ interface ContextPreviewPanelProps {
 
 const sectionIcons: Record<string, React.ReactNode> = {
     system: <Zap className="h-4 w-4 text-yellow-400" />,
-    'world-state': <Globe className="h-4 w-4 text-emerald-400" />,
     memory: <Brain className="h-4 w-4 text-purple-400" />,
     fact: <Eye className="h-4 w-4 text-blue-400" />,
     summary: <BookOpen className="h-4 w-4 text-green-400" />,
@@ -43,7 +42,6 @@ const sectionIcons: Record<string, React.ReactNode> = {
 
 const sectionColors: Record<string, string> = {
     system: 'border-yellow-400/30 bg-yellow-400/5',
-    'world-state': 'border-emerald-400/30 bg-emerald-400/5',
     memory: 'border-purple-400/30 bg-purple-400/5',
     fact: 'border-blue-400/30 bg-blue-400/5',
     summary: 'border-green-400/30 bg-green-400/5',

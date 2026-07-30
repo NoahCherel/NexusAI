@@ -384,7 +384,7 @@ export function LorebookEditor({ onClose }: { onClose: () => void }) {
                             <span className="flex items-center justify-center gap-2 relative">
                                 <Inbox className="w-3.5 h-3.5" /> Suggestions
                                 {pendingSuggestions.length > 0 && (
-                                    <span className="absolute -top-0.5 -right-3 min-w-[14px] h-3.5 px-0.5 rounded-full bg-primary text-[9px] text-primary-foreground flex items-center justify-center leading-none">
+                                    <span className="absolute -top-0.5 -right-1 min-w-[14px] h-3.5 px-0.5 rounded-full bg-primary text-[9px] text-primary-foreground flex items-center justify-center leading-none">
                                         {pendingSuggestions.length}
                                     </span>
                                 )}

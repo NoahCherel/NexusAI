@@ -3,14 +3,14 @@
 /**
  * Post-beat background pipeline — everything that runs AFTER a generation completes:
  * arc cursor capture + canon dossier fetch, anti-stall detection (momentum nudge),
- * relationship analysis, and fact extraction (with world-state derivation).
+ * relationship analysis, and fact extraction.
  *
  * Single entry point (fire-and-forget, mirrors the historical inline behaviour of the chat
  * page) so the chat page — and later the Mode Troupe orchestrator — can't drift apart.
  */
 
 import type { CharacterCard } from '@/types/character';
-import type { Message, WorldState } from '@/types/chat';
+import type { Message } from '@/types/chat';
 import type { WorldFact } from '@/types/rag';
 import { useChatStore } from '@/stores/chat-store';
 import { useSettingsStore } from '@/stores/settings-store';
@@ -47,7 +47,6 @@ export interface PostBeatParams {
     history: Message[];
     /** Active-branch message ids at generation time (branch-aware fact tagging). */
     branchMessageIds: string[];
-    worldState: WorldState;
     personaName?: string;
     isImpersonation: boolean;
     skipFactExtraction: boolean;
@@ -66,7 +65,6 @@ export function runPostBeatAnalyses(params: PostBeatParams): void {
         targetId,
         history,
         branchMessageIds,
-        worldState,
         personaName,
         isImpersonation,
         skipFactExtraction,
@@ -113,7 +111,7 @@ export function runPostBeatAnalyses(params: PostBeatParams): void {
     // nudge for the next turn. Local analysis, no API call. =====
     if (finalContent && !isImpersonation && (settings.enableMomentum ?? true)) {
         const prevAssistant = [...history].reverse().find((m) => m.role === 'assistant');
-        const { stalled } = detectStall(finalContent, prevAssistant?.content, false);
+        const { stalled } = detectStall(finalContent, prevAssistant?.content);
         if (stalled) {
             const conv = useChatStore
                 .getState()
@@ -140,7 +138,6 @@ export function runPostBeatAnalyses(params: PostBeatParams): void {
                 try {
                     const factPrompt = buildFactExtractionPrompt(
                         fullContent,
-                        worldState,
                         character.name,
                         personaName || 'User'
                     );

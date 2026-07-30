@@ -11,18 +11,14 @@ import { Loader2, Star, MessageSquare, Download, Check } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import type { CharacterCard } from '@/types';
-
-interface MarketplaceCard {
-    name: string;
-    fullPath: string;
-    tagline: string;
-    avatarUrl: string;
-    stars: number;
-    chats: number;
-    tokens: number;
-    topics: string[];
-    nsfwImage: boolean;
-}
+import {
+    CHUB_SEARCH_URL,
+    buildChubSearchParams,
+    normalizeChubNodes,
+    downloadChubCardInBrowser,
+    type ChubNode,
+    type MarketplaceCard,
+} from '@/lib/import/chub';
 
 function formatCount(n: number): string {
     return n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n);
@@ -52,15 +48,47 @@ export function MarketplaceBrowser({
             setIsLoading(true);
             setError(null);
             try {
-                const res = await fetch('/api/marketplace', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ query, page: targetPage, nsfw, sort }),
-                });
-                const data = await res.json();
+                let cards: MarketplaceCard[] | null = null;
+
+                // 1. Local server proxy (no CORS worries, richer headers).
+                try {
+                    const res = await fetch('/api/marketplace', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ query, page: targetPage, nsfw, sort }),
+                    });
+                    const data = await res.json();
+                    if (res.ok) {
+                        cards = data.results as MarketplaceCard[];
+                    } else if (data.kind !== 'blocked') {
+                        throw new Error(data.error || `HTTP ${res.status}`);
+                    }
+                    // kind === 'blocked' → fall through to the browser fallback below.
+                } catch (proxyErr) {
+                    console.warn('[Marketplace] Server proxy failed:', proxyErr);
+                }
+
+                // 2. Browser fallback: this fetch carries a REAL Chrome TLS fingerprint,
+                // which is what Chub's WAF actually checks; their API serves permissive
+                // CORS (their own frontend calls it cross-origin).
+                if (!cards) {
+                    const params = buildChubSearchParams({
+                        query,
+                        page: targetPage,
+                        nsfw,
+                        sort,
+                    });
+                    const res = await fetch(`${CHUB_SEARCH_URL}?${params}`, {
+                        headers: { Accept: 'application/json' },
+                    });
+                    if (!res.ok) throw new Error(`Chub: HTTP ${res.status}`);
+                    const json = (await res.json()) as { data?: { nodes?: ChubNode[] } };
+                    cards = normalizeChubNodes(json.data?.nodes ?? []);
+                }
+
                 if (seq !== searchSeq.current) return; // stale response
-                if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
-                setResults((prev) => (append ? [...prev, ...data.results] : data.results));
+                const finalCards = cards;
+                setResults((prev) => (append ? [...prev, ...finalCards] : finalCards));
                 setPage(targetPage);
             } catch (err) {
                 if (seq === searchSeq.current) {
@@ -83,17 +111,31 @@ export function MarketplaceBrowser({
         setImportingPath(card.fullPath);
         setError(null);
         try {
-            const res = await fetch('/api/import', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ url: `https://chub.ai/characters/${card.fullPath}` }),
-            });
-            const data = await res.json();
-            if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+            let imported: { card: CharacterCard; avatarDataUrl?: string } | null = null;
+
+            // 1. Server proxy.
+            try {
+                const res = await fetch('/api/import', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        url: `https://chub.ai/characters/${card.fullPath}`,
+                    }),
+                });
+                const data = await res.json();
+                if (res.ok) imported = data;
+            } catch {
+                /* fall through to the browser fallback */
+            }
+
+            // 2. Browser fallback (real Chrome fingerprint beats the WAF).
+            if (!imported) imported = await downloadChubCardInBrowser(card.fullPath);
+            if (!imported) throw new Error('Chub inaccessible (serveur et navigateur).');
+
             const character: CharacterCard = {
-                ...data.card,
+                ...imported.card,
                 id: crypto.randomUUID(),
-                avatar: data.avatarDataUrl || data.card.avatar || '',
+                avatar: imported.avatarDataUrl || imported.card.avatar || '',
             };
             onImported(character);
             setImportedPaths((prev) => new Set(prev).add(card.fullPath));
@@ -107,19 +149,21 @@ export function MarketplaceBrowser({
     };
 
     return (
-        <div className="flex flex-col gap-3 min-h-0 flex-1">
-            {/* Search / sort / NSFW row */}
-            <div className="flex gap-2 items-center">
+        // min-w-0: direct child of a CSS-grid DialogContent — without it the grid track
+        // sizes to our min-content and the row overflows the dialog instead of wrapping.
+        <div className="flex flex-col gap-3 min-h-0 min-w-0 flex-1">
+            {/* Search / sort / NSFW — wraps on mobile (input takes its own full row) */}
+            <div className="flex flex-wrap gap-2 items-center">
                 <Input
                     value={query}
                     onChange={(e) => setQuery(e.target.value)}
                     placeholder="Rechercher un personnage sur Chub…"
-                    className="h-9"
+                    className="h-9 flex-1 max-sm:basis-full"
                 />
                 <select
                     value={sort}
                     onChange={(e) => setSort(e.target.value)}
-                    className="h-9 rounded-md border border-input bg-background px-2 text-sm shrink-0"
+                    className="h-9 rounded-md border border-input bg-background px-2 text-sm min-w-0 max-sm:flex-1"
                 >
                     <option value="star_count">Populaires</option>
                     <option value="trending_downloads">Tendance</option>
@@ -216,16 +260,16 @@ export function MarketplaceBrowser({
                 )}
             </div>
 
-            {/* Footer */}
+            {/* Footer — hint text hidden on mobile (it lives in the Import tab too) */}
             <div className="flex items-center justify-between gap-3 shrink-0">
-                <p className="text-[10px] text-muted-foreground">
+                <p className="text-[10px] text-muted-foreground max-sm:hidden">
                     Catalogue Chub.ai / CharacterHub. JannyAI n&apos;expose pas de catalogue
                     (Cloudflare) — collez l&apos;URL d&apos;une carte dans l&apos;onglet Importer.
                 </p>
                 <Button
                     variant="secondary"
                     size="sm"
-                    className="shrink-0 gap-1.5"
+                    className="shrink-0 gap-1.5 max-sm:flex-1"
                     disabled={isLoading}
                     onClick={() => void search(page + 1, true)}
                 >

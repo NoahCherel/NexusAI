@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { Message, Conversation, WorldState, ArcCompass, DirectedRelationship } from '@/types';
+import type { Message, Conversation, ArcCompass, DirectedRelationship } from '@/types';
 import {
     saveConversation,
     getConversationsByCharacter,
@@ -26,7 +26,6 @@ interface ChatState {
     getConversationMessages: (conversationId: string) => Message[];
     getActiveBranchMessages: (conversationId: string) => Message[];
     setStreaming: (streaming: boolean) => void;
-    updateWorldState: (conversationId: string, worldState: Partial<WorldState>) => void;
     updateConversationNotes: (conversationId: string, notes: string[]) => void;
     updateStoryGuidance: (conversationId: string, guidance: string) => void;
     updateScratchpad: (conversationId: string, scratchpad: string) => void;
@@ -165,7 +164,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
         try {
             const convs = await getConversationsByCharacter(characterId);
             // Preserve EVERY persisted field (relationships, arc, rpJournal, scratchpad,
-            // storyGuidance, notes, momentumNudge, worldStates, …). The previous explicit
+            // storyGuidance, notes, momentumNudge, …). The previous explicit
             // allow-list silently dropped all of these on reload even though they were saved.
             const conversations: Conversation[] = convs.map((conv) => ({
                 ...conv,
@@ -226,11 +225,6 @@ export const useChatStore = create<ChatState>()((set, get) => ({
             id,
             characterId,
             title,
-            worldState: {
-                inventory: [],
-                location: '',
-                relationships: {},
-            },
             createdAt: new Date(),
             updatedAt: new Date(),
         };
@@ -344,14 +338,9 @@ export const useChatStore = create<ChatState>()((set, get) => ({
     },
 
     deleteMessage: (id) => {
-        let conversationId: string | undefined;
-        let conversationToUpdate: Conversation | undefined;
-
         set((state) => {
             const msgToDelete = state.messages.find((m) => m.id === id);
             if (!msgToDelete) return state;
-
-            conversationId = msgToDelete.conversationId;
 
             // If deleting an active message, try to activate a sibling
             let newMessages = state.messages.filter((m) => m.id !== id);
@@ -367,35 +356,11 @@ export const useChatStore = create<ChatState>()((set, get) => ({
                 }
             }
 
-            // Restore World State from updated active branch
-            const activeMsgs = newMessages
-                .filter((m) => m.conversationId === conversationId && m.isActiveBranch)
-                .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
-
-            let stateToRestore: WorldState = { inventory: [], location: '', relationships: {} };
-            for (const msg of activeMsgs) {
-                if (msg.worldStateSnapshot) {
-                    stateToRestore = msg.worldStateSnapshot;
-                    break;
-                }
-            }
-
-            const newConversations = state.conversations.map((c) => {
-                if (c.id === conversationId) {
-                    conversationToUpdate = { ...c, worldState: stateToRestore };
-                    return conversationToUpdate;
-                }
-                return c;
-            });
-
-            return { messages: newMessages, conversations: newConversations };
+            return { messages: newMessages };
         });
 
-        // Persist deletion and potential world state update
+        // Persist deletion
         deleteMessagedb(id).catch(console.error);
-        if (conversationToUpdate) {
-            saveConversation(conversationToUpdate).catch(console.error);
-        }
     },
 
     getConversationMessages: (conversationId) => {
@@ -411,58 +376,6 @@ export const useChatStore = create<ChatState>()((set, get) => ({
     },
 
     setStreaming: (isStreaming) => set({ isStreaming }),
-
-    updateWorldState: (conversationId, worldStateUpdates) => {
-        let conversationToUpdate: Conversation | undefined;
-        set((state) => {
-            // 1. Calculate new global state
-            const conversation = state.conversations.find((c) => c.id === conversationId);
-            if (!conversation) return state;
-
-            const oldState = conversation.worldState;
-            const newState = { ...oldState, ...worldStateUpdates };
-
-            // 2. Update conversation global state
-            const newConversations = state.conversations.map((c) => {
-                if (c.id === conversationId) {
-                    conversationToUpdate = {
-                        ...c,
-                        worldState: newState,
-                        updatedAt: new Date(),
-                    };
-                    return conversationToUpdate;
-                }
-                return c;
-            });
-
-            // 3. Snapshot to the latest active message (so it persists for this branch)
-            const activeMessages = state.messages
-                .filter((m) => m.conversationId === conversationId && m.isActiveBranch)
-                .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
-
-            let newMessages = state.messages;
-            if (activeMessages.length > 0) {
-                const lastMsg = activeMessages[0];
-                if (lastMsg.worldStateSnapshot !== newState) {
-                    newMessages = state.messages.map((m) =>
-                        m.id === lastMsg.id ? { ...m, worldStateSnapshot: newState } : m
-                    );
-                    // Also need to save the message with the new snapshot
-                    saveMessage({ ...lastMsg, worldStateSnapshot: newState }).catch(console.error);
-                }
-            }
-
-            return {
-                conversations: newConversations,
-                messages: newMessages,
-            };
-        });
-
-        // Persist conversation update
-        if (conversationToUpdate) {
-            saveConversation(conversationToUpdate).catch(console.error);
-        }
-    },
 
     updateConversationNotes: (conversationId, notes) => {
         let conversationToUpdate: Conversation | undefined;
@@ -656,7 +569,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
     },
 
     // The Style Guard ban list is branch-aware: it is snapshotted onto the active branch
-    // tip (like worldStateSnapshot) so swiping/regenerating doesn't carry one branch's
+    // tip (snapshot-per-branch pattern) so swiping/regenerating doesn't carry one branch's
     // learned rules into an unrelated one. conversation.banList remains only as a fallback
     // for branches without a snapshot (legacy chats, or a conversation with no messages yet).
     setBanList: (conversationId, banList) => {
@@ -759,23 +672,6 @@ export const useChatStore = create<ChatState>()((set, get) => ({
                 return m;
             });
 
-            // Restore World State from active branch
-            const activeMsgs = newMessages
-                .filter((m) => m.conversationId === currentMsg.conversationId && m.isActiveBranch)
-                .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
-
-            let stateToRestore: WorldState = { inventory: [], location: '', relationships: {} };
-            for (const msg of activeMsgs) {
-                if (msg.worldStateSnapshot) {
-                    stateToRestore = msg.worldStateSnapshot;
-                    break;
-                }
-            }
-
-            const newConversations = state.conversations.map((c) =>
-                c.id === currentMsg.conversationId ? { ...c, worldState: stateToRestore } : c
-            );
-
             // Persist all changed messages to DB
             const changedMessages = newMessages.filter((newMsg, idx) => {
                 const oldMsg = state.messages[idx];
@@ -783,7 +679,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
             });
             changedMessages.forEach((msg) => saveMessage(msg).catch(console.error));
 
-            return { messages: newMessages, conversations: newConversations };
+            return { messages: newMessages };
         }),
 
     navigateToMessage: (messageId) =>
@@ -809,33 +705,6 @@ export const useChatStore = create<ChatState>()((set, get) => ({
                 return m;
             });
 
-            // 3. Restore World State from target message (if it has a snapshot, or calculate?)
-            // For now, if the target message has a snapshot, use it.
-            // Otherwise, we might need to re-calculate (complex).
-            // We'll use the 'latest snapshot on path' approach.
-
-            const activePath = newMessages
-                .filter((m) => pathIds.has(m.id))
-                .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
-
-            let stateToRestore = state.conversations.find(
-                (c) => c.id === targetMessage.conversationId
-            )?.worldState; // Default to current
-
-            // Try to find a snapshot on the path, starting from leaf
-            for (const msg of activePath) {
-                if (msg.worldStateSnapshot) {
-                    stateToRestore = msg.worldStateSnapshot;
-                    break;
-                }
-            }
-
-            const newConversations = state.conversations.map((c) =>
-                c.id === targetMessage.conversationId
-                    ? { ...c, worldState: stateToRestore || c.worldState }
-                    : c
-            );
-
             // Persist all changed messages to DB
             const changedMessages = newMessages.filter((newMsg, idx) => {
                 const oldMsg = state.messages[idx];
@@ -843,7 +712,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
             });
             changedMessages.forEach((msg) => saveMessage(msg).catch(console.error));
 
-            return { messages: newMessages, conversations: newConversations };
+            return { messages: newMessages };
         }),
 
     // Selectors

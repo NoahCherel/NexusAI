@@ -1,5 +1,5 @@
 import type { CharacterCard, Lorebook, LorebookEntry } from '@/types/character';
-import type { Message, WorldState, ArcCompass } from '@/types/chat';
+import type { Message, ArcCompass } from '@/types/chat';
 import type { ContextSection } from '@/types/rag';
 import type { CanonDossier } from '@/types/canon';
 import { DEFAULT_SYSTEM_PROMPT_TEMPLATE } from '@/types/preset';
@@ -169,11 +169,9 @@ function formatLorebookEntries(entries: LorebookEntry[]): string {
 export function resolveSystemPromptTemplate(
     template: string,
     character: CharacterCard,
-    _worldState: WorldState,
     activeLorebookEntries: LorebookEntry[],
     userPersona?: { name: string; bio: string; description?: string } | null,
-    longTermMemory?: string[],
-    _recentMessages?: Message[]
+    longTermMemory?: string[]
 ): string {
     const formattedMemory =
         longTermMemory && longTermMemory.length > 0
@@ -220,7 +218,6 @@ export function resolveSystemPromptTemplate(
  */
 export function buildSystemPrompt(
     character: CharacterCard,
-    worldState: WorldState,
     activeLorebookEntries: LorebookEntry[],
     options: {
         template?: string;
@@ -251,11 +248,9 @@ export function buildSystemPrompt(
     const resolvedBody = resolveSystemPromptTemplate(
         promptTemplate,
         character,
-        worldState,
         activeLorebookEntries,
         options.userPersona,
-        options.longTermMemory,
-        options.recentMessages
+        options.longTermMemory
     );
 
     // If excludePostHistory is true, we don't include it here

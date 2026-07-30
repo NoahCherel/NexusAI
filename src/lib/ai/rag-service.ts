@@ -7,7 +7,7 @@
  */
 
 import type { WorldFact, VectorEntry, ContextSection } from '@/types/rag';
-import type { Message, WorldState } from '@/types/chat';
+import type { Message } from '@/types/chat';
 import type { Lorebook, LorebookEntry } from '@/types/character';
 import {
     getFactsByConversation,
@@ -120,7 +120,7 @@ export async function retrieveRelevantContext(
         topKFacts?: number;
         topKChunks?: number;
         includeSummary?: boolean;
-        worldState?: WorldState;
+
         recentMessages?: Message[]; // Recent active-branch messages for richer low-cost retrieval
         activeBranchMessageIds?: string[]; // Active branch message IDs for filtering
         minConfidence?: number; // Minimum confidence threshold (0–1)
@@ -137,7 +137,6 @@ export async function retrieveRelevantContext(
         topKFacts = 10,
         topKChunks = 5,
         includeSummary = true,
-        worldState,
         recentMessages,
         activeBranchMessageIds,
         minConfidence = 0,
@@ -151,7 +150,6 @@ export async function retrieveRelevantContext(
     // upgrading providers and gives vector search better scene anchors.
     const retrievalQueryText = buildRetrievalQueryText(queryText, {
         recentMessages,
-        worldState,
     });
     const queryTerms = extractSearchTerms(retrievalQueryText);
     const queryEmbedding = await embedText(retrievalQueryText || queryText, 'query');
@@ -710,7 +708,6 @@ export async function buildContextPreview(
     maxContextTokens: number,
     maxOutputTokens: number,
     activeLorebookEntries?: { keys: string[]; content: string }[],
-    worldState?: { location?: string; relationships?: Record<string, number>; inventory?: string[] },
     /**
      * Casting metadata used to expose what's injected vs ignored, so the user can see
      * exactly which canon fiches reach the model (and which were excluded because they're
@@ -758,15 +755,6 @@ export async function buildContextPreview(
         '⟨relationships block — see Canon section⟩'
     );
 
-    // Strip world state block from system prompt display (shown in dedicated section)
-    if (worldState) {
-        // Remove the "Current World Context:" block if present
-        displaySystemPrompt = displaySystemPrompt.replace(
-            /Current World Context:\n(?:Location:[^\n]*\n?)?(?:Relationships:[^\n]*\n?)?(?:Inventory:[^\n]*\n?)?/gi,
-            ''
-        );
-    }
-
     // Clean up excessive whitespace from stripping
     displaySystemPrompt = displaySystemPrompt.replace(/\n{3,}/g, '\n\n').trim();
 
@@ -778,33 +766,6 @@ export async function buildContextPreview(
         label: 'System Prompt',
         type: 'system',
     });
-
-    // 2. World State (relationships & inventory - shown separately for visibility, already in system prompt)
-    if (worldState) {
-        const wsParts: string[] = [];
-        if (worldState.location) {
-            wsParts.push(`Location: ${worldState.location}`);
-        }
-        if (worldState.relationships && Object.keys(worldState.relationships).length > 0) {
-            const rels = Object.entries(worldState.relationships)
-                .map(([name, desc]) => `  ${name}: ${desc}`)
-                .join('\n');
-            wsParts.push(`Relationships:\n${rels}`);
-        }
-        if (worldState.inventory && worldState.inventory.length > 0) {
-            wsParts.push(`Inventory: ${worldState.inventory.join(', ')}`);
-        }
-        if (wsParts.length > 0) {
-            const wsContent = wsParts.join('\n\n');
-            sections.push({
-                priority: 0,
-                content: wsContent,
-                tokens: countTokens(wsContent),
-                label: 'World State — included in system prompt',
-                type: 'world-state',
-            });
-        }
-    }
 
     // 2.5 Canon dossiers — shows EXACTLY which casting fiches reached the model, plus why
     // the others were excluded. This is the user-facing answer to "is my casting being used?".
@@ -912,9 +873,9 @@ export async function buildContextPreview(
     }
 
     // Calculate totals
-    // Note: Lorebook and world-state tokens are already included in system prompt, so exclude from total
+    // Note: lorebook tokens are already included in the system prompt, so exclude from total
     const totalTokens =
-        sections.filter((s) => s.type !== 'lorebook' && s.type !== 'world-state').reduce((sum, s) => sum + s.tokens, 0) +
+        sections.filter((s) => s.type !== 'lorebook').reduce((sum, s) => sum + s.tokens, 0) +
         maxOutputTokens;
 
     if (totalTokens > maxContextTokens) {

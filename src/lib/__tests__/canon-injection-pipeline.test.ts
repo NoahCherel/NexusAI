@@ -15,7 +15,7 @@ import { describe, it, expect } from 'vitest';
 import { getActiveCanonNames } from '@/lib/ai/canon-context';
 import { buildSystemPrompt, buildDynamicContextBlock } from '@/lib/ai/context-builder';
 import type { CharacterCard } from '@/types/character';
-import type { Message, Conversation, WorldState } from '@/types/chat';
+import type { Message, Conversation } from '@/types/chat';
 import type { CanonDossier } from '@/types/canon';
 
 const card: CharacterCard = {
@@ -30,7 +30,7 @@ const card: CharacterCard = {
     canonCast: ['Naruto Uzumaki', 'Sasuke Uchiha', 'Sakura Haruno'],
 };
 
-const worldState: WorldState = { inventory: [], location: '', relationships: {} };
+
 
 function msg(content: string): Message {
     return {
@@ -104,7 +104,7 @@ describe('STEP 1 — getActiveCanonNames detects casting names in recent message
 
 describe('STEP 2 — buildSystemPrompt only renders FULL ENABLED dossiers', () => {
     it('injects a full enabled dossier when active', () => {
-        const prompt = buildSystemPrompt(card, worldState, [], {
+        const prompt = buildSystemPrompt(card, [], {
             template: '{{scenario}}',
             canonDossiers: [fullDossier('Naruto Uzumaki')],
         });
@@ -117,7 +117,7 @@ describe('STEP 2 — buildSystemPrompt only renders FULL ENABLED dossiers', () =
     it('layers the in-this-RP journal in the dynamic zone, never overwriting canon', () => {
         // Canon (immutable) lives in the stable system prompt; the journal (grows each
         // beat) lives in the dynamic context block rendered after history.
-        const prompt = buildSystemPrompt(card, worldState, [], {
+        const prompt = buildSystemPrompt(card, [], {
             template: '{{scenario}}',
             canonDossiers: [fullDossier('Naruto Uzumaki')],
         });
@@ -132,7 +132,7 @@ describe('STEP 2 — buildSystemPrompt only renders FULL ENABLED dossiers', () =
     });
 
     it('renders nothing when the dossier list is empty (no active casting)', () => {
-        const prompt = buildSystemPrompt(card, worldState, [], { template: '{{scenario}}' });
+        const prompt = buildSystemPrompt(card, [], { template: '{{scenario}}' });
         expect(prompt).not.toContain('[CANON —');
         expect(prompt).not.toContain('[IN THIS RP —');
     });
@@ -143,7 +143,7 @@ describe('STEP 3 — Arc + due-to-appear hint reaches the prompt', () => {
         arc: { enabled: true, work: 'naruto', currentPosition: 'Kazekage Rescue Mission' },
     };
     it('injects the Director framing + arc map (stable) and the cursor + due-to-appear (dynamic)', () => {
-        const prompt = buildSystemPrompt(card, worldState, [], {
+        const prompt = buildSystemPrompt(card, [], {
             template: '{{scenario}}',
             arc: conv.arc,
             arcOutline: '1. Kazekage Rescue Mission\n2. Tenchi Bridge',
@@ -164,7 +164,7 @@ describe('STEP 3 — Arc + due-to-appear hint reaches the prompt', () => {
 
 describe('STEP 4 — Arc Compass is ON by default', () => {
     it('injects the Director block when `enabled` is undefined (new conversation)', () => {
-        const prompt = buildSystemPrompt(card, worldState, [], {
+        const prompt = buildSystemPrompt(card, [], {
             template: '{{scenario}}',
             arc: { work: 'naruto', currentPosition: 'S1E1' }, // no `enabled` set
             arcOutline: '1. Kazekage Rescue Mission',
@@ -174,7 +174,7 @@ describe('STEP 4 — Arc Compass is ON by default', () => {
     });
 
     it('only an explicit `enabled: false` skips the Director block', () => {
-        const prompt = buildSystemPrompt(card, worldState, [], {
+        const prompt = buildSystemPrompt(card, [], {
             template: '{{scenario}}',
             arc: { enabled: false, work: 'naruto', currentPosition: 'S1E1' },
             arcOutline: '1. Kazekage Rescue Mission',
@@ -183,7 +183,7 @@ describe('STEP 4 — Arc Compass is ON by default', () => {
     });
 
     it('omits the block entirely when there is no arc data at all (no work, no position)', () => {
-        const prompt = buildSystemPrompt(card, worldState, [], {
+        const prompt = buildSystemPrompt(card, [], {
             template: '{{scenario}}',
             arc: {}, // truly empty
         });

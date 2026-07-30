@@ -16,7 +16,9 @@ import type { Message, DirectedRelationship } from '@/types/chat';
 import { USER_REL_KEY } from '@/types/chat';
 import { backgroundAICall } from '@/lib/ai/background-ai';
 
-export const MAX_SPEAKERS_PER_BEAT = 3;
+/** Hard ceiling — the effective cap is the user's `maxSceneSpeakers` setting (1..8). */
+export const MAX_SPEAKERS_CEILING = 8;
+export const DEFAULT_MAX_SPEAKERS = 5;
 
 export interface SceneChange {
     location?: string;
@@ -25,23 +27,39 @@ export interface SceneChange {
     exit?: string[];
 }
 
+export interface SceneSpeaker {
+    name: string;
+    /** The Director's stage direction for this turn: goal, emotion, initiative. */
+    direction?: string;
+}
+
 export interface DirectorDecision {
     narration?: string;
-    speakers: string[];
+    speakers: SceneSpeaker[];
+    /** Dramatic goal of the whole beat (given to the first speaker as shared context). */
+    sceneGoal?: string;
     sceneChange?: SceneChange;
 }
 
-const DIRECTOR_SYSTEM_PROMPT = `You are the scene director of a roleplay. You never write dialogue; you decide WHO reacts and WHAT shifts in the scene. Reply with ONE JSON object, nothing else:
+function buildDirectorSystemPrompt(maxSpeakers: number): string {
+    return `You are the scene DIRECTOR of an ensemble roleplay. You never write the characters' dialogue; you decide WHO reacts, WITH WHAT INTENT, and WHAT shifts on stage. Your job is to keep every beat DRAMATICALLY INTERESTING: vary who takes the spotlight, create friction, initiatives and secrets, never let everyone politely agree.
+Reply with ONE JSON object, nothing else:
 {
-  "narration": "1-3 sentences of scene narration (weather, atmosphere, events, time). Omit or empty if nothing changed.",
-  "speakers": ["Name1", "Name2"],
+  "narration": "1-3 sentences of diegetic scene narration (weather, atmosphere, events, passage of time). Omit or empty if nothing changed.",
+  "sceneGoal": "one sentence: the dramatic point of this beat (a tension to sharpen, a reveal to seed, a choice to force).",
+  "speakers": [
+    { "name": "Name1", "direction": "one sentence of stage direction: what this character wants, feels, or DOES this turn." },
+    { "name": "Name2", "direction": "..." }
+  ],
   "sceneChange": { "location": "...", "event": "...", "enter": ["Name"], "exit": ["Name"] }
 }
 Rules:
-- "speakers": ONLY names from the roster, most-relevant first, at most ${MAX_SPEAKERS_PER_BEAT}. Whoever was directly addressed reacts first. Not everyone needs to speak — silence is fine (empty array) if the beat targets no one.
-- Never include the player in "speakers".
+- "speakers": ONLY names from the roster, most-relevant first, at most ${maxSpeakers}. Whoever was directly addressed reacts first. Not everyone needs to speak — pick the characters whose reaction MATTERS this beat; silence is fine (empty array).
+- Give each speaker a DIFFERENT direction — contrasting goals and emotions make the scene alive. Someone may interrupt, deflect, lie, act instead of talking.
+- Never include the player in "speakers". Never reveal secrets in "narration".
 - "narration" is diegetic prose (no meta, no brackets), or omitted.
 - "sceneChange" only when something actually changes; "enter"/"exit" adjust who is on stage.`;
+}
 
 export function buildDirectorUserPrompt(params: {
     roster: string[];
@@ -83,13 +101,15 @@ export function buildDirectorUserPrompt(params: {
 
 /**
  * Robust parse of the Director's JSON. Pure (unit-tested): tolerates code fences and
- * chatter around the object, enforces roster membership (case-insensitive), the speaker
- * cap, and drops the player from speakers.
+ * chatter around the object, accepts BOTH speaker formats (legacy `string[]` and
+ * `{name, direction}[]`), enforces roster membership (case-insensitive), the speaker cap,
+ * and drops the player from speakers.
  */
 export function parseDirectorResponse(
     raw: string,
     roster: string[],
-    userName?: string
+    userName?: string,
+    maxSpeakers: number = DEFAULT_MAX_SPEAKERS
 ): DirectorDecision {
     const empty: DirectorDecision = { speakers: [] };
     if (!raw) return empty;
@@ -105,23 +125,42 @@ export function parseDirectorResponse(
         return empty;
     }
 
+    const cap = Math.max(1, Math.min(MAX_SPEAKERS_CEILING, maxSpeakers));
+
     // Canonical-name resolution: the model may echo names with different casing.
     const canonical = new Map(roster.map((n) => [n.toLowerCase(), n]));
     const userLower = userName?.toLowerCase();
 
-    const speakers: string[] = [];
+    const speakers: SceneSpeaker[] = [];
     if (Array.isArray(parsed.speakers)) {
         for (const s of parsed.speakers) {
-            if (typeof s !== 'string') continue;
-            const resolved = canonical.get(s.trim().toLowerCase());
+            let name: string | undefined;
+            let direction: string | undefined;
+            if (typeof s === 'string') {
+                name = s;
+            } else if (s && typeof s === 'object') {
+                const obj = s as Record<string, unknown>;
+                if (typeof obj.name === 'string') name = obj.name;
+                if (typeof obj.direction === 'string' && obj.direction.trim()) {
+                    direction = obj.direction.trim();
+                }
+            }
+            if (!name) continue;
+            const resolved = canonical.get(name.trim().toLowerCase());
             if (!resolved) continue;
             if (userLower && resolved.toLowerCase() === userLower) continue;
-            if (!speakers.includes(resolved)) speakers.push(resolved);
-            if (speakers.length >= MAX_SPEAKERS_PER_BEAT) break;
+            if (!speakers.some((sp) => sp.name === resolved)) {
+                speakers.push({ name: resolved, direction });
+            }
+            if (speakers.length >= cap) break;
         }
     }
 
     const narrationRaw = typeof parsed.narration === 'string' ? parsed.narration.trim() : '';
+    const sceneGoal =
+        typeof parsed.sceneGoal === 'string' && parsed.sceneGoal.trim()
+            ? parsed.sceneGoal.trim()
+            : undefined;
 
     let sceneChange: SceneChange | undefined;
     const sc = parsed.sceneChange as Record<string, unknown> | undefined;
@@ -144,6 +183,7 @@ export function parseDirectorResponse(
     return {
         narration: narrationRaw || undefined,
         speakers,
+        sceneGoal,
         sceneChange,
     };
 }
@@ -166,16 +206,18 @@ export async function directorDecide(params: {
     recentMessages: Message[];
     relationships?: DirectedRelationship[];
     arcPosition?: string;
+    maxSpeakers?: number;
 }): Promise<DirectorDecision> {
+    const maxSpeakers = params.maxSpeakers ?? DEFAULT_MAX_SPEAKERS;
     try {
         const result = await backgroundAICall({
-            systemPrompt: DIRECTOR_SYSTEM_PROMPT,
+            systemPrompt: buildDirectorSystemPrompt(maxSpeakers),
             userPrompt: buildDirectorUserPrompt(params),
             temperature: 0.6,
-            maxTokens: 500,
+            maxTokens: 700,
         });
         if (!result) return { speakers: [] };
-        return parseDirectorResponse(result.content, params.roster, params.userName);
+        return parseDirectorResponse(result.content, params.roster, params.userName, maxSpeakers);
     } catch (err) {
         console.warn('[Scene] Director call failed:', err);
         return { speakers: [] };

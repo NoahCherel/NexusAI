@@ -8,7 +8,7 @@ import {
 } from '@/lib/ai/rp-engine';
 import { buildConversationPayload } from '@/lib/ai/payload-builder';
 import type { CharacterCard } from '@/types/character';
-import type { Message, WorldState } from '@/types/chat';
+import type { Message } from '@/types/chat';
 import type { APIPreset } from '@/types/preset';
 
 const immersive = BUILTIN_ENGINES.find((e) => e.builtinKey === IMMERSIVE_NEXUS_KEY)!;
@@ -23,7 +23,7 @@ const card: CharacterCard = {
     mes_example: '',
 };
 
-const worldState: WorldState = { inventory: [], location: '', relationships: {} };
+
 
 function userMsg(content: string): Message {
     return {
@@ -83,7 +83,7 @@ describe('buildConversationPayload — generate', () => {
         const { messagesPayload } = await buildConversationPayload({
             mode: 'generate',
             character: card,
-            worldState,
+
             activeEntries: [],
             history: [userMsg('hello')],
             activePreset: preset(),
@@ -110,7 +110,7 @@ describe('buildConversationPayload — generate', () => {
         const { messagesPayload } = await buildConversationPayload({
             mode: 'generate',
             character: card,
-            worldState,
+
             activeEntries: [],
             history: [userMsg('hello')],
             activePreset: preset({ postHistoryInstructions: 'USER_POSTHISTORY_MARKER' }),
@@ -127,7 +127,7 @@ describe('buildConversationPayload — generate', () => {
         const { messagesPayload } = await buildConversationPayload({
             mode: 'generate',
             character: card,
-            worldState,
+
             activeEntries: [],
             history: [userMsg('hello')],
             activePreset: preset(),
@@ -144,7 +144,7 @@ describe('buildConversationPayload — generate', () => {
         const { messagesPayload } = await buildConversationPayload({
             mode: 'generate',
             character: card,
-            worldState,
+
             activeEntries: [],
             history: [userMsg('hello')],
             activePreset: preset(),
@@ -160,7 +160,7 @@ describe('buildConversationPayload — generate', () => {
         const { messagesPayload } = await buildConversationPayload({
             mode: 'generate',
             character: card,
-            worldState,
+
             activeEntries: [],
             history: [userMsg('hello')],
             activePreset: preset(),
@@ -177,7 +177,7 @@ describe('buildConversationPayload — generate', () => {
         const { messagesPayload } = await buildConversationPayload({
             mode: 'generate',
             character: card,
-            worldState,
+
             activeEntries: [],
             history: [userMsg('hello')],
             activePreset: preset(),
@@ -195,7 +195,7 @@ describe('buildConversationPayload — impersonate (inverted contract)', () => {
         const { messagesPayload } = await buildConversationPayload({
             mode: 'impersonate',
             character: card,
-            worldState,
+
             activeEntries: [],
             history: [userMsg('hello')],
             recentMessages: [userMsg('hello')],
@@ -222,7 +222,7 @@ describe('buildConversationPayload — impersonate (inverted contract)', () => {
         const { messagesPayload } = await buildConversationPayload({
             mode: 'impersonate',
             character: card,
-            worldState,
+
             activeEntries: [],
             history: [userMsg('hello')],
             recentMessages: [userMsg('hello')],
@@ -245,7 +245,7 @@ describe('buildConversationPayload — impersonate (inverted contract)', () => {
         const { messagesPayload } = await buildConversationPayload({
             mode: 'impersonate',
             character: card,
-            worldState,
+
             activeEntries: [],
             history: [userMsg('hello')],
             activePreset: preset(),
@@ -265,7 +265,7 @@ describe('buildConversationPayload — impersonate (inverted contract)', () => {
         const { messagesPayload } = await buildConversationPayload({
             mode: 'impersonate',
             character: card,
-            worldState,
+
             activeEntries: [],
             history: [userMsg('hello')],
             activePreset: preset({ impersonationPrompt: 'CUSTOM_IMP for {{user}}' }),
@@ -285,7 +285,7 @@ describe('buildConversationPayload — impersonate (inverted contract)', () => {
         const { messagesPayload } = await buildConversationPayload({
             mode: 'impersonate',
             character: card,
-            worldState,
+
             activeEntries: [],
             history: [userMsg('hello')],
             activePreset: preset({ postHistoryInstructions: 'USER_POSTHISTORY_MARKER' }),
@@ -306,7 +306,7 @@ describe('buildConversationPayload — impersonate (inverted contract)', () => {
         const { messagesPayload } = await buildConversationPayload({
             mode: 'impersonate',
             character: card,
-            worldState,
+
             activeEntries: [],
             history: [userMsg('hello')],
             activePreset: preset(),
@@ -323,7 +323,7 @@ describe('buildConversationPayload — impersonate (inverted contract)', () => {
         const { messagesPayload } = await buildConversationPayload({
             mode: 'impersonate',
             character: card,
-            worldState,
+
             activeEntries: [],
             history: [userMsg('hello')],
             activePreset: preset(),
@@ -342,7 +342,7 @@ describe('buildConversationPayload — impersonate (inverted contract)', () => {
         const { messagesPayload } = await buildConversationPayload({
             mode: 'impersonate',
             character: card,
-            worldState,
+
             activeEntries: [],
             history: [userMsg('hello')],
             activePreset: preset(),
@@ -360,7 +360,7 @@ describe('buildConversationPayload — impersonate (inverted contract)', () => {
         const { messagesPayload } = await buildConversationPayload({
             mode: 'generate',
             character: card,
-            worldState,
+
             activeEntries: [],
             history: [userMsg('hello')],
             activePreset: preset(),

@@ -46,18 +46,16 @@ export interface StallResult {
  * Detect whether the scene is stalling.
  * @param latest the assistant beat just produced
  * @param previous the previous assistant beat (or undefined)
- * @param worldStateChanged whether the world state moved this turn (if known)
  * @param threshold similarity above which beats count as "too similar" (default 0.5)
  */
 export function detectStall(
     latest: string,
     previous: string | undefined,
-    worldStateChanged: boolean,
     threshold = 0.5
 ): StallResult {
     if (!previous) return { stalled: false, similarity: 0 };
     const similarity = lexicalSimilarity(latest, previous);
-    return { stalled: similarity >= threshold && !worldStateChanged, similarity };
+    return { stalled: similarity >= threshold, similarity };
 }
 
 /** Build the one-shot nudge text; steers toward `nextBeat` when an Arc is set. */
