@@ -1,13 +1,28 @@
 'use client';
 
 /**
- * Embedded Chub.ai catalogue browser (used as a tab of the CharacterImporter dialog):
- * search + sort + grid of cards, one-click import through the existing /api/import route.
- * JannyAI has no reachable catalogue API (Cloudflare) — its cards go through the URL tab.
+ * Embedded Chub.ai catalogue browser (a tab of the CharacterImporter dialog), laid out
+ * like Chub itself: rich LIST rows (cover, full blurb, tags, author, stats) and a full
+ * DETAIL preview on click (description, personality, scenario, first message) so the user
+ * knows exactly what they're importing. One-click import from both the row and the detail.
+ *
+ * Every network path has a browser-side fallback (real Chrome TLS fingerprint) because
+ * Chub's WAF intermittently 403s the Next server — see src/lib/import/chub.ts.
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Loader2, Star, MessageSquare, Download, Check } from 'lucide-react';
+import {
+    Loader2,
+    Star,
+    MessageSquare,
+    Download,
+    Check,
+    ArrowLeft,
+    BookOpen,
+    Shuffle,
+    Cpu,
+    ExternalLink,
+} from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import type { CharacterCard } from '@/types';
@@ -16,12 +31,42 @@ import {
     buildChubSearchParams,
     normalizeChubNodes,
     downloadChubCardInBrowser,
+    fetchChubDetailInBrowser,
     type ChubNode,
     type MarketplaceCard,
+    type ChubCardDetail,
 } from '@/lib/import/chub';
 
 function formatCount(n: number): string {
     return n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n);
+}
+
+/** "2 ans" / "8 mois" / "12 j" — rough age from an ISO date. */
+function formatAge(iso?: string): string {
+    if (!iso) return '';
+    const days = Math.floor((Date.now() - new Date(iso).getTime()) / 86400000);
+    if (days < 1) return "aujourd'hui";
+    if (days < 60) return `${days} j`;
+    if (days < 730) return `${Math.floor(days / 30)} mois`;
+    return `${Math.floor(days / 365)} ans`;
+}
+
+/** Resolve card placeholders for a readable preview (display only). */
+function humanize(text: string, charName: string): string {
+    return text.replace(/\{\{char\}\}/gi, charName).replace(/\{\{user\}\}/gi, 'Vous');
+}
+
+function Section({ label, children }: { label: string; children: React.ReactNode }) {
+    return (
+        <div>
+            <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1">
+                {label}
+            </p>
+            <div className="text-xs leading-relaxed whitespace-pre-wrap break-words">
+                {children}
+            </div>
+        </div>
+    );
 }
 
 export function MarketplaceBrowser({
@@ -39,6 +84,11 @@ export function MarketplaceBrowser({
     const [importingPath, setImportingPath] = useState<string | null>(null);
     const [importedPaths, setImportedPaths] = useState<Set<string>>(new Set());
     const [brokenAvatars, setBrokenAvatars] = useState<Set<string>>(new Set());
+    // Detail preview state
+    const [selected, setSelected] = useState<MarketplaceCard | null>(null);
+    const [detail, setDetail] = useState<ChubCardDetail | null>(null);
+    const [detailLoading, setDetailLoading] = useState(false);
+    const detailCache = useRef(new Map<string, ChubCardDetail>());
     // Guards against out-of-order responses (fast typing + slow network).
     const searchSeq = useRef(0);
 
@@ -107,6 +157,38 @@ export function MarketplaceBrowser({
         return () => clearTimeout(t);
     }, [search]);
 
+    const openDetail = async (card: MarketplaceCard) => {
+        setSelected(card);
+        const cached = detailCache.current.get(card.fullPath);
+        if (cached) {
+            setDetail(cached);
+            return;
+        }
+        setDetail(null);
+        setDetailLoading(true);
+        try {
+            let d: ChubCardDetail | null = null;
+            // 1. Server proxy.
+            try {
+                const res = await fetch('/api/marketplace', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ detail: card.fullPath }),
+                });
+                const data = await res.json();
+                if (res.ok) d = data.detail as ChubCardDetail;
+            } catch {
+                /* fall through */
+            }
+            // 2. Browser fallback (WAF).
+            if (!d) d = await fetchChubDetailInBrowser(card.fullPath);
+            if (d) detailCache.current.set(card.fullPath, d);
+            setDetail(d);
+        } finally {
+            setDetailLoading(false);
+        }
+    };
+
     const importCard = async (card: MarketplaceCard) => {
         setImportingPath(card.fullPath);
         setError(null);
@@ -148,12 +230,179 @@ export function MarketplaceBrowser({
         }
     };
 
+    const importButton = (card: MarketplaceCard, size: 'sm' | 'default' = 'sm') => (
+        <Button
+            size={size}
+            className={size === 'sm' ? 'h-8 gap-1.5 shrink-0' : 'h-9 gap-1.5 shrink-0'}
+            variant={importedPaths.has(card.fullPath) ? 'secondary' : 'default'}
+            disabled={importingPath === card.fullPath || importedPaths.has(card.fullPath)}
+            onClick={(e) => {
+                e.stopPropagation();
+                void importCard(card);
+            }}
+        >
+            {importedPaths.has(card.fullPath) ? (
+                <>
+                    <Check className="w-3.5 h-3.5" /> Importé
+                </>
+            ) : importingPath === card.fullPath ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            ) : (
+                <>
+                    <Download className="w-3.5 h-3.5" /> Importer
+                </>
+            )}
+        </Button>
+    );
+
+    const avatar = (card: MarketplaceCard, className: string) =>
+        !brokenAvatars.has(card.fullPath) ? (
+            // eslint-disable-next-line @next/next/no-img-element -- external CDN, next/image needs domain config
+            <img
+                src={card.avatarUrl}
+                alt={card.name}
+                loading="lazy"
+                className={`${className} object-cover rounded-lg bg-muted shrink-0`}
+                onError={() =>
+                    setBrokenAvatars((prev) => new Set(prev).add(card.fullPath))
+                }
+            />
+        ) : (
+            <div
+                className={`${className} rounded-lg bg-muted shrink-0 flex items-center justify-center text-2xl font-bold text-muted-foreground/40`}
+            >
+                {card.name.charAt(0)}
+            </div>
+        );
+
+    const statChips = (c: { stars: number; chats: number; tokens: number }) => (
+        <span className="flex items-center gap-2.5 text-[10px] text-muted-foreground font-mono shrink-0">
+            <span className="flex items-center gap-0.5" title="Favoris">
+                <Star className="w-3 h-3" />
+                {formatCount(c.stars)}
+            </span>
+            <span className="flex items-center gap-0.5" title="Chats publics">
+                <MessageSquare className="w-3 h-3" />
+                {formatCount(c.chats)}
+            </span>
+            <span className="flex items-center gap-0.5" title="Taille de la carte (tokens)">
+                <Cpu className="w-3 h-3" />
+                {formatCount(c.tokens)}
+            </span>
+        </span>
+    );
+
+    const detailView = selected && (
+        <div className="absolute inset-0 z-10 bg-background flex flex-col rounded-lg border border-border/60 overflow-hidden">
+            {/* Detail header */}
+            <div className="flex items-center gap-2 p-2 border-b border-border/50 shrink-0">
+                <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-8 gap-1.5 shrink-0"
+                    onClick={() => setSelected(null)}
+                >
+                    <ArrowLeft className="w-4 h-4" />
+                    Retour
+                </Button>
+                <span className="font-semibold text-sm truncate flex-1">{selected.name}</span>
+                <a
+                    href={`https://chub.ai/characters/${selected.fullPath}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-[11px] text-muted-foreground hover:text-foreground flex items-center gap-1 shrink-0 max-sm:hidden"
+                >
+                    <ExternalLink className="w-3 h-3" />
+                    Voir sur Chub
+                </a>
+                {importButton(selected, 'default')}
+            </div>
+
+            {/* Detail body */}
+            <div className="flex-1 overflow-y-auto p-3 space-y-4">
+                <div className="flex gap-3">
+                    {avatar(selected, 'w-24 h-32 sm:w-32 sm:h-44')}
+                    <div className="min-w-0 flex-1 space-y-2">
+                        <p className="text-xs text-muted-foreground">
+                            @{selected.author}
+                            {selected.createdAt ? ` · ${formatAge(selected.createdAt)}` : ''}
+                        </p>
+                        {statChips(detail ?? selected)}
+                        {detail && (
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                                {detail.hasLorebook && (
+                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-orange-400/10 text-orange-400 text-[10px]">
+                                        <BookOpen className="w-3 h-3" /> Lorebook embarqué
+                                    </span>
+                                )}
+                                {detail.altGreetingCount > 0 && (
+                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-primary/10 text-primary text-[10px]">
+                                        <Shuffle className="w-3 h-3" /> {detail.altGreetingCount}{' '}
+                                        intro{detail.altGreetingCount > 1 ? 's' : ''} alternative
+                                        {detail.altGreetingCount > 1 ? 's' : ''}
+                                    </span>
+                                )}
+                            </div>
+                        )}
+                        <div className="flex items-center gap-1 flex-wrap">
+                            {(detail?.topics ?? selected.topics).map((t) => (
+                                <span
+                                    key={t}
+                                    className="px-1.5 py-0.5 rounded bg-muted text-[10px] text-muted-foreground"
+                                >
+                                    {t}
+                                </span>
+                            ))}
+                        </div>
+                    </div>
+                </div>
+
+                {detailLoading && (
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground py-4 justify-center">
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        Chargement de la fiche…
+                    </div>
+                )}
+
+                {!detailLoading && !detail && (
+                    <p className="text-xs text-muted-foreground py-2">
+                        Fiche complète indisponible (Chub bloque) — l&apos;import reste possible.
+                    </p>
+                )}
+
+                {(detail?.tagline || selected.tagline) && (
+                    <Section label="Accroche">{detail?.tagline || selected.tagline}</Section>
+                )}
+                {(detail?.description || selected.description) && (
+                    <Section label="Description">
+                        {humanize(detail?.description || selected.description, selected.name)}
+                    </Section>
+                )}
+                {detail?.personality && (
+                    <Section label="Personnalité">
+                        {humanize(detail.personality, selected.name)}
+                    </Section>
+                )}
+                {detail?.scenario && (
+                    <Section label="Scénario">{humanize(detail.scenario, selected.name)}</Section>
+                )}
+                {detail?.firstMessage && (
+                    <Section label="Premier message — aperçu du style d'écriture">
+                        <div className="border border-border/50 rounded-lg p-2.5 bg-card/40 max-h-64 overflow-y-auto">
+                            {humanize(detail.firstMessage, selected.name)}
+                        </div>
+                    </Section>
+                )}
+            </div>
+        </div>
+    );
+
     return (
         // min-w-0: direct child of a CSS-grid DialogContent — without it the grid track
         // sizes to our min-content and the row overflows the dialog instead of wrapping.
         <div className="flex flex-col gap-3 min-h-0 min-w-0 flex-1">
             {/* Search / sort / NSFW — wraps on mobile (input takes its own full row) */}
-            <div className="flex flex-wrap gap-2 items-center">
+            <div className="flex flex-wrap gap-2 items-center shrink-0">
                 <Input
                     value={query}
                     onChange={(e) => setQuery(e.target.value)}
@@ -183,100 +432,81 @@ export function MarketplaceBrowser({
 
             {error && <p className="text-xs text-destructive shrink-0">{error}</p>}
 
-            {/* Results grid */}
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 overflow-y-auto min-h-0 flex-1 pr-1 content-start">
-                {results.map((card) => (
-                    <div
-                        key={card.fullPath}
-                        className="border border-border/50 rounded-xl overflow-hidden bg-card/50 flex flex-col"
-                    >
-                        <div className="aspect-[3/4] bg-muted relative overflow-hidden">
-                            {!brokenAvatars.has(card.fullPath) ? (
-                                // eslint-disable-next-line @next/next/no-img-element -- external CDN, next/image needs domain config
-                                <img
-                                    src={card.avatarUrl}
-                                    alt={card.name}
-                                    loading="lazy"
-                                    className="w-full h-full object-cover"
-                                    onError={() =>
-                                        setBrokenAvatars((prev) =>
-                                            new Set(prev).add(card.fullPath)
-                                        )
-                                    }
-                                />
-                            ) : (
-                                <div className="w-full h-full flex items-center justify-center text-3xl font-bold text-muted-foreground/40">
-                                    {card.name.charAt(0)}
+            {/* Results list + detail overlay */}
+            <div className="flex-1 min-h-0 relative">
+                <div className="h-full overflow-y-auto pr-1 space-y-2">
+                    {results.map((card) => (
+                        <div
+                            key={card.fullPath}
+                            role="button"
+                            tabIndex={0}
+                            onClick={() => void openDetail(card)}
+                            onKeyDown={(e) => {
+                                if (e.key === 'Enter') void openDetail(card);
+                            }}
+                            className="flex gap-3 p-2.5 border border-border/50 rounded-xl bg-card/40 hover:bg-card/80 hover:border-primary/30 transition-colors cursor-pointer"
+                        >
+                            {avatar(card, 'w-16 h-20 sm:w-20 sm:h-24')}
+                            <div className="flex-1 min-w-0 flex flex-col gap-1">
+                                <div className="flex items-baseline gap-2 min-w-0">
+                                    <span className="text-sm font-semibold truncate">
+                                        {card.name}
+                                    </span>
+                                    <span className="text-[10px] text-muted-foreground truncate shrink-0">
+                                        @{card.author}
+                                        {card.createdAt ? ` · ${formatAge(card.createdAt)}` : ''}
+                                    </span>
                                 </div>
-                            )}
-                        </div>
-                        <div className="p-2 flex flex-col gap-1 flex-1">
-                            <p className="text-sm font-medium truncate" title={card.fullPath}>
-                                {card.name}
-                            </p>
-                            <p className="text-[11px] text-muted-foreground line-clamp-2 flex-1">
-                                {card.tagline}
-                            </p>
-                            <div className="flex items-center gap-2 text-[10px] text-muted-foreground font-mono">
-                                <span className="flex items-center gap-0.5">
-                                    <Star className="w-3 h-3" />
-                                    {formatCount(card.stars)}
-                                </span>
-                                <span className="flex items-center gap-0.5">
-                                    <MessageSquare className="w-3 h-3" />
-                                    {formatCount(card.chats)}
-                                </span>
-                                <span>{formatCount(card.tokens)} tok</span>
+                                <p className="text-[11px] text-muted-foreground line-clamp-2 sm:line-clamp-3">
+                                    {card.tagline || card.description || '(pas de description)'}
+                                </p>
+                                <div className="flex items-center gap-1 flex-wrap mt-auto">
+                                    {card.topics.slice(0, 5).map((t) => (
+                                        <span
+                                            key={t}
+                                            className="px-1.5 py-0.5 rounded bg-muted text-[10px] text-muted-foreground"
+                                        >
+                                            {t}
+                                        </span>
+                                    ))}
+                                </div>
                             </div>
+                            <div className="flex flex-col items-end justify-between gap-1.5 shrink-0">
+                                {statChips(card)}
+                                {importButton(card)}
+                            </div>
+                        </div>
+                    ))}
+                    {results.length === 0 && !isLoading && (
+                        <p className="text-center text-sm text-muted-foreground py-8">
+                            Aucun résultat.
+                        </p>
+                    )}
+                    {results.length > 0 && (
+                        <div className="pt-1 pb-2 flex justify-center">
                             <Button
+                                variant="secondary"
                                 size="sm"
-                                className="h-8 mt-1 gap-1.5"
-                                variant={importedPaths.has(card.fullPath) ? 'secondary' : 'default'}
-                                disabled={
-                                    importingPath === card.fullPath ||
-                                    importedPaths.has(card.fullPath)
-                                }
-                                onClick={() => void importCard(card)}
+                                className="gap-1.5"
+                                disabled={isLoading}
+                                onClick={() => void search(page + 1, true)}
                             >
-                                {importedPaths.has(card.fullPath) ? (
-                                    <>
-                                        <Check className="w-3.5 h-3.5" /> Importé
-                                    </>
-                                ) : importingPath === card.fullPath ? (
-                                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                                ) : (
-                                    <>
-                                        <Download className="w-3.5 h-3.5" /> Importer
-                                    </>
-                                )}
+                                {isLoading && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                                Charger plus
                             </Button>
                         </div>
-                    </div>
-                ))}
-                {results.length === 0 && !isLoading && (
-                    <p className="col-span-full text-center text-sm text-muted-foreground py-8">
-                        Aucun résultat.
-                    </p>
-                )}
+                    )}
+                </div>
+
+                {detailView}
             </div>
 
-            {/* Footer — hint text hidden on mobile (it lives in the Import tab too) */}
-            <div className="flex items-center justify-between gap-3 shrink-0">
-                <p className="text-[10px] text-muted-foreground max-sm:hidden">
-                    Catalogue Chub.ai / CharacterHub. JannyAI n&apos;expose pas de catalogue
-                    (Cloudflare) — collez l&apos;URL d&apos;une carte dans l&apos;onglet Importer.
-                </p>
-                <Button
-                    variant="secondary"
-                    size="sm"
-                    className="shrink-0 gap-1.5 max-sm:flex-1"
-                    disabled={isLoading}
-                    onClick={() => void search(page + 1, true)}
-                >
-                    {isLoading && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
-                    Charger plus
-                </Button>
-            </div>
+            {/* Footer — hint hidden on mobile (it lives in the Import tab too) */}
+            <p className="text-[10px] text-muted-foreground shrink-0 max-sm:hidden">
+                Catalogue Chub.ai / CharacterHub — cliquez une carte pour la fiche complète.
+                JannyAI n&apos;expose pas de catalogue (Cloudflare) : collez l&apos;URL dans
+                l&apos;onglet Importer.
+            </p>
         </div>
     );
 }

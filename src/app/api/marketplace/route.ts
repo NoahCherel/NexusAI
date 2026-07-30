@@ -13,6 +13,8 @@ import {
     CHUB_SEARCH_URL,
     buildChubSearchParams,
     normalizeChubNodes,
+    normalizeChubDetail,
+    chubDetailUrl,
     type ChubNode,
 } from '@/lib/import/chub';
 
@@ -61,7 +63,40 @@ export async function POST(req: NextRequest) {
             page?: number;
             nsfw?: boolean;
             sort?: string;
+            /** Detail mode: fullPath of a card to preview (creator/project). */
+            detail?: string;
         };
+
+        // Detail mode — full card preview before import.
+        if (typeof body.detail === 'string' && /^[^/]+\/[^/]+$/.test(body.detail)) {
+            let res = await fetch(chubDetailUrl(body.detail), { headers: BROWSER_HEADERS });
+            let text = await res.text();
+            if (!res.ok || isBlocked(res.status, text)) {
+                await new Promise((r) => setTimeout(r, 700));
+                res = await fetch(chubDetailUrl(body.detail), { headers: BROWSER_HEADERS });
+                text = await res.text();
+            }
+            if (!res.ok || isBlocked(res.status, text)) {
+                return Response.json(
+                    {
+                        error: 'Chub a bloqué la requête côté serveur.',
+                        kind: isBlocked(res.status, text) ? 'blocked' : 'error',
+                    },
+                    { status: 502 }
+                );
+            }
+            try {
+                const json = JSON.parse(text) as { node?: ChubNode };
+                const detail = json.node ? normalizeChubDetail(json.node) : null;
+                if (!detail) {
+                    return Response.json({ error: 'Carte introuvable.' }, { status: 404 });
+                }
+                return Response.json({ detail });
+            } catch {
+                return Response.json({ error: 'Réponse Chub invalide.' }, { status: 502 });
+            }
+        }
+
         const params = buildChubSearchParams(body);
 
         let result = await chubSearch(params);

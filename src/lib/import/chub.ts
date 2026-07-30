@@ -11,13 +11,29 @@
 export interface MarketplaceCard {
     name: string;
     fullPath: string;
+    /** Author slug (first segment of fullPath). */
+    author: string;
     tagline: string;
+    /** Full card blurb (rows show it clamped; the detail view shows everything). */
+    description: string;
     avatarUrl: string;
     stars: number;
     chats: number;
     tokens: number;
     topics: string[];
     nsfwImage: boolean;
+    createdAt?: string;
+}
+
+/** Full preview of a card (detail endpoint) — what the user sees BEFORE importing. */
+export interface ChubCardDetail extends MarketplaceCard {
+    firstMessage: string;
+    personality: string;
+    scenario: string;
+    hasLorebook: boolean;
+    altGreetingCount: number;
+    rating: number;
+    ratingCount: number;
 }
 
 export interface ChubNode {
@@ -32,7 +48,22 @@ export interface ChubNode {
     nTokens?: number;
     topics?: string[];
     nsfw_image?: boolean;
+    createdAt?: string;
+    rating?: number;
+    ratingCount?: number;
+    definition?: {
+        first_message?: string;
+        personality?: string;
+        tavern_personality?: string;
+        scenario?: string;
+        description?: string;
+        alternate_greetings?: string[];
+        embedded_lorebook?: unknown;
+    } | null;
 }
+
+export const chubDetailUrl = (fullPath: string) =>
+    `https://api.chub.ai/api/characters/${fullPath}?full=true`;
 
 export const CHUB_SEARCH_URL = 'https://api.chub.ai/search';
 export const CHUB_DOWNLOAD_URL = 'https://api.chub.ai/api/characters/download';
@@ -107,7 +138,9 @@ export function normalizeChubNodes(nodes: ChubNode[]): MarketplaceCard[] {
         .map((n) => ({
             name: n.name!,
             fullPath: n.fullPath!,
-            tagline: n.tagline || (n.description || '').slice(0, 140),
+            author: n.fullPath!.split('/')[0] || '',
+            tagline: n.tagline || '',
+            description: n.description || '',
             avatarUrl:
                 n.avatar_url || `https://avatars.charhub.io/avatars/${n.fullPath}/avatar.webp`,
             stars: n.starCount ?? 0,
@@ -115,5 +148,44 @@ export function normalizeChubNodes(nodes: ChubNode[]): MarketplaceCard[] {
             tokens: n.nTokens ?? 0,
             topics: (n.topics || []).filter((t) => t !== 'ROOT').slice(0, 6),
             nsfwImage: !!n.nsfw_image,
+            createdAt: n.createdAt,
         }));
+}
+
+/** Normalize the detail endpoint's node (with `definition`) into a full preview. */
+export function normalizeChubDetail(node: ChubNode): ChubCardDetail | null {
+    const [base] = normalizeChubNodes([node]);
+    if (!base) return null;
+    const def = node.definition;
+    return {
+        ...base,
+        topics: (node.topics || []).filter((t) => t !== 'ROOT'), // detail view: ALL tags
+        firstMessage: def?.first_message || '',
+        personality: def?.tavern_personality || def?.personality || '',
+        scenario: def?.scenario || '',
+        hasLorebook: !!def?.embedded_lorebook,
+        altGreetingCount: Array.isArray(def?.alternate_greetings)
+            ? def.alternate_greetings.filter((g) => typeof g === 'string' && g.trim()).length
+            : 0,
+        rating: node.rating ?? 0,
+        ratingCount: node.ratingCount ?? 0,
+    };
+}
+
+/**
+ * BROWSER-ONLY detail fetch fallback (same WAF story as the search/download fallbacks:
+ * the page's real Chrome fingerprint passes where the server's undici gets 403).
+ */
+export async function fetchChubDetailInBrowser(fullPath: string): Promise<ChubCardDetail | null> {
+    try {
+        const res = await fetch(chubDetailUrl(fullPath), {
+            headers: { Accept: 'application/json' },
+        });
+        if (!res.ok) return null;
+        const json = (await res.json()) as { node?: ChubNode };
+        return json.node ? normalizeChubDetail(json.node) : null;
+    } catch (err) {
+        console.warn('[Chub] Browser detail fallback failed:', err);
+        return null;
+    }
 }
