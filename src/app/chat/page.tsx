@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef, useEffect, useState, useMemo } from 'react';
+import { useRef, useEffect, useState, useMemo, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Settings2, Sparkles, Users, ChevronUp } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -83,7 +83,6 @@ export default function ChatPage() {
         updateMessage,
         getActiveBranchMessages,
         getActiveBranchBanList,
-        getMessageSiblingsInfo,
         navigateToSibling,
         setActiveConversation,
         deleteMessage,
@@ -98,6 +97,31 @@ export default function ChatPage() {
         () => (activeConversationId ? getActiveBranchMessages(activeConversationId) : []),
         [activeConversationId, getActiveBranchMessages, storeMessages] // storeMessages triggers re-render
     );
+
+    // Sibling info for EVERY message in one pass — the previous per-bubble
+    // getMessageSiblingsInfo() call was an O(n log n) filter+sort per bubble per render
+    // (≈200 × per stream chunk). Same semantics: same conversation + same parentId,
+    // sorted by createdAt, 1-based index.
+    const siblingsInfoById = useMemo(() => {
+        const byParent = new Map<string, typeof storeMessages>();
+        for (const m of storeMessages) {
+            if (activeConversationId && m.conversationId !== activeConversationId) continue;
+            const key = `${m.conversationId}:${m.parentId ?? 'root'}`;
+            const group = byParent.get(key);
+            if (group) group.push(m);
+            else byParent.set(key, [m]);
+        }
+        const info = new Map<string, { currentIndex: number; total: number }>();
+        for (const group of byParent.values()) {
+            group.sort(
+                (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+            );
+            group.forEach((m, i) =>
+                info.set(m.id, { currentIndex: i + 1, total: group.length })
+            );
+        }
+        return info;
+    }, [storeMessages, activeConversationId]);
 
     // Message pagination: only display last N messages, with "Load More" button
     const MESSAGE_PAGE_SIZE = 200;
@@ -181,7 +205,10 @@ export default function ChatPage() {
             if (characterConvs.length > 0) {
                 setActiveConversation(characterConvs[0].id);
             } else {
-                const newId = await createConversation(character.id, `Chat with ${character.name}`);
+                const newId = await createConversation(
+                    character.id,
+                    `Discussion avec ${character.name}`
+                );
 
                 if (character.first_mes) {
                     // Seed the greeting + V2 alternate greetings as swipable ROOT siblings.
@@ -231,11 +258,21 @@ export default function ChatPage() {
         setActiveConversation,
     ]);
 
-    // Auto-scroll to bottom
+    // Auto-scroll: rAF-throttled (once per frame, not per stream chunk) and only while
+    // the user is already near the bottom — scrolling up to reread must not be fought.
+    const scrollRafPending = useRef(false);
     useEffect(() => {
-        if (scrollRef.current) {
-            scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-        }
+        if (scrollRafPending.current) return;
+        scrollRafPending.current = true;
+        requestAnimationFrame(() => {
+            scrollRafPending.current = false;
+            const sentinel = scrollRef.current;
+            if (!sentinel) return;
+            const rect = sentinel.getBoundingClientRect();
+            if (rect.top < window.innerHeight + 400) {
+                sentinel.scrollIntoView({ block: 'end' });
+            }
+        });
     }, [messages]);
 
     // Background memory pipeline: hierarchical-summaries effect + post-beat analyses
@@ -354,6 +391,22 @@ export default function ChatPage() {
                     recentMessages: simulatedMessages as CAMessage[],
                     activeBranchMessageIds: simulatedMessages.map((m) => m.id),
                     minConfidence: previewMinConf,
+                    // Mirror generation: same dedup + same summary eviction gate, so the
+                    // preview shows what the real call actually injects.
+                    dedupAgainstTexts: [
+                        ...(previewCanonOptions.canonDossiers ?? []).map(
+                            (d) => `${d.identity}\n${d.backstory ?? ''}\n${d.abilities ?? ''}`
+                        ),
+                        ...activeEntries.map((e) => e.content),
+                    ],
+                    evictedMessageCount: conv?.historyCutMessageId
+                        ? Math.max(
+                              0,
+                              simulatedMessages.findIndex(
+                                  (m) => m.id === conv.historyCutMessageId
+                              )
+                          )
+                        : 0,
                 }),
         });
 
@@ -379,7 +432,7 @@ export default function ChatPage() {
                 ...previewData.warnings,
                 ...(draftText
                     ? [
-                          `Draft message included: "${draftText.slice(0, 80)}${draftText.length > 80 ? '...' : ''}"`,
+                          `Brouillon inclus : « ${draftText.slice(0, 80)}${draftText.length > 80 ? '…' : ''} »`,
                       ]
                     : []),
             ],
@@ -387,18 +440,49 @@ export default function ChatPage() {
         setIsContextPreviewOpen(true);
     };
 
-    const handleEditMessage = (id: string, newContent: string) => {
-        updateMessage(id, { content: newContent });
-    };
+    // Stable identities for the bubble callbacks: ChatBubble is memo'd, and fresh function
+    // props on every render defeated it — all ~200 bubbles (with framer-motion layout
+    // measurement) re-rendered on every stream chunk. The generation handlers are
+    // recreated by the hook each render, so they're routed through a ref.
+    const bubbleActionsRef = useRef({
+        regenerate: handleRegenerate,
+        continueMsg: handleContinue,
+        retry: handleRetry,
+    });
+    useEffect(() => {
+        bubbleActionsRef.current = {
+            regenerate: handleRegenerate,
+            continueMsg: handleContinue,
+            retry: handleRetry,
+        };
+    });
+    const onBubbleRegenerate = useCallback(
+        (id: string) => bubbleActionsRef.current.regenerate(id),
+        []
+    );
+    const onBubbleContinue = useCallback(
+        (id: string) => bubbleActionsRef.current.continueMsg(id),
+        []
+    );
+    const onBubbleRetry = useCallback((id: string) => bubbleActionsRef.current.retry(id), []);
 
-    const handleDeleteMessage = (id: string) => {
-        deleteMessage(id);
-    };
+    // Zustand actions have stable identities — plain useCallback is enough here.
+    const handleEditMessage = useCallback(
+        (id: string, newContent: string) => {
+            updateMessage(id, { content: newContent });
+        },
+        [updateMessage]
+    );
 
-    const handleBranch = (id: string) => {
-        // Logic for branching (for now, simply regenerate from this point)
-        handleRegenerate(id);
-    };
+    const handleDeleteMessage = useCallback(
+        (id: string) => {
+            deleteMessage(id);
+        },
+        [deleteMessage]
+    );
+
+    // Branching = regenerate from this point.
+    const handleBranch = onBubbleRegenerate;
 
     // Character actions
     const handleEditCharacter = () => {
@@ -477,7 +561,7 @@ export default function ChatPage() {
                                             <div className="p-4 rounded-full bg-muted/50">
                                                 <Sparkles className="h-8 w-8" />
                                             </div>
-                                            <p>The story begins here...</p>
+                                            <p>L’histoire commence ici…</p>
                                         </div>
                                     ) : (
                                         <>
@@ -494,22 +578,25 @@ export default function ChatPage() {
                                                         className="gap-2 text-xs text-muted-foreground hover:text-foreground"
                                                     >
                                                         <ChevronUp className="h-3.5 w-3.5" />
-                                                        Load{' '}
+                                                        Charger{' '}
                                                         {Math.min(
                                                             MESSAGE_PAGE_SIZE,
                                                             hiddenMessageCount
                                                         )}{' '}
-                                                        more messages ({hiddenMessageCount} hidden)
+                                                        messages de plus ({hiddenMessageCount}{' '}
+                                                        masqués)
                                                     </Button>
                                                 </div>
                                             )}
                                             {displayedMessages.map((msg) => {
-                                                const siblingsInfo = getMessageSiblingsInfo(msg.id);
+                                                const siblingsInfo = siblingsInfoById.get(
+                                                    msg.id
+                                                ) ?? { currentIndex: 1, total: 1 };
                                                 // Replace {{user}} with persona name for display
                                                 const displayContent = msg.content.replace(
                                                     /{{user}}/gi,
                                                     personas.find((p) => p.id === activePersonaId)
-                                                        ?.name || 'You'
+                                                        ?.name || 'Vous'
                                                 );
 
                                                 return (
@@ -549,7 +636,7 @@ export default function ChatPage() {
                                                                       (p) =>
                                                                           p.id === activePersonaId
                                                                   )?.name ||
-                                                                  'You'
+                                                                  'Vous'
                                                                 : msg.speaker?.name ||
                                                                   character.name
                                                         }
@@ -557,12 +644,13 @@ export default function ChatPage() {
                                                             msg.speaker?.kind === 'narrator'
                                                         }
                                                         showThoughts={showThoughts}
+                                                        animateLayout={!isLoading}
                                                         onEdit={handleEditMessage}
-                                                        onRegenerate={handleRegenerate}
-                                                        onContinue={handleContinue}
+                                                        onRegenerate={onBubbleRegenerate}
+                                                        onContinue={onBubbleContinue}
                                                         onBranch={handleBranch}
                                                         onDelete={handleDeleteMessage}
-                                                        onRetry={handleRetry}
+                                                        onRetry={onBubbleRetry}
                                                         currentBranchIndex={
                                                             siblingsInfo.currentIndex
                                                         }
@@ -630,8 +718,8 @@ export default function ChatPage() {
                                     }}
                                     placeholder={
                                         !currentApiKey
-                                            ? 'Missing API Key...'
-                                            : `Message for ${character.name}...`
+                                            ? 'Clé API manquante — ouvrez les Réglages'
+                                            : `Message pour ${character.name}…`
                                     }
                                 />
                                 {immersiveMode && (
@@ -641,7 +729,7 @@ export default function ChatPage() {
                                             size="icon"
                                             className="h-6 w-6 opacity-30 hover:opacity-100 transition-opacity"
                                             onClick={() => setIsSettingsOpen(true)}
-                                            title="Settings"
+                                            title="Réglages"
                                         >
                                             <Settings2 className="h-3 w-3" />
                                         </Button>
@@ -699,9 +787,9 @@ export default function ChatPage() {
 
             <Dialog open={isLorebookOpen} onOpenChange={setIsLorebookOpen}>
                 <DialogContent className="!max-w-[95vw] !w-[95vw] h-[90vh] p-0 overflow-hidden [&>button]:hidden flex flex-col max-sm:!w-screen max-sm:!max-w-none max-sm:h-dvh max-sm:rounded-none max-sm:border-0 max-sm:top-0 max-sm:left-0 max-sm:translate-x-0 max-sm:translate-y-0">
-                    <DialogTitle className="sr-only">Lorebook Editor</DialogTitle>
+                    <DialogTitle className="sr-only">Éditeur de lorebook</DialogTitle>
                     <DialogDescription className="sr-only">
-                        Edit lorebook entries for this character.
+                        Modifier les entrées du lorebook de ce personnage.
                     </DialogDescription>
                     <LorebookEditor onClose={() => setIsLorebookOpen(false)} />
                 </DialogContent>
@@ -726,7 +814,8 @@ export default function ChatPage() {
                 <DialogContent className="!max-w-[640px] !w-[640px] h-[85vh] p-0 overflow-hidden flex flex-col">
                     <DialogTitle className="sr-only">Relations</DialogTitle>
                     <DialogDescription className="sr-only">
-                        Directional, multi-axis relationships between the characters in this story.
+                        Relations directionnelles multi-axes entre les personnages de cette
+                        histoire.
                     </DialogDescription>
                     <div className="flex flex-col h-full">
                         <div className="p-4 border-b">
@@ -742,16 +831,18 @@ export default function ChatPage() {
                 </DialogContent>
             </Dialog>
 
-            {/* Mobile Relationships Bottom Sheet */}
+            {/* Mobile Relationships Bottom Sheet — flex column: the header takes its real
+                height and the list gets exactly the rest (a hardcoded calc() reserved less
+                than the header's actual size → double scroll + last items hidden). */}
             <Sheet open={isRelationsSheetOpen} onOpenChange={setIsRelationsSheetOpen}>
-                <SheetContent side="bottom" className="h-[75vh] p-0">
-                    <SheetHeader className="p-4 border-b">
+                <SheetContent side="bottom" className="h-[75vh] p-0 gap-0 flex flex-col">
+                    <SheetHeader className="p-4 border-b shrink-0">
                         <SheetTitle>💞 Relations</SheetTitle>
                         <SheetDescription>
                             Dirigées et asymétriques (Confiance / Affection / Respect / Attirance)
                         </SheetDescription>
                     </SheetHeader>
-                    <div className="p-4 overflow-y-auto h-[calc(75vh-5rem)]">
+                    <div className="p-4 overflow-y-auto flex-1 min-h-0">
                         <RelationshipPanel />
                     </div>
                 </SheetContent>

@@ -254,15 +254,18 @@ export async function buildConversationPayload(
         contractBlock = buildEnginePostHistory(activeEngine, 'generate', { userName });
     }
 
-    // RAG retrieval (optional), budgeted from the now-known system prompt size.
+    // RAG retrieval (optional), budgeted from the now-known system prompt size. The floor
+    // is capped by the room ACTUALLY left after system+output: without that cap, a small
+    // context + big card lets the 15% floor (plus the rest of the dynamic block) starve
+    // the verbatim history down to zero messages. History always keeps >= 50% of the
+    // remaining room.
     let ragSections: ContextSection[] = [];
     if (retrieveRag) {
         const systemTokens = countTokens(systemPrompt);
-        const proportional = Math.floor(
-            (maxContextTokens - systemTokens - maxOutputTokens) * 0.25
-        );
+        const available = maxContextTokens - systemTokens - maxOutputTokens;
+        const proportional = Math.floor(available * 0.25);
         const minimum = Math.floor(maxContextTokens * 0.15);
-        const ragBudget = Math.max(proportional, minimum);
+        const ragBudget = Math.min(Math.max(proportional, minimum), Math.floor(available * 0.5));
         if (ragBudget > 50) {
             try {
                 ragSections = await retrieveRag(ragBudget);
@@ -335,13 +338,30 @@ export async function buildConversationPayload(
               ']',
           ].join('')
         : undefined;
+    // Card-level post-history (V2 `post_history_instructions`) — imported cards ship their
+    // own "jailbreak"/behavioural closer. `{{original}}` splices the preset's post-history
+    // in; otherwise the card's block follows the preset's. Never for impersonation (the
+    // ghost-writer must not inherit the character's contract).
+    const rawCardPostHistory = character.post_history_instructions?.trim() || '';
+    const resolvedCardPostHistory = rawCardPostHistory
+        ? rawCardPostHistory
+              .replace(/\{\{char\}\}|\{\{character_name\}\}/gi, character.name)
+              .replace(/\{\{user\}\}/gi, resolvedUserName)
+        : '';
+    const cardSplicesOriginal = /\{\{original\}\}/i.test(resolvedCardPostHistory);
+    const presetPostHistory = activePreset?.postHistoryInstructions;
+    const mergedPostHistory = cardSplicesOriginal
+        ? resolvedCardPostHistory.replace(/\{\{original\}\}/gi, presetPostHistory || '')
+        : [presetPostHistory, resolvedCardPostHistory].filter(Boolean).join('\n\n') ||
+          undefined;
+
     const effectivePostHistory =
         (isImpersonation
-            ? [dynamicBlock, activePreset?.postHistoryInstructions, contractBlock]
+            ? [dynamicBlock, presetPostHistory, contractBlock]
             : [
                   dynamicBlock,
                   contractBlock,
-                  activePreset?.postHistoryInstructions,
+                  mergedPostHistory,
                   sceneSpeakerBlock,
                   sceneNarratorBlock,
                   sceneEnsembleBlock,

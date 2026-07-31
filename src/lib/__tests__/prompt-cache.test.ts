@@ -259,7 +259,9 @@ describe('history window hysteresis', () => {
             historyCutMessageId: first.suggestedCutMessageId,
         });
         expect(second.suggestedCutMessageId).toBeUndefined();
-        //
+        // The anchored refit must preserve the cache-prefix CONTRACT: same prefix length
+        // plus exactly the one new message (this assertion had been orphaned to a bare //).
+        expect(second.stablePrefixLength).toBe(first.stablePrefixLength + 1);
 
         // Window starts at the same anchored message → stable prefix.
         expect(second.messagesPayload[1].content).toBe(
@@ -272,5 +274,9 @@ describe('history window hysteresis', () => {
         const r = buildRAGEnhancedPayload('SYS', [], longHistory, opts);
         const budget = opts.maxContextTokens - opts.maxOutputTokens - 1; // minus SYS≈1
         expect(r.tokenBreakdown.history).toBeLessThanOrEqual(Math.floor(budget * 0.75));
+        // Lower bound: a refit that includes ZERO messages (real starvation regression)
+        // must fail this test, not pass the one-sided upper bound.
+        expect(r.includedMessageCount).toBeGreaterThan(0);
+        expect(r.tokenBreakdown.history).toBeGreaterThan(Math.floor(budget * 0.35));
     });
 });

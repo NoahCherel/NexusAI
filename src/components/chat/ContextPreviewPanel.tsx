@@ -103,7 +103,7 @@ export function ContextPreviewPanel({
                         <div className="p-4 border-b border-white/10 flex items-center justify-between shrink-0">
                             <div className="flex items-center gap-2">
                                 <Eye className="h-5 w-5 text-primary" />
-                                <h2 className="font-semibold text-lg">Context Preview</h2>
+                                <h2 className="font-semibold text-lg">Aperçu du contexte</h2>
                                 <span className="text-xs text-muted-foreground px-2 py-0.5 rounded-full bg-white/5">
                                     {sections.length} sections
                                 </span>
@@ -121,14 +121,14 @@ export function ContextPreviewPanel({
                         {/* Token Usage Bar */}
                         <div className="px-4 py-3 border-b border-white/5 space-y-2 shrink-0">
                             <div className="flex items-center justify-between text-sm">
-                                <span className="text-muted-foreground">Token Budget</span>
+                                <span className="text-muted-foreground">Budget de tokens</span>
                                 <span className="font-mono">
                                     <span className="text-foreground">
                                         {inputTokens.toLocaleString()}
                                     </span>
                                     <span className="text-muted-foreground">
                                         {' '}
-                                        + {maxOutputTokens.toLocaleString()} output
+                                        + {maxOutputTokens.toLocaleString()} en sortie
                                     </span>
                                     <span className="text-muted-foreground">
                                         {' '}
@@ -143,12 +143,12 @@ export function ContextPreviewPanel({
                                 />
                             </div>
                             <div className="flex items-center justify-between text-xs text-muted-foreground">
-                                <span>{usagePercent}% used</span>
+                                <span>{usagePercent}% utilisé</span>
                                 <span>
-                                    {includedMessages} messages included
+                                    {includedMessages} messages inclus
                                     {droppedMessages > 0 && (
                                         <span className="text-yellow-400 ml-1">
-                                            ({droppedMessages} truncated)
+                                            ({droppedMessages} tronqués)
                                         </span>
                                     )}
                                 </span>
@@ -222,9 +222,11 @@ export function ContextPreviewPanel({
 
                         {/* Footer */}
                         <div className="p-3 border-t border-white/10 flex items-center justify-between text-xs text-muted-foreground shrink-0">
-                            <span>Token counts use cl100k_base tokenizer (GPT-4 compatible)</span>
+                            <span>
+                                Comptage des tokens via le tokenizer cl100k_base (compatible GPT-4)
+                            </span>
                             <Button variant="outline" size="sm" onClick={onClose}>
-                                Close
+                                Fermer
                             </Button>
                         </div>
                     </motion.div>

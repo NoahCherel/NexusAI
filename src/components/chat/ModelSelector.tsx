@@ -15,7 +15,7 @@ import {
     DialogFooter,
 } from '@/components/ui/dialog';
 import { cn } from '@/lib/utils';
-import { toast } from 'sonner';
+import { useNotificationStore } from '@/components/ui/api-notification';
 
 export function ModelSelector() {
     const {
@@ -28,6 +28,16 @@ export function ModelSelector() {
         addCustomModel,
         removeCustomModel,
     } = useSettingsStore();
+
+    // The app's real toast system: `sonner` was imported here but no <Toaster/> is mounted
+    // anywhere, so those toasts never actually appeared.
+    const { addNotification, updateNotification } = useNotificationStore();
+    const toast = {
+        success: (message: string) => {
+            const id = addNotification(message);
+            updateNotification(id, 'success', message);
+        },
+    };
 
     const [open, setOpen] = useState(false);
     const [searchQuery, setSearchQuery] = useState('');
@@ -86,7 +96,7 @@ export function ModelSelector() {
             });
             setIsCreatingModel(false);
             setSelectedModelId(newId);
-            toast.success('Custom model added successfully');
+            toast.success('Modèle personnalisé ajouté');
         }
     };
 
@@ -101,7 +111,7 @@ export function ModelSelector() {
                 }
                 setSelectedModelId(null);
                 setConfirmDeleteOpen(false);
-                toast.success('Custom model deleted');
+                toast.success('Modèle personnalisé supprimé');
             }
         }
     };
@@ -182,14 +192,14 @@ export function ModelSelector() {
                     <Zap className="w-3 h-3 text-yellow-500 shrink-0" />
                 )}
                 <span className="max-w-[120px] truncate hidden sm:inline-block">
-                    {currentActiveModel?.name || 'Select Model'}
+                    {currentActiveModel?.name || 'Choisir un modèle'}
                 </span>
                 <ChevronDown className="w-3 h-3 opacity-50 hidden sm:block shrink-0" />
             </Button>
 
             <Dialog open={open} onOpenChange={handleOpenChange}>
                 <DialogContent showCloseButton={false} className="max-w-4xl h-[80vh] p-0 flex flex-col overflow-hidden glass-heavy border-primary/20">
-                    <DialogTitle className="sr-only">Model Selector</DialogTitle>
+                    <DialogTitle className="sr-only">Sélecteur de modèle</DialogTitle>
 
                     {/* Header */}
                     <div className="flex items-center justify-between p-3 sm:p-4 border-b bg-muted/30 backdrop-blur-md shrink-0">
@@ -212,8 +222,8 @@ export function ModelSelector() {
                                 {isMobile && autoSelectedModel
                                     ? autoSelectedModel.name
                                     : isMobile && isCreatingModel
-                                        ? 'Add Custom Model'
-                                        : 'Model Manager'}
+                                        ? 'Ajouter un modèle'
+                                        : 'Gestionnaire de modèles'}
                             </h2>
                         </div>
                         <Button
@@ -238,7 +248,7 @@ export function ModelSelector() {
                                 <div className="relative">
                                     <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted-foreground outline-none" />
                                     <Input
-                                        placeholder="Search models..."
+                                        placeholder="Rechercher un modèle…"
                                         className="pl-9 h-9 text-xs bg-background/50 border-border/50 focus-visible:ring-primary/20"
                                         value={searchQuery}
                                         onChange={(e) => setSearchQuery(e.target.value)}
@@ -253,16 +263,16 @@ export function ModelSelector() {
                                         isCreatingModel && "bg-primary text-primary-foreground"
                                     )}
                                 >
-                                    <Plus className="w-3.5 h-3.5" /> Add Custom Model
+                                    <Plus className="w-3.5 h-3.5" /> Ajouter un modèle
                                 </Button>
                             </div>
 
                             <ScrollArea className="flex-1 min-h-0 custom-scrollbar">
                                 <div className="flex flex-col p-2 gap-1.5 pt-3 pb-8">
-                                    {renderModelGroup('Free Models', filteredModels.filter(m => m.isFree && m.provider !== 'nanogpt'))}
-                                    {renderModelGroup('Premium Models', filteredModels.filter(m => !m.isFree && !isCustomModel(m.modelId) && m.provider !== 'nanogpt'))}
+                                    {renderModelGroup('Modèles gratuits', filteredModels.filter(m => m.isFree && m.provider !== 'nanogpt'))}
+                                    {renderModelGroup('Modèles premium', filteredModels.filter(m => !m.isFree && !isCustomModel(m.modelId) && m.provider !== 'nanogpt'))}
                                     {renderModelGroup('NanoGPT (Abonnement)', filteredModels.filter(m => m.provider === 'nanogpt'))}
-                                    {renderModelGroup('Custom Models', filteredModels.filter(m => isCustomModel(m.modelId) && !m.isFree && m.provider !== 'nanogpt'))}
+                                    {renderModelGroup('Modèles personnalisés', filteredModels.filter(m => isCustomModel(m.modelId) && !m.isFree && m.provider !== 'nanogpt'))}
 
                                     {filteredModels.length === 0 && (
                                         <div className="text-center py-12 px-6">
@@ -270,7 +280,7 @@ export function ModelSelector() {
                                                 <Search className="w-6 h-6 opacity-20" />
                                             </div>
                                             <p className="text-muted-foreground text-xs font-medium">
-                                                No models found
+                                                Aucun modèle trouvé
                                             </p>
                                         </div>
                                     )}
@@ -293,10 +303,10 @@ export function ModelSelector() {
                                         </div>
                                         <div className="flex-1 min-w-0 flex flex-col gap-1.5 justify-center">
                                             <h3 className="text-lg sm:text-xl font-bold truncate">
-                                                Add Custom Model
+                                                Ajouter un modèle
                                             </h3>
                                             <p className="text-xs text-muted-foreground">
-                                                Add any model available in the OpenRouter API
+                                                Ajoutez n&apos;importe quel modèle disponible dans l&apos;API OpenRouter
                                             </p>
                                         </div>
                                     </div>
@@ -304,31 +314,31 @@ export function ModelSelector() {
                                     <div className="space-y-4 shrink-0 max-w-2xl">
                                         <div className="space-y-2">
                                             <label className="text-[10px] font-bold uppercase tracking-widest text-primary/70">
-                                                Display Name
+                                                Nom affiché
                                             </label>
                                             <Input
                                                 className="bg-muted/5 focus-visible:ring-primary/20 h-10 font-medium"
                                                 value={newModelName}
                                                 onChange={(e) => setNewModelName(e.target.value)}
-                                                placeholder="e.g., My Custom GPT"
+                                                placeholder="ex. Mon GPT perso"
                                             />
                                             <p className="text-[10px] text-muted-foreground mt-1">
-                                                The name that will be displayed in the UI.
+                                                Le nom qui apparaîtra dans l&apos;interface.
                                             </p>
                                         </div>
                                         <div className="space-y-2">
                                             <label className="text-[10px] font-bold uppercase tracking-widest text-primary/70">
-                                                Model ID (OpenRouter)
+                                                ID du modèle (OpenRouter)
                                             </label>
                                             <Input
                                                 className="bg-muted/5 focus-visible:ring-primary/20 h-10 font-mono text-sm"
                                                 value={newModelConfigId}
                                                 onChange={(e) => setNewModelConfigId(e.target.value)}
-                                                placeholder="e.g., openai/gpt-4-turbo"
+                                                placeholder="ex. openai/gpt-4-turbo"
                                             />
                                             <p className="text-[10px] text-muted-foreground mt-1 gap-1 flex flex-col">
-                                                <span>Use the exact slug from OpenRouter (e.g., <code className="bg-muted/50 px-1 py-0.5 rounded">anthropic/claude-3-opus</code>).</span>
-                                                <span className="text-yellow-500/80">Premium custom models will consume your API credits.</span>
+                                                <span>Utilisez le slug exact d&apos;OpenRouter (ex. <code className="bg-muted/50 px-1 py-0.5 rounded">anthropic/claude-3-opus</code>).</span>
+                                                <span className="text-yellow-500/80">Les modèles premium consomment vos crédits API.</span>
                                             </p>
                                         </div>
 
@@ -338,7 +348,7 @@ export function ModelSelector() {
                                                 disabled={!newModelName.trim() || !newModelConfigId.trim()}
                                                 className="w-full sm:w-auto"
                                             >
-                                                Save Model
+                                                Enregistrer le modèle
                                             </Button>
                                         </div>
                                     </div>
@@ -372,7 +382,7 @@ export function ModelSelector() {
                                                         setActiveProvider(autoSelectedModel.provider);
                                                         setActiveModel(autoSelectedModel.modelId);
                                                         toast.success(
-                                                            `Active model set to ${autoSelectedModel.name}`
+                                                            `Modèle actif : ${autoSelectedModel.name}`
                                                         );
                                                     }}
                                                     disabled={isActiveModel(autoSelectedModel)}
@@ -380,19 +390,19 @@ export function ModelSelector() {
                                                     {isActiveModel(autoSelectedModel) ? (
                                                         <>
                                                             <Check className="w-3.5 h-3.5 mr-1" />{' '}
-                                                            Active
+                                                            Actif
                                                         </>
                                                     ) : (
-                                                        'Set as Active'
+                                                        'Définir comme actif'
                                                     )}
                                                 </Button>
                                                 {autoSelectedModel.isFree ? (
-                                                    <span className="text-[10px] font-bold text-green-500 bg-green-500/10 px-2 py-1 rounded">FREE</span>
+                                                    <span className="text-[10px] font-bold text-green-500 bg-green-500/10 px-2 py-1 rounded">GRATUIT</span>
                                                 ) : (
                                                     <span className="text-[10px] font-bold text-yellow-500 bg-yellow-500/10 px-2 py-1 rounded">PREMIUM</span>
                                                 )}
                                                 {isCustomModel(autoSelectedModel.modelId) && (
-                                                    <span className="text-[10px] font-bold text-blue-500 bg-blue-500/10 px-2 py-1 rounded hidden sm:inline-block">CUSTOM</span>
+                                                    <span className="text-[10px] font-bold text-blue-500 bg-blue-500/10 px-2 py-1 rounded hidden sm:inline-block">PERSO</span>
                                                 )}
                                             </div>
                                         </div>
@@ -401,7 +411,7 @@ export function ModelSelector() {
                                     <div className="space-y-4 shrink-0 max-w-2xl">
                                         <div className="space-y-2">
                                             <label className="text-[10px] font-bold uppercase tracking-widest text-primary/70">
-                                                Model ID
+                                                ID du modèle
                                             </label>
                                             <div className="bg-muted/30 rounded-md px-3 py-2 font-mono text-sm border border-border/50 text-foreground/80">
                                                 {autoSelectedModel.modelId}
@@ -410,7 +420,7 @@ export function ModelSelector() {
 
                                         <div className="space-y-2">
                                             <label className="text-[10px] font-bold uppercase tracking-widest text-primary/70">
-                                                Provider
+                                                Fournisseur
                                             </label>
                                             <div className="bg-muted/30 rounded-md px-3 py-2 text-sm border border-border/50 capitalize text-foreground/80">
                                                 {autoSelectedModel.provider}
@@ -428,7 +438,7 @@ export function ModelSelector() {
                                                 className="text-destructive hover:bg-destructive/10 hover:text-destructive h-9 px-4 font-semibold"
                                                 onClick={() => setConfirmDeleteOpen(true)}
                                             >
-                                                <X className="w-4 h-4 mr-2" /> Remove Custom Model
+                                                <X className="w-4 h-4 mr-2" /> Supprimer ce modèle
                                             </Button>
                                         </div>
                                     )}
@@ -440,9 +450,9 @@ export function ModelSelector() {
                                             <Cpu className="w-8 h-8 text-primary/40" />
                                         </div>
                                         <div className="space-y-1">
-                                            <h3 className="font-bold">No Model Selected</h3>
+                                            <h3 className="font-bold">Aucun modèle sélectionné</h3>
                                             <p className="text-xs text-muted-foreground leading-relaxed">
-                                                Select a model from the list to view its details or add a new custom model.
+                                                Choisissez un modèle dans la liste pour voir ses détails, ou ajoutez-en un nouveau.
                                             </p>
                                         </div>
                                     </div>
@@ -460,13 +470,13 @@ export function ModelSelector() {
                         <div className="w-12 h-12 bg-destructive/10 rounded-full flex items-center justify-center mx-auto mb-4">
                             <X className="w-6 h-6 text-destructive" />
                         </div>
-                        <DialogTitle className="text-center">Remove Custom Model?</DialogTitle>
+                        <DialogTitle className="text-center">Supprimer ce modèle ?</DialogTitle>
                         <DialogDescription className="text-center pt-2">
-                            You are about to remove{' '}
+                            Vous êtes sur le point de supprimer{' '}
                             <span className="font-bold text-foreground">
                                 &quot;{autoSelectedModel?.name}&quot;
                             </span>
-                            . This action cannot be undone.
+                            . Cette action est irréversible.
                         </DialogDescription>
                     </DialogHeader>
                     <DialogFooter className="flex-row gap-2 mt-4">
@@ -475,14 +485,14 @@ export function ModelSelector() {
                             className="flex-1"
                             onClick={() => setConfirmDeleteOpen(false)}
                         >
-                            Cancel
+                            Annuler
                         </Button>
                         <Button
                             variant="destructive"
                             className="flex-1 shadow-lg shadow-destructive/20"
                             onClick={confirmDelete}
                         >
-                            Remove
+                            Supprimer
                         </Button>
                     </DialogFooter>
                 </DialogContent>

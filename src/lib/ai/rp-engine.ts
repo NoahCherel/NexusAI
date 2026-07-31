@@ -136,7 +136,7 @@ export const BUILTIN_ENGINES: RPEngine[] = [
         builtinKey: IMMERSIVE_NEXUS_KEY,
         name: 'Immersive Nexus',
         description:
-            'Rich behavioral engine: player autonomy, NPC knowledge limits, lived-in characters, natural dialogue, disciplined prose, anti-cliché.',
+            'Moteur comportemental complet : autonomie du joueur, limites de connaissance des PNJ, personnages incarnés, dialogues naturels, prose disciplinée, anti-cliché.',
         systemBlock: IMMERSIVE_NEXUS_SYSTEM,
         registerPolicy: 'faithful',
         openingVariety: true,
@@ -146,7 +146,7 @@ export const BUILTIN_ENGINES: RPEngine[] = [
         id: COMPACT_KEY,
         builtinKey: COMPACT_KEY,
         name: 'Compact',
-        description: 'A leaner version of the engine. Same priorities, fewer words.',
+        description: 'Version allégée du moteur. Mêmes priorités, moins de mots.',
         systemBlock: COMPACT_SYSTEM,
         registerPolicy: 'faithful',
         openingVariety: true,

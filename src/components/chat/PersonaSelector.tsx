@@ -17,7 +17,14 @@ import {
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { ChevronUp, Plus, Trash2, Edit2, Search, User, Check, X, ChevronLeft } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { toast } from 'sonner';
+import { useNotificationStore } from '@/components/ui/api-notification';
+
+/** In-app toast (sonner's <Toaster/> is never mounted — use the real notification system). */
+function notify(message: string, status: 'success' | 'error' = 'success'): void {
+    const { addNotification, updateNotification } = useNotificationStore.getState();
+    const id = addNotification(message, 'world');
+    updateNotification(id, status, message);
+}
 
 export function PersonaSelector() {
     const {
@@ -45,7 +52,7 @@ export function PersonaSelector() {
     } | null>(null);
 
     const activePersona = personas.find((p) => p.id === activePersonaId);
-    const displayName = activePersona?.displayName || activePersona?.name || 'You';
+    const displayName = activePersona?.displayName || activePersona?.name || 'Vous';
     const displayAvatar = activePersona?.avatar;
 
     useEffect(() => {
@@ -88,7 +95,7 @@ export function PersonaSelector() {
         const id = crypto.randomUUID();
         const newPersona = {
             id,
-            name: 'New Persona',
+            name: 'Nouveau persona',
             bio: '',
             avatar: '',
         };
@@ -106,7 +113,7 @@ export function PersonaSelector() {
             bio: editingPersona.bio,
             avatar: editingPersona.avatar,
         });
-        toast.success('Persona saved successfully');
+        notify('Persona enregistré avec succès');
     };
 
     const confirmDelete = () => {
@@ -117,7 +124,7 @@ export function PersonaSelector() {
             }
             setSelectedPersonaId(null);
             setConfirmDeleteOpen(false);
-            toast.success('Persona deleted');
+            notify('Persona supprimé');
         }
     };
 
@@ -156,7 +163,7 @@ export function PersonaSelector() {
 
             <Dialog open={open} onOpenChange={handleOpenChange}>
                 <DialogContent showCloseButton={false} className="max-w-4xl h-[80vh] p-0 flex flex-col overflow-hidden glass-heavy border-primary/20">
-                    <DialogTitle className="sr-only">Persona Selector</DialogTitle>
+                    <DialogTitle className="sr-only">Sélecteur de persona</DialogTitle>
 
                     {/* Header */}
                     <div className="flex items-center justify-between p-3 sm:p-4 border-b bg-muted/30 backdrop-blur-md shrink-0">
@@ -175,7 +182,7 @@ export function PersonaSelector() {
                             <h2 className="font-bold text-sm sm:text-base truncate">
                                 {isMobile && currentPersona
                                     ? currentPersona.displayName || currentPersona.name
-                                    : 'Persona Manager'}
+                                    : 'Gestionnaire de personas'}
                             </h2>
                         </div>
                         <Button
@@ -200,7 +207,7 @@ export function PersonaSelector() {
                                 <div className="relative">
                                     <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted-foreground outline-none" />
                                     <Input
-                                        placeholder="Search personas..."
+                                        placeholder="Rechercher des personas…"
                                         className="pl-9 h-9 text-xs bg-background/50 border-border/50 focus-visible:ring-primary/20"
                                         value={searchQuery}
                                         onChange={(e) => setSearchQuery(e.target.value)}
@@ -211,7 +218,7 @@ export function PersonaSelector() {
                                     size="sm"
                                     className="w-full text-xs gap-2 font-semibold h-9 shadow-sm"
                                 >
-                                    <Plus className="w-3.5 h-3.5" /> New Persona
+                                    <Plus className="w-3.5 h-3.5" /> Nouveau persona
                                 </Button>
                             </div>
 
@@ -273,7 +280,7 @@ export function PersonaSelector() {
                                                 <Search className="w-6 h-6 opacity-20" />
                                             </div>
                                             <p className="text-muted-foreground text-xs font-medium">
-                                                No personas found
+                                                Aucun persona trouvé
                                             </p>
                                         </div>
                                     )}
@@ -317,8 +324,8 @@ export function PersonaSelector() {
                                                     className="text-xs h-7 px-3 w-fit"
                                                     onClick={() => {
                                                         setActivePersonaId(currentPersona.id);
-                                                        toast.success(
-                                                            `Active persona set to ${currentPersona.displayName ||
+                                                        notify(
+                                                            `Persona actif : ${currentPersona.displayName ||
                                                             currentPersona.name
                                                             }`
                                                         );
@@ -328,10 +335,10 @@ export function PersonaSelector() {
                                                     {activePersonaId === currentPersona.id ? (
                                                         <>
                                                             <Check className="w-3.5 h-3.5 mr-1" />{' '}
-                                                            Active
+                                                            Actif
                                                         </>
                                                     ) : (
-                                                        'Set as Active'
+                                                        'Définir comme actif'
                                                     )}
                                                 </Button>
                                             </div>
@@ -342,7 +349,7 @@ export function PersonaSelector() {
                                         <div className="grid sm:grid-cols-2 gap-4">
                                             <div className="space-y-2">
                                                 <label className="text-[10px] font-bold uppercase tracking-widest text-primary/70">
-                                                    Character Name
+                                                    Nom du personnage
                                                 </label>
                                                 <Input
                                                     className="bg-muted/5 focus-visible:ring-primary/20 h-10 font-medium"
@@ -358,15 +365,15 @@ export function PersonaSelector() {
                                                         )
                                                     }
                                                     onBlur={handleSave}
-                                                    placeholder="e.g. System AI"
+                                                    placeholder="ex. : IA Système"
                                                 />
                                                 <p className="text-[10px] text-muted-foreground mt-1">
-                                                    The name the AI understands as its identity.
+                                                    Le nom que l&apos;IA comprend comme votre identité.
                                                 </p>
                                             </div>
                                             <div className="space-y-2">
                                                 <label className="text-[10px] font-bold uppercase tracking-widest text-primary/70">
-                                                    Display Name (Optional)
+                                                    Nom d&apos;affichage (facultatif)
                                                 </label>
                                                 <Input
                                                     className="bg-muted/5 focus-visible:ring-primary/20 h-10 font-medium"
@@ -382,17 +389,17 @@ export function PersonaSelector() {
                                                         )
                                                     }
                                                     onBlur={handleSave}
-                                                    placeholder="e.g. Helpful Assistant Mode"
+                                                    placeholder="ex. : Mode Assistant serviable"
                                                 />
                                                 <p className="text-[10px] text-muted-foreground mt-1">
-                                                    Shown in the UI, overrides Character Name.
+                                                    Affiché dans l&apos;interface, remplace le nom du personnage.
                                                 </p>
                                             </div>
                                         </div>
 
                                         <div className="space-y-2">
                                             <label className="text-[10px] font-bold uppercase tracking-widest text-primary/70">
-                                                Avatar URL
+                                                URL de l&apos;avatar
                                             </label>
                                             <Input
                                                 className="bg-muted/5 focus-visible:ring-primary/20 h-10 text-sm font-mono"
@@ -415,7 +422,7 @@ export function PersonaSelector() {
 
                                     <div className="flex-1 flex flex-col gap-3 min-h-[250px] max-w-2xl">
                                         <label className="text-[10px] font-bold uppercase tracking-widest text-primary/70 shrink-0">
-                                            Biography & System Prompt
+                                            Biographie & Prompt système
                                         </label>
                                         <Textarea
                                             className="flex-1 min-h-[200px] resize-none font-sans text-sm leading-relaxed p-4 bg-muted/5 focus-visible:ring-primary/20"
@@ -426,7 +433,7 @@ export function PersonaSelector() {
                                                 )
                                             }
                                             onBlur={handleSave}
-                                            placeholder="Write how the persona should behave, its personality, background story..."
+                                            placeholder="Décrivez comment le persona doit se comporter, sa personnalité, son histoire…"
                                         />
                                     </div>
 
@@ -438,7 +445,7 @@ export function PersonaSelector() {
                                             className="text-destructive hover:bg-destructive/10 hover:text-destructive h-9 px-4 font-semibold"
                                             onClick={() => setConfirmDeleteOpen(true)}
                                         >
-                                            <Trash2 className="w-4 h-4 mr-2" /> Delete Persona
+                                            <Trash2 className="w-4 h-4 mr-2" /> Supprimer le persona
                                         </Button>
                                     </div>
                                 </div>
@@ -449,9 +456,9 @@ export function PersonaSelector() {
                                             <User className="w-8 h-8 text-primary/40" />
                                         </div>
                                         <div className="space-y-1">
-                                            <h3 className="font-bold">No Persona Selected</h3>
+                                            <h3 className="font-bold">Aucun persona sélectionné</h3>
                                             <p className="text-xs text-muted-foreground leading-relaxed">
-                                                Select a persona from the list or create a new one.
+                                                Sélectionnez un persona dans la liste ou créez-en un nouveau.
                                             </p>
                                         </div>
                                     </div>
@@ -469,11 +476,11 @@ export function PersonaSelector() {
                         <div className="w-12 h-12 bg-destructive/10 rounded-full flex items-center justify-center mx-auto mb-4">
                             <Trash2 className="w-6 h-6 text-destructive" />
                         </div>
-                        <DialogTitle className="text-center">Delete Persona?</DialogTitle>
+                        <DialogTitle className="text-center">Supprimer le persona ?</DialogTitle>
                         <DialogDescription className="text-center pt-2">
-                            This action cannot be undone. You are about to delete{' '}
+                            Cette action est irréversible. Vous êtes sur le point de supprimer{' '}
                             <span className="font-bold text-foreground">
-                                &quot;{currentPersona?.name}&quot;
+                                «&nbsp;{currentPersona?.name}&nbsp;»
                             </span>
                             .
                         </DialogDescription>
@@ -484,14 +491,14 @@ export function PersonaSelector() {
                             className="flex-1"
                             onClick={() => setConfirmDeleteOpen(false)}
                         >
-                            Cancel
+                            Annuler
                         </Button>
                         <Button
                             variant="destructive"
                             className="flex-1 shadow-lg shadow-destructive/20"
                             onClick={confirmDelete}
                         >
-                            Delete
+                            Supprimer
                         </Button>
                     </DialogFooter>
                 </DialogContent>

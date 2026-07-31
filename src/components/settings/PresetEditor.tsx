@@ -76,13 +76,13 @@ export function PresetEditor() {
         const newPreset: APIPreset = {
             ...DEFAULT_PRESETS[0],
             id: crypto.randomUUID(),
-            name: 'New Components Preset',
+            name: 'Nouveau preset',
             createdAt: new Date(),
             isDefault: false,
         };
         addPreset(newPreset);
         setActivePreset(newPreset.id);
-        toast.success('New preset created');
+        toast.success('Nouveau preset créé');
     };
 
     const handleDeletePreset = () => {
@@ -93,7 +93,7 @@ export function PresetEditor() {
         } else {
             setActivePreset(null);
         }
-        toast.success('Preset deleted');
+        toast.success('Preset supprimé');
     };
 
     const handleExportJSON = () => {
@@ -110,7 +110,7 @@ export function PresetEditor() {
         document.body.appendChild(downloadAnchorNode);
         downloadAnchorNode.click();
         downloadAnchorNode.remove();
-        toast.success('Preset exported');
+        toast.success('Preset exporté');
     };
 
     const handleImportJSON = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -129,7 +129,7 @@ export function PresetEditor() {
                 const importedPreset: APIPreset = {
                     ...base, // Start with defaults
                     id: crypto.randomUUID(),
-                    name: json.name || file.name.replace('.json', '') || 'Imported Preset',
+                    name: json.name || file.name.replace('.json', '') || 'Preset importé',
                     // Generation
                     temperature: json.temperature ?? base.temperature,
                     maxOutputTokens:
@@ -181,10 +181,10 @@ export function PresetEditor() {
 
                 addPreset(importedPreset);
                 setActivePreset(importedPreset.id);
-                toast.success('Preset imported successfully');
+                toast.success('Preset importé avec succès');
             } catch (err) {
                 console.error('Import failed', err);
-                toast.error('Failed to parse preset JSON');
+                toast.error('Impossible de lire le JSON du preset');
             }
             // Reset input
             if (fileInputRef.current) fileInputRef.current.value = '';
@@ -196,9 +196,9 @@ export function PresetEditor() {
         return (
             <div className="flex flex-col items-center justify-center h-full p-8 text-center text-muted-foreground">
                 <Sparkles className="h-12 w-12 mb-4 opacity-20" />
-                <p>No preset selected.</p>
+                <p>Aucun preset sélectionné.</p>
                 <Button onClick={handleCreatePreset} className="mt-4">
-                    Create your first preset
+                    Créer votre premier preset
                 </Button>
             </div>
         );
@@ -236,7 +236,7 @@ export function PresetEditor() {
                                     {p.name}
                                     {p.isDefault && (
                                         <span className="text-xs text-muted-foreground ml-2">
-                                            (Default)
+                                            (Défaut)
                                         </span>
                                     )}
                                 </SelectItem>
@@ -248,7 +248,7 @@ export function PresetEditor() {
                         variant="ghost"
                         size="icon"
                         onClick={handleCreatePreset}
-                        title="New Preset"
+                        title="Nouveau preset"
                     >
                         <Plus className="h-4 w-4" />
                     </Button>
@@ -259,7 +259,7 @@ export function PresetEditor() {
                         variant="ghost"
                         size="icon"
                         onClick={() => fileInputRef.current?.click()}
-                        title="Import JSON"
+                        title="Importer un JSON"
                     >
                         <Upload className="h-4 w-4" />
                     </Button>
@@ -267,7 +267,7 @@ export function PresetEditor() {
                         variant="ghost"
                         size="icon"
                         onClick={handleExportJSON}
-                        title="Export JSON"
+                        title="Exporter en JSON"
                     >
                         <Download className="h-4 w-4" />
                     </Button>
@@ -279,7 +279,7 @@ export function PresetEditor() {
                         size="icon"
                         onClick={handleDeletePreset}
                         className="text-destructive hover:text-destructive hover:bg-destructive/10"
-                        title="Delete Preset"
+                        title="Supprimer le preset"
                     >
                         <Trash2 className="h-4 w-4" />
                     </Button>
@@ -292,7 +292,7 @@ export function PresetEditor() {
                     {/* Basic Info */}
                     <div className="grid gap-4 p-4">
                         <div className="grid gap-2">
-                            <Label>Preset Name</Label>
+                            <Label>Nom du preset</Label>
                             <Input
                                 value={activePreset.name}
                                 onChange={(e) => update({ name: e.target.value })}
@@ -304,7 +304,7 @@ export function PresetEditor() {
                             <Input
                                 value={activePreset.description || ''}
                                 onChange={(e) => update({ description: e.target.value })}
-                                placeholder="Short description..."
+                                placeholder="Courte description…"
                             />
                         </div>
                     </div>
@@ -323,7 +323,7 @@ export function PresetEditor() {
                                     value="generation"
                                     className="gap-2 data-[state=active]:bg-background max-sm:shrink-0"
                                 >
-                                    <Sliders className="h-3.5 w-3.5" /> Generation
+                                    <Sliders className="h-3.5 w-3.5" /> Génération
                                 </TabsTrigger>
                                 <TabsTrigger
                                     value="lorebook"
@@ -335,7 +335,7 @@ export function PresetEditor() {
                                     value="advanced"
                                     className="gap-2 data-[state=active]:bg-background max-sm:shrink-0"
                                 >
-                                    <Zap className="h-3.5 w-3.5" /> Advanced
+                                    <Zap className="h-3.5 w-3.5" /> Avancé
                                 </TabsTrigger>
                             </TabsList>
                         </div>
@@ -343,9 +343,9 @@ export function PresetEditor() {
                         {/* --- Prompt Tab --- */}
                         <TabsContent value="prompt" className="p-4 space-y-6">
                             <div className="space-y-2">
-                                <Label>Pre-History Instructions (System Note)</Label>
+                                <Label>Instructions pré-historique (note système)</Label>
                                 <p className="text-xs text-muted-foreground">
-                                    Inserted before the chat history.
+                                    Insérées avant l&apos;historique du chat.
                                 </p>
                                 <Textarea
                                     value={activePreset.preHistoryInstructions || ''}
@@ -359,7 +359,7 @@ export function PresetEditor() {
 
                             <div className="space-y-2">
                                 <Label className="flex justify-between">
-                                    System Prompt Template
+                                    Template de system prompt
                                     <Button
                                         variant="link"
                                         className="h-auto p-0 text-xs"
@@ -370,11 +370,11 @@ export function PresetEditor() {
                                             })
                                         }
                                     >
-                                        Reset to Default
+                                        Rétablir le défaut
                                     </Button>
                                 </Label>
                                 <p className="text-xs text-muted-foreground">
-                                    Use placeholders: {'{{character_name}}'}, 
+                                    Placeholders disponibles : {'{{character_name}}'},
                                     {'{{lorebook}}'}
                                 </p>
                                 <Textarea
@@ -383,14 +383,14 @@ export function PresetEditor() {
                                         update({ systemPromptTemplate: e.target.value })
                                     }
                                     className="min-h-[200px] font-mono text-sm"
-                                    placeholder="The main prompt..."
+                                    placeholder="Le prompt principal…"
                                 />
                             </div>
 
                             <div className="space-y-2">
-                                <Label>Post-History Instructions</Label>
+                                <Label>Instructions post-historique</Label>
                                 <p className="text-xs text-muted-foreground">
-                                    Appended at the end of the prompt (Driver).
+                                    Ajoutées à la fin du prompt (Driver).
                                 </p>
                                 <Textarea
                                     value={activePreset.postHistoryInstructions || ''}
@@ -398,13 +398,13 @@ export function PresetEditor() {
                                         update({ postHistoryInstructions: e.target.value })
                                     }
                                     className="min-h-[100px] font-mono text-sm"
-                                    placeholder="Guidance for the next response..."
+                                    placeholder="Consignes pour la prochaine réponse…"
                                 />
                             </div>
 
                             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                                 <div className="md:col-span-2 space-y-2">
-                                    <Label>Prompt Note (Author&apos;s Note)</Label>
+                                    <Label>Note de prompt (note d&apos;auteur)</Label>
                                     <Textarea
                                         value={activePreset.promptNote || ''}
                                         onChange={(e) => update({ promptNote: e.target.value })}
@@ -412,7 +412,7 @@ export function PresetEditor() {
                                     />
                                 </div>
                                 <div className="space-y-2">
-                                    <Label>Insertion Depth</Label>
+                                    <Label>Profondeur d&apos;insertion</Label>
                                     <Input
                                         type="number"
                                         value={activePreset.promptNoteDepth || 4}
@@ -424,15 +424,15 @@ export function PresetEditor() {
                                         min={0}
                                     />
                                     <p className="text-[10px] text-muted-foreground">
-                                        Messages from bottom
+                                        Messages depuis la fin
                                     </p>
                                 </div>
                             </div>
 
                             <div className="space-y-2">
-                                <Label>Impersonation Prompt</Label>
+                                <Label>Prompt d&apos;impersonation</Label>
                                 <p className="text-xs text-muted-foreground">
-                                    Used when generating a user message (Robot icon).
+                                    Utilisé pour générer un message du joueur (icône robot).
                                 </p>
                                 <Textarea
                                     value={activePreset.impersonationPrompt || ''}
@@ -460,13 +460,13 @@ export function PresetEditor() {
                                     max={2}
                                 />
                                 <p className="text-xs text-muted-foreground">
-                                    Creativity vs Logic. Higher = more creative/random.
+                                    Créativité vs logique. Plus haut = plus créatif/aléatoire.
                                 </p>
                             </div>
 
                             <div className="grid grid-cols-2 gap-8">
                                 <div className="space-y-4">
-                                    <Label>Max Output Tokens</Label>
+                                    <Label>Tokens de sortie max</Label>
                                     <Input
                                         type="number"
                                         value={activePreset.maxOutputTokens}
@@ -478,7 +478,7 @@ export function PresetEditor() {
                                     />
                                 </div>
                                 <div className="space-y-4">
-                                    <Label>Context Size</Label>
+                                    <Label>Taille du contexte</Label>
                                     <Input
                                         type="number"
                                         value={activePreset.maxContextTokens}
@@ -538,11 +538,11 @@ export function PresetEditor() {
                             </div>
 
                             <div className="space-y-4 border-t pt-4">
-                                <Label>Penalties</Label>
+                                <Label>Pénalités</Label>
                                 <div className="grid grid-cols-1 gap-6">
                                     <div className="space-y-3">
                                         <div className="flex justify-between">
-                                            <span className="text-sm">Repetition Penalty</span>
+                                            <span className="text-sm">Pénalité de répétition</span>
                                         </div>
                                         <Input
                                             type="number"
@@ -565,7 +565,7 @@ export function PresetEditor() {
                                     </div>
                                     <div className="grid grid-cols-2 gap-4">
                                         <div className="space-y-3">
-                                            <Label>Frequency</Label>
+                                            <Label>Fréquence</Label>
                                             <Input
                                                 type="number"
                                                 value={activePreset.frequencyPenalty}
@@ -580,7 +580,7 @@ export function PresetEditor() {
                                             />
                                         </div>
                                         <div className="space-y-3">
-                                            <Label>Presence</Label>
+                                            <Label>Présence</Label>
                                             <Input
                                                 type="number"
                                                 value={activePreset.presencePenalty}
@@ -602,9 +602,9 @@ export function PresetEditor() {
                             <div className="space-y-4">
                                 <div className="flex items-center justify-between">
                                     <div>
-                                        <Label>Use Lorebooks</Label>
+                                        <Label>Utiliser les lorebooks</Label>
                                         <p className="text-xs text-muted-foreground">
-                                            Enable dynamic context injection
+                                            Active l&apos;injection dynamique de contexte
                                         </p>
                                     </div>
                                     <Button
@@ -613,12 +613,12 @@ export function PresetEditor() {
                                             update({ useLorebooks: !activePreset.useLorebooks })
                                         }
                                     >
-                                        {activePreset.useLorebooks ? 'Enabled' : 'Disabled'}
+                                        {activePreset.useLorebooks ? 'Activé' : 'Désactivé'}
                                     </Button>
                                 </div>
 
                                 <div className="space-y-4 pt-4">
-                                    <Label>Scan Depth</Label>
+                                    <Label>Profondeur de scan</Label>
                                     <Input
                                         type="number"
                                         value={activePreset.lorebookScanDepth || 2}
@@ -629,12 +629,12 @@ export function PresetEditor() {
                                         step={1}
                                     />
                                     <p className="text-xs text-muted-foreground">
-                                        Number of recent messages to scan for keywords.
+                                        Nombre de messages récents scannés pour les mots-clés.
                                     </p>
                                 </div>
 
                                 <div className="space-y-4">
-                                    <Label>Token Budget</Label>
+                                    <Label>Budget de tokens</Label>
                                     <Input
                                         type="number"
                                         value={activePreset.lorebookTokenBudget || 500}
@@ -647,12 +647,12 @@ export function PresetEditor() {
                                         step={100}
                                     />
                                     <p className="text-xs text-muted-foreground">
-                                        Max tokens allocated to lorebook entries.
+                                        Tokens max alloués aux entrées de lorebook.
                                     </p>
                                 </div>
 
                                 <div className="flex items-center justify-between p-2 border rounded">
-                                    <Label>Recursive Scanning</Label>
+                                    <Label>Scan récursif</Label>
                                     <Button
                                         size="sm"
                                         variant={
@@ -672,7 +672,7 @@ export function PresetEditor() {
                                 </div>
 
                                 <div className="flex items-center justify-between p-2 border rounded">
-                                    <Label>Match Whole Words</Label>
+                                    <Label>Mots entiers uniquement</Label>
                                     <Button
                                         size="sm"
                                         variant={
@@ -693,15 +693,15 @@ export function PresetEditor() {
                         {/* --- Advanced Tab --- */}
                         <TabsContent value="advanced" className="p-4 space-y-6">
                             <div className="space-y-4">
-                                <Label>Toggles</Label>
+                                <Label>Interrupteurs</Label>
 
                                 <div className="flex items-center justify-between p-2 border rounded">
                                     <div>
                                         <p className="text-sm font-medium">
-                                            Enable Reasoning (CoT)
+                                            Activer le raisonnement (CoT)
                                         </p>
                                         <p className="text-xs text-muted-foreground">
-                                            For models like DeepSeek R1
+                                            Pour les modèles type DeepSeek R1
                                         </p>
                                     </div>
                                     <Button
@@ -721,9 +721,9 @@ export function PresetEditor() {
 
                                 <div className="flex items-center justify-between p-2 border rounded">
                                     <div>
-                                        <p className="text-sm font-medium">Include Names</p>
+                                        <p className="text-sm font-medium">Inclure les noms</p>
                                         <p className="text-xs text-muted-foreground">
-                                            Prepend names to messages
+                                            Préfixe les messages par les noms
                                         </p>
                                     </div>
                                     <Button
@@ -735,15 +735,15 @@ export function PresetEditor() {
                                             update({ includeNames: !activePreset.includeNames })
                                         }
                                     >
-                                        {activePreset.includeNames ? 'Yes' : 'No'}
+                                        {activePreset.includeNames ? 'Oui' : 'Non'}
                                     </Button>
                                 </div>
 
                                 <div className="flex items-center justify-between p-2 border rounded">
                                     <div>
-                                        <p className="text-sm font-medium">Ban Emojis</p>
+                                        <p className="text-sm font-medium">Bannir les emojis</p>
                                         <p className="text-xs text-muted-foreground">
-                                            Strip emojis from response
+                                            Retire les emojis des réponses
                                         </p>
                                     </div>
                                     <Button
@@ -753,15 +753,15 @@ export function PresetEditor() {
                                             update({ banEmojis: !activePreset.banEmojis })
                                         }
                                     >
-                                        {activePreset.banEmojis ? 'Yes' : 'No'}
+                                        {activePreset.banEmojis ? 'Oui' : 'Non'}
                                     </Button>
                                 </div>
 
                                 <div className="flex items-center justify-between p-2 border rounded">
                                     <div>
-                                        <p className="text-sm font-medium">Auto Summarization</p>
+                                        <p className="text-sm font-medium">Résumé automatique</p>
                                         <p className="text-xs text-muted-foreground">
-                                            Periodically summarize history
+                                            Résume périodiquement l&apos;historique
                                         </p>
                                     </div>
                                     <Button
@@ -784,9 +784,12 @@ export function PresetEditor() {
 
                                 <div className="flex items-center justify-between p-2 border rounded">
                                     <div>
-                                        <p className="text-sm font-medium">OpenRouter Flex Tier</p>
+                                        <p className="text-sm font-medium">
+                                            Palier Flex OpenRouter
+                                        </p>
                                         <p className="text-xs text-muted-foreground">
-                                            Route requests through OpenRouter&apos;s flexible (discounted) tier when available
+                                            Route les requêtes via le palier flexible (tarif
+                                            réduit) d&apos;OpenRouter quand il est disponible
                                         </p>
                                     </div>
                                     <Button
@@ -807,13 +810,13 @@ export function PresetEditor() {
 
                             {/* RAG / Memory System */}
                             <div className="space-y-4">
-                                <Label>Memory System (RAG)</Label>
+                                <Label>Système de mémoire (RAG)</Label>
 
                                 <div className="flex items-center justify-between p-2 border rounded">
                                     <div>
-                                        <p className="text-sm font-medium">RAG Retrieval</p>
+                                        <p className="text-sm font-medium">Rappel RAG</p>
                                         <p className="text-xs text-muted-foreground">
-                                            Retrieve relevant past context for each message
+                                            Récupère le contexte passé pertinent à chaque message
                                         </p>
                                     </div>
                                     <Button
@@ -827,9 +830,9 @@ export function PresetEditor() {
 
                                 <div className="flex items-center justify-between p-2 border rounded">
                                     <div>
-                                        <p className="text-sm font-medium">Fact Extraction</p>
+                                        <p className="text-sm font-medium">Extraction de facts</p>
                                         <p className="text-xs text-muted-foreground">
-                                            Extract key facts from AI responses
+                                            Extrait les faits clés des réponses de l&apos;IA
                                         </p>
                                     </div>
                                     <Button
@@ -846,10 +849,11 @@ export function PresetEditor() {
                                 <div className="flex items-center justify-between p-2 border rounded">
                                     <div>
                                         <p className="text-sm font-medium">
-                                            Hierarchical Summaries
+                                            Résumés hiérarchiques
                                         </p>
                                         <p className="text-xs text-muted-foreground">
-                                            Auto-create L0/L1/L2 story summaries
+                                            Crée automatiquement des résumés d&apos;histoire
+                                            L0/L1/L2
                                         </p>
                                     </div>
                                     <Button
@@ -869,9 +873,12 @@ export function PresetEditor() {
 
                                 <div className="flex items-center justify-between p-2 border rounded">
                                     <div>
-                                        <p className="text-sm font-medium">Lorebook Auto-Extract</p>
+                                        <p className="text-sm font-medium">
+                                            Auto-extraction lorebook
+                                        </p>
                                         <p className="text-xs text-muted-foreground">
-                                            Suggest new lorebook entries from AI responses
+                                            Suggère de nouvelles entrées de lorebook depuis les
+                                            réponses de l&apos;IA
                                         </p>
                                     </div>
                                     <Button
@@ -885,11 +892,11 @@ export function PresetEditor() {
                             </div>
 
                             <div className="space-y-2">
-                                <Label>Assistant Prefill</Label>
+                                <Label>Préremplissage assistant</Label>
                                 <Input
                                     value={activePreset.assistantPrefill || ''}
                                     onChange={(e) => update({ assistantPrefill: e.target.value })}
-                                    placeholder="Start the response with..."
+                                    placeholder="Commencer la réponse par…"
                                 />
                             </div>
                         </TabsContent>

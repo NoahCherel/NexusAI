@@ -14,7 +14,7 @@ export function parseCharacterCardPNGBuffer(arrayBuffer: ArrayBuffer): Character
     const pngSignature = [137, 80, 78, 71, 13, 10, 26, 10];
     for (let i = 0; i < 8; i++) {
         if (dataView.getUint8(i) !== pngSignature[i]) {
-            throw new Error('Invalid PNG file');
+            throw new Error('Fichier PNG invalide');
         }
     }
 
@@ -54,7 +54,7 @@ export function parseCharacterCardPNGBuffer(arrayBuffer: ArrayBuffer): Character
     }
 
     throw new Error(
-        'No character data found in PNG. Make sure this is a valid Character Card V2 file.'
+        'Aucune donnée de personnage trouvée dans le PNG. Vérifiez qu’il s’agit bien d’une Character Card V2.'
     );
 }
 
@@ -132,7 +132,7 @@ export async function importCharacterCard(file: File): Promise<CharacterCard> {
         return parseCharacterCardJSON(file);
     }
 
-    throw new Error('Unsupported file format. Please use a PNG or JSON file.');
+    throw new Error('Format de fichier non pris en charge. Utilisez un PNG ou un JSON.');
 }
 
 /**

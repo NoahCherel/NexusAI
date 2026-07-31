@@ -15,9 +15,11 @@ describe('countTokens', () => {
     });
 
     it('counts tokens for a simple English sentence', () => {
-        const tokens = countTokens('Hello, world!');
-        expect(tokens).toBeGreaterThan(0);
-        expect(tokens).toBeLessThan(10);
+        // Pinned exact cl100k_base count: "Hello, world!" = ["Hello", ",", " world", "!"].
+        // The length/4 fallback would return 4 too — so also pin a case where they differ.
+        expect(countTokens('Hello, world!')).toBe(4);
+        // cl100k: 1 token; length/4 fallback would say ceil(5/4)=2 → catches a dead BPE.
+        expect(countTokens('Hello')).toBe(1);
     });
 
     it('counts more tokens for longer text', () => {

@@ -12,7 +12,6 @@ export interface Message {
     // `content` so it is never sent back to the model as part of the history.
     error?: string;
     isActiveBranch: boolean;
-    childrenIds?: string[];
     createdAt: Date;
     banListSnapshot?: string[]; // Style Guard ban list as of this branch tip (branch-aware)
 
@@ -39,6 +38,20 @@ export interface Message {
         /** For kind 'user': id of the persona used when sending (avatar lookup). */
         personaId?: string;
     };
+
+    // Scene Mode 'unified': the Director's beat context this message was generated with.
+    // Persisted so regenerate/retry/continue can replay the SAME ensemble contract instead
+    // of collapsing the multi-character scene into an ordinary single-character reply.
+    sceneEnsemble?: SceneEnsembleInfo;
+}
+
+/** Director beat context for a 'unified' scene message (mirrors the payload param). */
+export interface SceneEnsembleInfo {
+    roster: string[];
+    directions: { name: string; direction?: string }[];
+    sceneGoal?: string;
+    narrationHint?: string;
+    userName?: string;
 }
 
 export interface Conversation {
@@ -75,7 +88,7 @@ export interface Conversation {
 
 // ============================================================================
 // Relationships (Phase 2) — directional, multi-axis, history-aware.
-// Replaces the old symmetric WorldState.relationships scalar map.
+// Directional, multi-axis, history-aware bonds between characters.
 // ============================================================================
 
 /** Canonical sentinel used as a stable `from`/`to` key for the player's persona. */

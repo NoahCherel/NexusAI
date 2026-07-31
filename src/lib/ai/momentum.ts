@@ -3,9 +3,8 @@
  *
  * Cheap, synchronous, no extra API calls: compares the latest assistant beat with the
  * previous one by lexical novelty (Jaccard distance over content words). When two
- * consecutive beats are very similar AND the world state didn't move, the scene is
- * stalling and we inject a one-shot nudge to push it forward (toward the next canonical
- * beat when an Arc is set).
+ * consecutive beats are very similar, the scene is stalling and we inject a one-shot
+ * nudge to push it forward (toward the next canonical beat when an Arc is set).
  */
 
 const STOP_WORDS = new Set([

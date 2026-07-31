@@ -85,7 +85,6 @@ function FeatureToggle({
 export function SettingsPanel({ open, onOpenChange }: SettingsPanelProps) {
     const {
         apiKeys,
-        temperature,
         showThoughts,
         enableReasoning,
         useFlexTier,
@@ -94,7 +93,6 @@ export function SettingsPanel({ open, onOpenChange }: SettingsPanelProps) {
         customModels,
         setApiKey,
         setActiveProvider,
-        setTemperature,
         setShowThoughts,
         setEnableReasoning,
         setUseFlexTier,
@@ -137,6 +135,8 @@ export function SettingsPanel({ open, onOpenChange }: SettingsPanelProps) {
         setEnableHierarchicalSummaries,
         enableRAGRetrieval,
         setEnableRAGRetrieval,
+        minRAGConfidence,
+        setMinRAGConfidence,
     } = useSettingsStore();
 
     const allModels = [...DEFAULT_MODELS, ...customModels];
@@ -222,10 +222,11 @@ export function SettingsPanel({ open, onOpenChange }: SettingsPanelProps) {
                 <DialogHeader className="p-6 pb-2 border-b shrink-0">
                     <DialogTitle className="flex items-center gap-2 text-xl">
                         <Settings className="h-5 w-5" />
-                        Settings
+                        Réglages
                     </DialogTitle>
                     <DialogDescription>
-                        Configure your API keys, chat preferences, and generation presets.
+                        Configurez vos clés API, vos préférences de chat et vos presets de
+                        génération.
                     </DialogDescription>
                 </DialogHeader>
 
@@ -262,7 +263,7 @@ export function SettingsPanel({ open, onOpenChange }: SettingsPanelProps) {
                             <div className="max-w-2xl mx-auto space-y-8">
                                 {/* Provider Selection */}
                                 <div className="space-y-4">
-                                    <label className="text-sm font-medium">Provider</label>
+                                    <label className="text-sm font-medium">Fournisseur</label>
                                     <div className="flex flex-wrap gap-3">
                                         {(
                                             [
@@ -304,7 +305,7 @@ export function SettingsPanel({ open, onOpenChange }: SettingsPanelProps) {
                                 {/* API Key Input */}
                                 <div className="space-y-4">
                                     <label className="text-sm font-medium">
-                                        {selectedProvider} API Key
+                                        Clé API {selectedProvider}
                                     </label>
                                     <div className="flex gap-3">
                                         <div className="relative flex-1">
@@ -312,7 +313,7 @@ export function SettingsPanel({ open, onOpenChange }: SettingsPanelProps) {
                                                 type={showKey ? 'text' : 'password'}
                                                 value={newKey}
                                                 onChange={(e) => setNewKey(e.target.value)}
-                                                placeholder={`sk-... or your ${selectedProvider} key`}
+                                                placeholder={`sk-... ou votre clé ${selectedProvider}`}
                                                 className="pr-10 h-10"
                                             />
                                             <Button
@@ -334,13 +335,13 @@ export function SettingsPanel({ open, onOpenChange }: SettingsPanelProps) {
                                             disabled={!newKey.trim() || isValidating}
                                             className="h-10 px-6"
                                         >
-                                            {isValidating ? 'Validating...' : 'Save'}
+                                            {isValidating ? 'Validation…' : 'Enregistrer'}
                                         </Button>
                                     </div>
                                     <p className="text-xs text-muted-foreground leading-relaxed">
-                                        🔒 Your key is encrypted locally using AES-256-GCM and
-                                        stored only in your browser&apos;s LocalStorage. It is never
-                                        sent to our servers.
+                                        🔒 Votre clé est chiffrée localement en AES-256-GCM et
+                                        stockée uniquement dans le LocalStorage de votre navigateur.
+                                        Elle n&apos;est jamais envoyée à nos serveurs.
                                     </p>
                                 </div>
 
@@ -431,11 +432,11 @@ export function SettingsPanel({ open, onOpenChange }: SettingsPanelProps) {
                                     <div className="flex items-center justify-between p-4 border rounded-lg bg-card/50">
                                         <div>
                                             <p className="text-sm font-medium">
-                                                Thinking Mode (Reasoning)
+                                                Mode réflexion (Reasoning)
                                             </p>
                                             <p className="text-xs text-muted-foreground mt-1">
-                                                Enables reasoning tokens for compatible models (e.g.
-                                                DeepSeek R1)
+                                                Active les tokens de raisonnement pour les modèles
+                                                compatibles (ex. DeepSeek R1)
                                             </p>
                                         </div>
                                         <Button
@@ -455,10 +456,13 @@ export function SettingsPanel({ open, onOpenChange }: SettingsPanelProps) {
                                         <div className="flex items-center justify-between p-4 border rounded-lg bg-card/50">
                                             <div>
                                                 <p className="text-sm font-medium">
-                                                    OpenRouter Flex Tier
+                                                    Palier Flex OpenRouter
                                                 </p>
                                                 <p className="text-xs text-muted-foreground mt-1">
-                                                    Routes requests through OpenRouter&apos;s flexible (discounted) tier when available for supported models (e.g. Gemini 3.5 Flash)
+                                                    Route les requêtes via le palier flexible
+                                                    (tarif réduit) d&apos;OpenRouter quand il est
+                                                    disponible pour les modèles supportés (ex.
+                                                    Gemini 3.5 Flash)
                                                 </p>
                                             </div>
                                             <Button
@@ -476,12 +480,12 @@ export function SettingsPanel({ open, onOpenChange }: SettingsPanelProps) {
                                 {/* RP Engine */}
                                 <div className="space-y-4">
                                     <div>
-                                        <label className="text-sm font-medium">RP Engine</label>
+                                        <label className="text-sm font-medium">Moteur RP</label>
                                         <p className="text-xs text-muted-foreground mt-1">
-                                            Behavioral rules that shape how the AI writes — player
-                                            autonomy, NPC knowledge limits, natural dialogue,
-                                            disciplined prose, anti-cliché. Chosen independently of
-                                            the API preset.
+                                            Règles comportementales qui façonnent l&apos;écriture de
+                                            l&apos;IA — autonomie du joueur, limites de connaissance
+                                            des PNJ, dialogues naturels, prose disciplinée,
+                                            anti-cliché. Choisi indépendamment du preset API.
                                         </p>
                                     </div>
                                     <div className="flex flex-wrap gap-2">
@@ -492,7 +496,7 @@ export function SettingsPanel({ open, onOpenChange }: SettingsPanelProps) {
                                             size="sm"
                                             onClick={() => setActiveEngineId(null)}
                                         >
-                                            Off
+                                            Désactivé
                                         </Button>
                                         {allEngines.map((engine) => (
                                             <Button
@@ -522,15 +526,18 @@ export function SettingsPanel({ open, onOpenChange }: SettingsPanelProps) {
                                 {/* UI Options */}
                                 <div className="space-y-5">
                                     <label className="text-sm font-medium">
-                                        Interface Preferences
+                                        Préférences d&apos;interface
                                     </label>
 
                                     <div className="space-y-3">
                                         <div className="flex items-center justify-between p-3 border rounded-lg bg-card/50">
                                             <div>
-                                                <p className="text-sm">Show Thoughts (CoT)</p>
+                                                <p className="text-sm">
+                                                    Afficher les pensées (CoT)
+                                                </p>
                                                 <p className="text-xs text-muted-foreground mt-0.5">
-                                                    Expand/collapse AI reasoning chains
+                                                    Déplier/replier les chaînes de raisonnement de
+                                                    l&apos;IA
                                                 </p>
                                             </div>
                                             <Button
@@ -617,9 +624,10 @@ export function SettingsPanel({ open, onOpenChange }: SettingsPanelProps) {
 
                                         <div className="flex items-center justify-between p-3 border rounded-lg bg-card/50">
                                             <div>
-                                                <p className="text-sm">Immersive Mode</p>
+                                                <p className="text-sm">Mode immersif</p>
                                                 <p className="text-xs text-muted-foreground mt-0.5">
-                                                    Hide headers/sidebars for focused reading
+                                                    Masque en-têtes et barres latérales pour une
+                                                    lecture concentrée
                                                 </p>
                                             </div>
                                             <Button
@@ -775,7 +783,7 @@ export function SettingsPanel({ open, onOpenChange }: SettingsPanelProps) {
                                                                   (m) =>
                                                                       m.modelId === backgroundModel
                                                               )?.name ?? backgroundModel)
-                                                            : 'Auto (Free Models)'}
+                                                            : 'Auto (modèles gratuits)'}
                                                     </span>
                                                     <ChevronDown className="h-4 w-4 opacity-50 shrink-0" />
                                                 </Button>
@@ -788,14 +796,14 @@ export function SettingsPanel({ open, onOpenChange }: SettingsPanelProps) {
                                                     onClick={() => setBackgroundModel(null)}
                                                     className="flex items-center justify-between"
                                                 >
-                                                    Auto (Free Models)
+                                                    Auto (modèles gratuits)
                                                     {!backgroundModel && (
                                                         <span className="w-1.5 h-1.5 bg-primary rounded-full" />
                                                     )}
                                                 </DropdownMenuItem>
                                                 <DropdownMenuSeparator />
                                                 <div className="px-2 py-1.5 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
-                                                    Free Models
+                                                    Modèles gratuits
                                                 </div>
                                                 {allModels
                                                     .filter((m) => m.isFree)
@@ -817,7 +825,7 @@ export function SettingsPanel({ open, onOpenChange }: SettingsPanelProps) {
                                                     <>
                                                         <DropdownMenuSeparator />
                                                         <div className="px-2 py-1.5 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
-                                                            Premium Models
+                                                            Modèles premium
                                                         </div>
                                                         {allModels
                                                             .filter((m) => !m.isFree)
@@ -868,6 +876,35 @@ export function SettingsPanel({ open, onOpenChange }: SettingsPanelProps) {
                                         value={enableRAGRetrieval}
                                         onChange={setEnableRAGRetrieval}
                                     />
+                                    {enableRAGRetrieval && (
+                                        <div className="flex items-center justify-between gap-3 pl-1">
+                                            <div className="min-w-0">
+                                                <p className="text-sm">Seuil de confiance RAG</p>
+                                                <p className="text-xs text-muted-foreground">
+                                                    0 = tout injecter ; plus haut = ne garder
+                                                    que les souvenirs vraiment pertinents.
+                                                </p>
+                                            </div>
+                                            <div className="flex items-center gap-2 shrink-0">
+                                                <input
+                                                    type="range"
+                                                    min={0}
+                                                    max={0.9}
+                                                    step={0.05}
+                                                    value={minRAGConfidence}
+                                                    onChange={(e) =>
+                                                        setMinRAGConfidence(
+                                                            parseFloat(e.target.value)
+                                                        )
+                                                    }
+                                                    className="w-28 accent-primary"
+                                                />
+                                                <span className="text-xs tabular-nums w-8 text-right">
+                                                    {minRAGConfidence.toFixed(2)}
+                                                </span>
+                                            </div>
+                                        </div>
+                                    )}
                                     <FeatureToggle
                                         title="Auto-extraction lorebook / journal RP"
                                         description="1 appel de fond par message : suggère des entrées de lorebook (ou alimente le journal RP des cartes canon)."

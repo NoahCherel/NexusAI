@@ -96,10 +96,15 @@ export async function embedText(text: string, kind: EmbedKind = 'passage'): Prom
             embedding = Array.from(output.data as Float32Array);
         } catch (error) {
             console.error('[Embedder] ML embedding failed, using fallback:', error);
-            embedding = tfidfEmbed(normalizedText);
+            // DO NOT cache this error-path vector: the cache key implies the e5 space, and
+            // a cached TF-IDF vector would keep scoring against e5 passages with e5
+            // thresholds (0.75) → guaranteed zero recall for this text until eviction.
+            return tfidfEmbed(normalizedText);
         }
     } else {
-        embedding = tfidfEmbed(normalizedText);
+        // Same reasoning: if the model becomes ready later, a cached TF-IDF vector under
+        // this key would poison e5-space lookups — and TF-IDF is cheap to recompute.
+        return tfidfEmbed(normalizedText);
     }
 
     // Cache the result

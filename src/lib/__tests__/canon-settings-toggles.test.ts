@@ -51,10 +51,37 @@ beforeEach(() => {
 });
 
 describe('useCanonCodex (master switch)', () => {
-    it('returns empty options when off — nothing canon reaches the prompt', async () => {
+    it('when off, no CANON material reaches the prompt', async () => {
         useSettingsStore.setState({ useCanonCodex: false });
         const opts = await buildCanonOptions(card, undefined, []);
-        expect(opts).toEqual({});
+        expect(opts.canonDossiers).toBeUndefined();
+        expect(opts.arc).toBeUndefined();
+        expect(opts.arcOutline).toBeUndefined();
+        expect(opts.injectionMeta).toBeUndefined();
+    });
+
+    it('when off, relationships and the momentum nudge STILL reach the prompt', async () => {
+        useSettingsStore.setState({ useCanonCodex: false });
+        const conv = {
+            id: 'cv1',
+            characterId: 'c1',
+            title: 't',
+            createdAt: new Date(0),
+            updatedAt: new Date(0),
+            momentumNudge: 'NUDGE_MARKER',
+            relationships: [
+                {
+                    from: 'NarutoRPG',
+                    to: '{{user}}',
+                    axes: { trust: 40, affection: 10, respect: 0, attraction: 0 },
+                    ledger: [],
+                },
+            ],
+        } as import('@/types/chat').Conversation;
+        const opts = await buildCanonOptions(card, conv, [], 'Alex');
+        expect(opts.momentumNudge).toBe('NUDGE_MARKER');
+        expect(opts.relationshipBlock).toContain('NarutoRPG');
+        expect(opts.canonDossiers).toBeUndefined();
     });
 
     it('returns full options when on', async () => {

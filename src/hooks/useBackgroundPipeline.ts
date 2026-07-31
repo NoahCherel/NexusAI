@@ -57,6 +57,12 @@ export function useBackgroundPipeline({
     currentApiKey,
 }: UseBackgroundPipelineParams): { runPostBeat: (params: PostBeatParams) => void } {
     const lastSummarizedCount = useRef(0); // Track last summarized message count
+
+    // The count is per-conversation: without this reset, leaving a 300-message chat
+    // would silently block summaries in any shorter conversation opened after it.
+    useEffect(() => {
+        lastSummarizedCount.current = 0;
+    }, [activeConversationId]);
     const isSummarizingRef = useRef(false); // Concurrency guard for summarization
 
     // Hierarchical Auto-Summary & Fact Extraction Logic
@@ -78,7 +84,12 @@ export function useBackgroundPipeline({
                 const existingSummaries = await getSummariesByConversation(activeConversationId);
                 const { personas, activePersonaId } = useSettingsStore.getState();
                 const activePersona = personas.find((p) => p.id === activePersonaId);
-                const userName = activePersona?.name || 'You';
+                // The persona stamped on the messages wins (persona-at-send-time); the
+                // active persona is only the legacy fallback for unstamped messages.
+                const lastUserSpeaker = [...messages]
+                    .reverse()
+                    .find((m) => m.role === 'user' && m.speaker?.name)?.speaker?.name;
+                const userName = lastUserSpeaker || activePersona?.name || 'You';
 
                 // Adaptive chunk size based on message quality/density
                 const recentMsgs = messages.slice(-15);
@@ -122,6 +133,7 @@ export function useBackgroundPipeline({
 
                             if (parsed) {
                                 const embedding = await embedText(parsed.summary);
+                                const branchPath = messages.map((m) => m.id);
                                 const summary = await createSummary(
                                     activeConversationId,
                                     0,
@@ -129,11 +141,9 @@ export function useBackgroundPipeline({
                                     parsed.keyFacts,
                                     [startIdx, endIdx],
                                     [],
-                                    embedding
+                                    embedding,
+                                    branchPath
                                 );
-
-                                // Also index as a vector chunk for retrieval (with branch path)
-                                const branchPath = messages.map((m) => m.id);
                                 await indexMessageChunk(
                                     chunk,
                                     activeConversationId,
@@ -187,7 +197,8 @@ export function useBackgroundPipeline({
                                     parsed.keyFacts,
                                     range,
                                     l0s.map((s) => s.id),
-                                    embedding
+                                    embedding,
+                                    messages.map((m) => m.id)
                                 );
                                 console.log('[RAG] L1 summary created');
                             }
@@ -231,7 +242,8 @@ export function useBackgroundPipeline({
                                     parsed.keyFacts,
                                     range,
                                     l1s.map((s) => s.id),
-                                    embedding
+                                    embedding,
+                                    messages.map((m) => m.id)
                                 );
                                 console.log('[RAG] L2 arc summary created');
                             }
@@ -241,6 +253,13 @@ export function useBackgroundPipeline({
             } catch (error) {
                 console.error('[RAG] Hierarchical summary error:', error);
             } finally {
+                // ALWAYS record the evaluated length — the effect re-fires on every
+                // stream chunk (messages identity changes), and without this the "no
+                // summary due" path re-ran its IndexedDB reads dozens of times per reply.
+                lastSummarizedCount.current = Math.max(
+                    lastSummarizedCount.current,
+                    messages.length
+                );
                 isSummarizingRef.current = false;
             }
         };

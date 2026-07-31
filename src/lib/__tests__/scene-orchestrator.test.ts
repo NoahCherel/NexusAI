@@ -60,7 +60,9 @@ describe('parseDirectorResponse', () => {
         const many = Array.from({ length: 20 }, (_, i) => `P${i}`);
         const raw = JSON.stringify({ speakers: many });
         const d = parseDirectorResponse(raw, many, undefined, 99);
-        expect(d.speakers.length).toBeLessThanOrEqual(MAX_SPEAKERS_CEILING);
+        // Exact: 20 valid candidates → the parser must fill UP TO the ceiling (an empty
+        // array would have satisfied the old <= assertion).
+        expect(d.speakers.length).toBe(MAX_SPEAKERS_CEILING);
     });
 
     it('returns a silent decision on malformed or empty output', () => {

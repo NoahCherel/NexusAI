@@ -134,7 +134,7 @@ export function SceneBar({
                     <div className="inline-flex rounded-md border border-border/50 overflow-hidden shrink-0">
                         <button
                             onClick={() => setSceneStyle(conversation.id, 'turns')}
-                            className={`px-2 h-6 text-[10px] font-medium transition-colors ${
+                            className={`px-2 h-6 pointer-coarse:h-9 pointer-coarse:px-3 text-[10px] font-medium transition-colors ${
                                 (conversation.sceneStyle ?? 'turns') === 'turns'
                                     ? 'bg-primary/15 text-primary'
                                     : 'text-muted-foreground hover:text-foreground'
@@ -145,7 +145,7 @@ export function SceneBar({
                         </button>
                         <button
                             onClick={() => setSceneStyle(conversation.id, 'unified')}
-                            className={`px-2 h-6 text-[10px] font-medium transition-colors ${
+                            className={`px-2 h-6 pointer-coarse:h-9 pointer-coarse:px-3 text-[10px] font-medium transition-colors ${
                                 conversation.sceneStyle === 'unified'
                                     ? 'bg-primary/15 text-primary'
                                     : 'text-muted-foreground hover:text-foreground'
@@ -159,12 +159,12 @@ export function SceneBar({
                     {roster.map((name) => (
                         <span
                             key={name}
-                            className="inline-flex items-center gap-1 px-2 h-6 rounded-full bg-primary/10 text-primary text-[11px]"
+                            className="inline-flex items-center gap-1 px-2 h-6 pointer-coarse:h-9 rounded-full bg-primary/10 text-primary text-[11px]"
                         >
                             {name}
                             <button
                                 onClick={() => removeFromRoster(name)}
-                                className="hover:text-destructive"
+                                className="hover:text-destructive pointer-coarse:p-2 pointer-coarse:-m-1"
                                 title={`Retirer ${name} de la scène`}
                             >
                                 <X className="w-3 h-3" />
@@ -191,7 +191,7 @@ export function SceneBar({
                                     setTimeout(() => setShowAdd(false), 150);
                                 }}
                                 placeholder="Nom…"
-                                className="h-6 w-32 text-[11px] px-2"
+                                className="h-6 pointer-coarse:h-9 w-32 text-[11px] px-2"
                             />
                             {suggestions.length > 0 && (
                                 <div className="absolute bottom-full left-0 mb-1 z-50 min-w-40 rounded-lg border border-border/60 bg-popover shadow-xl overflow-hidden">
@@ -215,7 +215,7 @@ export function SceneBar({
                     ) : (
                         <button
                             onClick={() => setShowAdd(true)}
-                            className="text-[11px] text-muted-foreground hover:text-foreground px-1"
+                            className="text-[11px] text-muted-foreground hover:text-foreground px-1 pointer-coarse:h-9 pointer-coarse:px-3"
                         >
                             + ajouter
                         </button>

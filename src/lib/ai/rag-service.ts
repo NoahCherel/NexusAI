@@ -131,6 +131,11 @@ export async function retrieveRelevantContext(
          * contradiction).
          */
         dedupAgainstTexts?: string[];
+        /**
+         * Messages evicted from the verbatim history window (hysteresis cut index).
+         * Summaries covering the live window are skipped (see getBestContextSummary).
+         */
+        evictedMessageCount?: number;
     } = {}
 ): Promise<ContextSection[]> {
     const {
@@ -141,6 +146,7 @@ export async function retrieveRelevantContext(
         activeBranchMessageIds,
         minConfidence = 0,
         dedupAgainstTexts,
+        evictedMessageCount,
     } = options;
 
     const sections: ContextSection[] = [];
@@ -154,17 +160,25 @@ export async function retrieveRelevantContext(
     const queryTerms = extractSearchTerms(retrievalQueryText);
     const queryEmbedding = await embedText(retrievalQueryText || queryText, 'query');
 
-    // 2. Hierarchical summary (always included if available — very compact)
+    // 2. Hierarchical summary (compact; only content EVICTED from the history window —
+    // summarizing verbatim-present messages pays for them twice and invites drift).
+    let injectedSummaryText = '';
     if (includeSummary) {
         const summaryBudget = Math.min(Math.floor(tokenBudget * 0.35), 400);
-        const summaryText = await getBestContextSummary(conversationId, summaryBudget);
+        const summaryText = await getBestContextSummary(
+            conversationId,
+            summaryBudget,
+            evictedMessageCount,
+            activeBranchMessageIds
+        );
         if (summaryText) {
+            injectedSummaryText = summaryText;
             const tokens = countTokens(summaryText);
             sections.push({
                 priority: 1,
                 content: summaryText,
                 tokens,
-                label: 'Story Summary',
+                label: 'Résumé de l’histoire',
                 type: 'summary',
             });
             remainingBudget -= tokens;
@@ -172,8 +186,7 @@ export async function retrieveRelevantContext(
     }
 
     // 3. Retrieve relevant facts via vector search
-    const facts = await getFactsByConversation(conversationId);
-    let activeFacts = facts.filter((f) => f.active);
+    let activeFacts = await getFactsByConversation(conversationId);
 
     // Branch-aware filtering: only include facts from the active branch lineage
     if (activeBranchMessageIds && activeBranchMessageIds.length > 0) {
@@ -237,7 +250,7 @@ export async function retrieveRelevantContext(
                         priority: 2,
                         content: factsText,
                         tokens,
-                        label: `Facts (${factResults.length})`,
+                        label: `Faits (${factResults.length})`,
                         type: 'fact',
                         confidence: avgFactConfidence,
                     });
@@ -274,12 +287,23 @@ export async function retrieveRelevantContext(
             topKChunks
         );
 
-        if (chunkResults.length > 0) {
+        // L0 summaries are also indexed as chunks: drop chunks that just restate the
+        // summary injected above (same-text-twice in one prompt).
+        const dedupedChunkResults = injectedSummaryText
+            ? chunkResults.filter(
+                  (r) =>
+                      lexicalRedundancy(extractSearchTerms(r.item.text), injectedSummaryText) <
+                      0.7
+              )
+            : chunkResults;
+
+        if (dedupedChunkResults.length > 0) {
             const avgChunkConfidence =
-                chunkResults.reduce((sum, r) => sum + r.score, 0) / chunkResults.length;
+                dedupedChunkResults.reduce((sum, r) => sum + r.score, 0) /
+                dedupedChunkResults.length;
 
             if (avgChunkConfidence >= minConfidence) {
-                const chunkTexts = chunkResults.map((r) => r.item.text);
+                const chunkTexts = dedupedChunkResults.map((r) => r.item.text);
                 const chunksText = '📜 Related Past Scenes:\n' + chunkTexts.join('\n---\n');
                 const tokens = countTokens(chunksText);
 
@@ -288,7 +312,7 @@ export async function retrieveRelevantContext(
                         priority: 3,
                         content: chunksText,
                         tokens,
-                        label: `Scenes (${chunkResults.length})`,
+                        label: `Scènes (${dedupedChunkResults.length})`,
                         type: 'memory',
                         confidence: avgChunkConfidence,
                     });
@@ -729,7 +753,7 @@ export async function buildContextPreview(
     const sections: ContextSection[] = [];
     const warnings: string[] = [];
 
-    // 1. System prompt (strip lorebook, world state, AND canon blocks for cleaner preview)
+    // 1. System prompt (strip lorebook AND canon blocks for cleaner preview)
     let displaySystemPrompt = systemPrompt;
 
     // Strip lorebook entries from system prompt display (they're shown in their own section)
@@ -744,15 +768,15 @@ export async function buildContextPreview(
     // multiple lines from a bracketed label until a blank line. We capture the whole block.
     displaySystemPrompt = displaySystemPrompt.replace(
         /\[CANON — [^\]]+\][\s\S]*?(?=\n\n|\n\[|$)/g,
-        '⟨canon block — see Canon section⟩'
+        '⟨bloc canon — voir la section Canon⟩'
     );
     displaySystemPrompt = displaySystemPrompt.replace(
         /\[IN THIS RP — [^\]]+\][\s\S]*?(?=\n\n|\n\[|$)/g,
-        '⟨in-this-rp block — see Canon section⟩'
+        '⟨bloc in-this-rp — voir la section Canon⟩'
     );
     displaySystemPrompt = displaySystemPrompt.replace(
         /\[RELATIONSHIPS —[\s\S]*?(?=\n\n|$)/g,
-        '⟨relationships block — see Canon section⟩'
+        '⟨bloc relations — voir la section Canon⟩'
     );
 
     // Clean up excessive whitespace from stripping
@@ -763,7 +787,7 @@ export async function buildContextPreview(
         priority: 0,
         content: displaySystemPrompt,
         tokens: sysTokens,
-        label: 'System Prompt',
+        label: 'Prompt système',
         type: 'system',
     });
 
@@ -791,31 +815,31 @@ export async function buildContextPreview(
 
         const lines: string[] = [];
         lines.push(
-            `Scope: scanned the last ${scanDepth} message(s) for casting names mentioned in the scene.`
+            `Portée : les ${scanDepth} dernier(s) message(s) ont été analysés à la recherche de noms du casting mentionnés dans la scène.`
         );
         if (injectedNames.length > 0) {
-            lines.push(`Injected dossiers (${injectedNames.length}): ${injectedNames.join(', ')}`);
+            lines.push(`Dossiers injectés (${injectedNames.length}) : ${injectedNames.join(', ')}`);
         } else {
             lines.push(
-                'Injected dossiers: none. No casting member was mentioned in the recent messages, OR all matches are stubs / disabled.'
+                'Dossiers injectés : aucun. Aucun membre du casting n’a été mentionné dans les messages récents, OU toutes les correspondances sont des ébauches / désactivées.'
             );
         }
         if (dueToAppear && dueToAppear.length > 0) {
             lines.push(
-                `Hinted to the Director (due to appear around this arc): ${dueToAppear.join(', ')}`
+                `Suggérés au Directeur (attendus autour de cet arc) : ${dueToAppear.join(', ')}`
             );
         }
         if (ignoredStubs.length > 0) {
             lines.push(
-                `Excluded — stubs (no fiche fetched yet, click "Récupérer la fiche complète"): ${ignoredStubs.join(', ')}`
+                `Exclus — ébauches (fiche pas encore récupérée, cliquez sur « Récupérer la fiche complète ») : ${ignoredStubs.join(', ')}`
             );
         }
         if (ignoredDisabled.length > 0) {
-            lines.push(`Excluded — disabled by user: ${ignoredDisabled.join(', ')}`);
+            lines.push(`Exclus — désactivés par l’utilisateur : ${ignoredDisabled.join(', ')}`);
         }
         if (canonBlocks.length > 0) {
             lines.push('');
-            lines.push('— Literal blocks injected into the system prompt —');
+            lines.push('— Blocs littéraux injectés dans le prompt système —');
             lines.push(canonBlocks.join('\n\n'));
         }
         const content = lines.join('\n');
@@ -823,7 +847,7 @@ export async function buildContextPreview(
             priority: 1,
             content,
             tokens: countTokens(content),
-            label: `Canon dossiers (${injectedNames.length} injected) — what the model sees about your casting`,
+            label: `Dossiers du canon (${injectedNames.length} injectés) — ce que le modèle voit de votre casting`,
             type: 'canon',
         });
     }
@@ -839,7 +863,7 @@ export async function buildContextPreview(
             priority: 1,
             content: lorebookContent,
             tokens: lorebookTokens,
-            label: `Lorebook (${activeLorebookEntries.length} entries) — included in system prompt`,
+            label: `Lorebook (${activeLorebookEntries.length} entrées) — inclus dans le prompt système`,
             type: 'lorebook',
         });
     }
@@ -849,14 +873,21 @@ export async function buildContextPreview(
         sections.push(section);
     }
 
-    // 3. Message history
-    const historyContent = historyMessages.map((m) => `[${m.role}]: ${m.content}`).join('\n\n');
+    // 3. Message history (display-only transcript — role labels localized for the preview)
+    const roleDisplayLabels: Record<string, string> = {
+        user: 'utilisateur',
+        assistant: 'assistant',
+        system: 'système',
+    };
+    const historyContent = historyMessages
+        .map((m) => `[${roleDisplayLabels[m.role] ?? m.role}]: ${m.content}`)
+        .join('\n\n');
     const historyTokens = countTokens(historyContent);
     sections.push({
         priority: 10,
         content: historyContent,
         tokens: historyTokens,
-        label: `Chat History (${historyMessages.length} msgs)`,
+        label: `Historique de discussion (${historyMessages.length} msgs)`,
         type: 'history',
     });
 
@@ -867,7 +898,7 @@ export async function buildContextPreview(
             priority: 11,
             content: postHistory,
             tokens: phTokens,
-            label: 'Post-History Instructions',
+            label: 'Instructions post-historique',
             type: 'post-history',
         });
     }
@@ -880,13 +911,13 @@ export async function buildContextPreview(
 
     if (totalTokens > maxContextTokens) {
         warnings.push(
-            `⚠️ Context exceeds limit: ${totalTokens} / ${maxContextTokens} tokens (including ${maxOutputTokens} reserved for output)`
+            `⚠️ Le contexte dépasse la limite : ${totalTokens} / ${maxContextTokens} tokens (dont ${maxOutputTokens} réservés pour la sortie)`
         );
     }
 
     const usedRatio = totalTokens / maxContextTokens;
     if (usedRatio > 0.9 && usedRatio <= 1.0) {
-        warnings.push(`⚡ Context is at ${Math.round(usedRatio * 100)}% capacity`);
+        warnings.push(`⚡ Le contexte est à ${Math.round(usedRatio * 100)}% de sa capacité`);
     }
 
     return {

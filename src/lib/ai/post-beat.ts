@@ -18,7 +18,6 @@ import { backgroundAICall } from '@/lib/ai/background-ai';
 import {
     FACT_EXTRACTION_PROMPT,
     buildFactExtractionPrompt,
-    buildFactExtractionSystemPrompt,
     parseFactExtractionResponse,
     deduplicateFacts,
 } from '@/lib/ai/fact-extractor';
@@ -136,20 +135,31 @@ export function runPostBeatAnalyses(params: PostBeatParams): void {
         if (responseQuality.score >= 4) {
             (async () => {
                 try {
+                    // Troupe mode: list the OTHER characters present in recent beats so
+                    // facts credit the right speaker instead of the main card character.
+                    const sceneCharacters = [
+                        ...new Set(
+                            history
+                                .slice(-12)
+                                .filter(
+                                    (m) =>
+                                        m.speaker?.kind === 'character' &&
+                                        m.speaker.name !== character.name
+                                )
+                                .map((m) => m.speaker!.name)
+                        ),
+                    ];
                     const factPrompt = buildFactExtractionPrompt(
                         fullContent,
                         character.name,
-                        personaName || 'User'
+                        personaName || 'User',
+                        sceneCharacters
                     );
 
                     // Runs on the unified background layer — backgroundAICall resolves its
                     // own keys (NanoGPT quota or free OpenRouter rotation).
-                    const { customFactCategories, backgroundModel: bgModel } =
-                        useSettingsStore.getState();
-                    const factSystemPrompt =
-                        customFactCategories.length > 0
-                            ? buildFactExtractionSystemPrompt(customFactCategories)
-                            : FACT_EXTRACTION_PROMPT;
+                    const { backgroundModel: bgModel } = useSettingsStore.getState();
+                    const factSystemPrompt = FACT_EXTRACTION_PROMPT;
 
                     const factResult = await backgroundAICall({
                         systemPrompt: factSystemPrompt,
@@ -187,10 +197,6 @@ export function runPostBeatAnalyses(params: PostBeatParams): void {
                     }
                     await saveFactsBatch(factsWithIds);
                     console.log(`[RAG] Extracted ${factsWithIds.length} facts from response`);
-                    // NOTE: the legacy scalar worldState (location/inventory/relationship
-                    // numbers) is no longer auto-written — directional relationships + facts
-                    // are the live systems. Existing data stays readable; manual edits in
-                    // the World State panel still work.
                 } catch (err) {
                     console.error('[RAG] Fact extraction failed:', err);
                 }

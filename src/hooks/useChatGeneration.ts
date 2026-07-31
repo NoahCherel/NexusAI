@@ -27,10 +27,8 @@ import { extractLorebookEntries, extractRpDevelopments } from '@/lib/lorebook-ex
 import { directorDecide, applySceneChange } from '@/lib/ai/scene-orchestrator';
 import { NANOGPT_USAGE_REFRESH_EVENT } from '@/lib/ai/nanogpt-usage';
 import { countTokens } from '@/lib/tokenizer';
+import { extractUsageSentinel } from '@/lib/ai/usage-sentinel';
 import type { PostBeatParams } from '@/lib/ai/post-beat';
-
-// Trailing sentinel appended by /api/chat carrying the provider-reported token usage.
-const USAGE_SENTINEL_RE = /\n?<\|nexus_usage\|>(\{[\s\S]*?\})\s*$/;
 
 /** Decrypted key of the ACTIVE provider (null while loading or when none is stored). */
 export function useActiveApiKey(): string | null {
@@ -82,6 +80,15 @@ export function useChatGeneration({
     // a new user message).
     const stopRequestedRef = useRef(false);
     const [isSceneRunning, setIsSceneRunning] = useState(false);
+    // Scene Mode 'turns': the full retrieval stack (canon, hybrid lorebook, RAG) barely
+    // changes between the speakers of ONE beat — compute it once on the first turn and
+    // reuse it for the rest of the beat (keyed by beat id).
+    const sceneRetrievalCacheRef = useRef<{
+        key: string;
+        canonOptions: Awaited<ReturnType<typeof buildCanonOptions>>;
+        activeEntries: Awaited<ReturnType<typeof resolveActiveLorebookEntries>>;
+        ragSections: import('@/types/rag').ContextSection[];
+    } | null>(null);
 
     const {
         activeProvider,
@@ -119,6 +126,11 @@ export function useChatGeneration({
             sceneGoal?: string;
             /** Unified scene style: one generation writes the whole directed beat. */
             sceneEnsemble?: import('@/lib/ai/payload-builder').BuildConversationPayloadParams['sceneEnsemble'];
+            /**
+             * Scene Mode 'turns': beat id — the retrieval stack (canon/lorebook/RAG) is
+             * computed on the first turn of the beat and REUSED for the following ones.
+             */
+            retrievalCacheKey?: string;
         } = {}
     ): Promise<{ id: string; content: string } | undefined> => {
         if (!currentApiKey || !character) return;
@@ -144,13 +156,22 @@ export function useChatGeneration({
         // persistSticky: generation updates the sticky-cast window (previews never mutate).
         const currentConv = conversations.find((c) => c.id === activeConversationId);
         const combinedMemory = [...(currentConv?.notes || []), ...(character.longTermMemory || [])];
-        const canonOptions = await buildCanonOptions(
-            character,
-            currentConv,
-            history,
-            activePersona?.name || 'the player',
-            { persistSticky: true }
-        );
+        // Scene-beat retrieval reuse: only the Director's directions change between the
+        // speakers of one beat — canon/lorebook/RAG barely do. Hit = skip the whole stack.
+        const retrievalCache =
+            options.retrievalCacheKey &&
+            sceneRetrievalCacheRef.current?.key === options.retrievalCacheKey
+                ? sceneRetrievalCacheRef.current
+                : null;
+        const canonOptions =
+            retrievalCache?.canonOptions ??
+            (await buildCanonOptions(
+                character,
+                currentConv,
+                history,
+                activePersona?.name || 'the player',
+                { persistSticky: true }
+            ));
         const canonScanText = [
             ...(canonOptions.canonDossiers ?? []).map(
                 (d) => `${d.character}\n${d.identity}\n${d.backstory ?? ''}`
@@ -166,17 +187,19 @@ export function useChatGeneration({
 
         // 2. Active lorebook entries — single shared resolver (hybrid: keyword + semantic).
         const lastUserMsg = history[history.length - 1]?.content || '';
-        const activeEntries = await resolveActiveLorebookEntries({
-            messages: history,
-            lorebook: activeLorebook,
-            preset: activePreset,
-            characterName: character.name,
-            userPersonaName: activePersona?.name,
-            hybrid: true,
-            queryText: lastUserMsg,
-            tokenBudget: activePreset?.lorebookTokenBudget ?? 2000,
-            extraScanText: canonScanText || undefined,
-        });
+        const activeEntries =
+            retrievalCache?.activeEntries ??
+            (await resolveActiveLorebookEntries({
+                messages: history,
+                lorebook: activeLorebook,
+                preset: activePreset,
+                characterName: character.name,
+                userPersonaName: activePersona?.name,
+                hybrid: true,
+                queryText: lastUserMsg,
+                tokenBudget: activePreset?.lorebookTokenBudget ?? 2000,
+                extraScanText: canonScanText || undefined,
+            }));
 
         const { enableRAGRetrieval, minRAGConfidence, enableScratchpad } =
             useSettingsStore.getState();
@@ -190,6 +213,7 @@ export function useChatGeneration({
             stablePrefixLength,
             suggestedCutMessageId,
             tokenBreakdown,
+            ragSections,
         } = await buildConversationPayload({
                 mode: options.isImpersonation ? 'impersonate' : 'generate',
                 character,
@@ -213,14 +237,19 @@ export function useChatGeneration({
                 maxOutputTokens,
                 historyCutMessageId: currentConv?.historyCutMessageId,
                 continueFromAssistant: !!options.continueTargetId,
+                // A unified ensemble beat carries a speaker for attribution ('Scène'), but
+                // its contract is the ENSEMBLE block — never the single-speaker/narrator ones.
                 sceneSpeaker:
-                    options.speaker?.kind === 'character' ? options.speaker.name : undefined,
-                sceneNarrator: options.speaker?.kind === 'narrator',
+                    options.speaker?.kind === 'character' && !options.sceneEnsemble
+                        ? options.speaker.name
+                        : undefined,
+                sceneNarrator: options.speaker?.kind === 'narrator' && !options.sceneEnsemble,
                 sceneDirection: options.sceneDirection,
                 sceneGoal: options.sceneGoal,
                 sceneEnsemble: options.sceneEnsemble,
-                retrieveRag:
-                    enableRAGRetrieval && activeConversationId
+                retrieveRag: retrievalCache
+                    ? async () => retrievalCache.ragSections
+                    : enableRAGRetrieval && activeConversationId
                         ? (ragBudget) =>
                               retrieveRelevantContext(
                                   lastUserMsg,
@@ -230,6 +259,18 @@ export function useChatGeneration({
                                                                     recentMessages: history,
                                       activeBranchMessageIds: messages.map((m) => m.id),
                                       minConfidence: minRAGConfidence,
+                                      // Summaries only cover messages EVICTED from the
+                                      // verbatim window (hysteresis cut position).
+                                      evictedMessageCount: currentConv?.historyCutMessageId
+                                          ? Math.max(
+                                                0,
+                                                history.findIndex(
+                                                    (m) =>
+                                                        m.id ===
+                                                        currentConv.historyCutMessageId
+                                                )
+                                            )
+                                          : 0,
                                       // Priority of truth: facts restating canon/lorebook
                                       // content injected this turn are dropped.
                                       dedupAgainstTexts: [
@@ -243,6 +284,16 @@ export function useChatGeneration({
                               )
                         : undefined,
             });
+
+        // First turn of a scene beat: store the retrieval stack for the beat's next turns.
+        if (options.retrievalCacheKey && !retrievalCache) {
+            sceneRetrievalCacheRef.current = {
+                key: options.retrievalCacheKey,
+                canonOptions,
+                activeEntries,
+                ragSections,
+            };
+        }
 
         // The momentum nudge is one-shot: it has now been injected, so clear it.
         if (currentConv?.momentumNudge && activeConversationId) {
@@ -272,6 +323,7 @@ export function useChatGeneration({
             ? history[history.length - 1]?.content || ''
             : options.prefill || '';
         let fullContent = initialContent;
+        let assistantThought = '';
 
         if (activeConversationId && !continuing) {
             addMessage({
@@ -285,6 +337,8 @@ export function useChatGeneration({
                 messageOrder: history.length + 1,
                 regenerationIndex: 0,
                 speaker: options.speaker,
+                // Unified beats persist their Director context so regen can replay it.
+                sceneEnsemble: options.sceneEnsemble,
             });
         }
 
@@ -332,7 +386,22 @@ export function useChatGeneration({
             // If we have a prefill that WASN'T sent to the API, we start with it. If it WAS
             // sent (Anthropic), the stream continues AFTER it. Always maintain `fullContent`.
             fullContent = initialContent;
-            let assistantThought = '';
+
+            // STREAMING HOT PATH: throttle the store flush (~20/s) and NEVER write
+            // IndexedDB per chunk — a put of the whole growing message per token is
+            // quadratic I/O. The single persisted write happens after the stream ends
+            // (and on the error/abort paths below).
+            let lastFlushAt = 0;
+            const flushStreamed = (force = false) => {
+                const now = Date.now();
+                if (!force && now - lastFlushAt < 50) return;
+                lastFlushAt = now;
+                updateMessage(
+                    targetId,
+                    { content: fullContent, thought: assistantThought || undefined },
+                    { persist: false }
+                );
+            };
 
             while (true) {
                 const { done, value } = await reader.read();
@@ -344,13 +413,9 @@ export function useChatGeneration({
                 const parsed = parseStreamingChunk(chunk, activeProvider);
                 if (parsed.thoughtContent) assistantThought += parsed.thoughtContent;
                 if (parsed.visibleContent) fullContent += parsed.visibleContent;
-
-                // Update the message in store
-                updateMessage(targetId, {
-                    content: fullContent,
-                    thought: assistantThought || undefined,
-                });
+                if (parsed.thoughtContent || parsed.visibleContent) flushStreamed();
             }
+            flushStreamed(true);
 
             // NanoGPT quota was just consumed by this generation — ask the usage badge/panel to
             // refetch (no-op for other providers; the badge only renders for NanoGPT).
@@ -378,22 +443,9 @@ export function useChatGeneration({
             }
 
             // Extract the trailing usage sentinel (provider-reported token accounting).
-            let usage: CAMessage['usage'];
-            const usageMatch = fullContent.match(USAGE_SENTINEL_RE);
-            if (usageMatch) {
-                fullContent = fullContent.replace(USAGE_SENTINEL_RE, '');
-                try {
-                    const u = JSON.parse(usageMatch[1]);
-                    usage = {
-                        promptTokens: u.promptTokens ?? 0,
-                        completionTokens: u.completionTokens ?? 0,
-                        cachedTokens: u.cachedTokens,
-                        cost: u.cost,
-                    };
-                } catch {
-                    /* malformed sentinel — fall through to the local estimate */
-                }
-            }
+            const sentinel = extractUsageSentinel(fullContent);
+            fullContent = sentinel.clean;
+            let usage: CAMessage['usage'] = sentinel.usage;
 
             // Final parse
             const finalResult = normalizeCoT(fullContent, activeProvider);
@@ -454,7 +506,13 @@ export function useChatGeneration({
                     targetId,
                     history,
                     branchMessageIds: messages.map((m) => m.id),
-                                personaName: activePersona?.name,
+                    // Persona-at-send-time: facts must credit the persona that actually
+                    // sent the beat, not whichever persona is active right now.
+                    personaName:
+                        [...history]
+                            .reverse()
+                            .find((m) => m.role === 'user' && m.speaker?.name)?.speaker
+                            ?.name ?? activePersona?.name,
                     isImpersonation: !!options.isImpersonation,
                     skipFactExtraction: !!options.skipFactExtraction,
                 });
@@ -463,15 +521,23 @@ export function useChatGeneration({
             return { id: targetId, content: finalContent };
         } catch (error) {
             if (error instanceof Error && error.name === 'AbortError') {
+                // Streaming no longer persists per chunk — write the partial content once
+                // so a stopped generation survives a reload.
+                if (activeConversationId && fullContent) {
+                    updateMessage(targetId, {
+                        content: fullContent,
+                        thought: assistantThought || undefined,
+                    });
+                }
                 return;
             }
 
             const { addNotification, updateNotification } = useNotificationStore.getState();
-            const notifId = addNotification('Failed to generate response', 'world');
+            const notifId = addNotification('Échec de la génération de la réponse', 'world');
             updateNotification(
                 notifId,
                 'error',
-                error instanceof Error ? error.message : 'Unknown error'
+                error instanceof Error ? error.message : 'Erreur inconnue'
             );
 
             if (activeConversationId) {
@@ -488,7 +554,7 @@ export function useChatGeneration({
                         error:
                             error instanceof Error
                                 ? error.message
-                                : 'Failed to get response. Check API Key or Network.',
+                                : 'Échec de la réponse. Vérifiez la clé API ou le réseau.',
                     });
                 }
             }
@@ -558,6 +624,9 @@ export function useChatGeneration({
             // turns). Cheaper than turn-by-turn; regen redoes the whole beat.
             if ((conv.sceneStyle ?? 'turns') === 'unified') {
                 await triggerAiReponse(withSpeakerPrefixes(beatHistory), {
+                    // Attribution: the unified beat is a directed SCENE, not the main
+                    // character speaking — labeled 'Scène' (narrator styling).
+                    speaker: { kind: 'narrator', name: 'Scène' },
                     sceneEnsemble: {
                         roster: newRoster,
                         directions: decision.speakers,
@@ -591,6 +660,8 @@ export function useChatGeneration({
             // 4. Character turns, sequential and streamed. Hard cap; Stop (or a new user
             // message) cancels the remaining turns.
             const speakers = decision.speakers;
+            // One retrieval stack per beat: computed on the first turn, reused after.
+            const beatRetrievalKey = crypto.randomUUID();
             for (let i = 0; i < speakers.length; i++) {
                 if (stopRequestedRef.current) break;
                 const speaker = { kind: 'character' as const, name: speakers[i].name };
@@ -599,6 +670,7 @@ export function useChatGeneration({
                     sceneDirection: speakers[i].direction,
                     sceneGoal: i === 0 ? decision.sceneGoal : undefined,
                     skipFactExtraction: i < speakers.length - 1,
+                    retrievalCacheKey: beatRetrievalKey,
                 });
                 if (!result) break;
                 beatHistory.push({
@@ -616,6 +688,7 @@ export function useChatGeneration({
             }
         } finally {
             setIsSceneRunning(false);
+            sceneRetrievalCacheRef.current = null; // never reuse across beats
         }
     };
 
@@ -796,7 +869,13 @@ export function useChatGeneration({
             }
 
             // Strip the trailing usage sentinel — the drafted text goes into the input box.
-            generatedText = generatedText.replace(USAGE_SENTINEL_RE, '');
+            // Impersonation runs on the PAID foreground model: its real cost counts toward
+            // the weekly budget like any other generation.
+            const impSentinel = extractUsageSentinel(generatedText);
+            generatedText = impSentinel.clean;
+            if (impSentinel.usage?.cost && impSentinel.usage.cost > 0) {
+                useSettingsStore.getState().addWeeklySpend(impSentinel.usage.cost);
+            }
             const final = normalizeCoT(generatedText, activeProvider);
             return final.content;
         } catch (err) {
@@ -821,7 +900,13 @@ export function useChatGeneration({
             const history = messages.slice(0, msgIndex);
             await triggerAiReponse(
                 msgToRegen.speaker ? withSpeakerPrefixes(history) : history,
-                { skipFactExtraction: true, speaker: msgToRegen.speaker }
+                {
+                    skipFactExtraction: true,
+                    speaker: msgToRegen.speaker,
+                    // Unified beat: replay the SAME Director context — without it the scene
+                    // would collapse into an ordinary single-character reply.
+                    sceneEnsemble: msgToRegen.sceneEnsemble,
+                }
             );
         }
     };
@@ -846,14 +931,27 @@ export function useChatGeneration({
             deleteMessage(id);
             await triggerAiReponse(
                 msgToContinue.speaker ? withSpeakerPrefixes(history) : history,
-                { prefill, skipFactExtraction: true, speaker: msgToContinue.speaker }
+                {
+                    prefill,
+                    skipFactExtraction: true,
+                    speaker: msgToContinue.speaker,
+                    sceneEnsemble: msgToContinue.sceneEnsemble,
+                }
             );
         } else {
             // No prefill support (NanoGPT/OpenAI): keep the message in place and in the
             // history, instruct an explicit continuation, append it (overlap-deduped).
             // The old code deleted the message and regenerated everything — duplicated text.
+            // NOTE: history must stay UNPREFIXED here — the target message is its last
+            // element and `initialContent` (rewritten into the message at stream end) is
+            // read from it verbatim; a "Name: " prefix would leak into the saved content.
             const history = messages.slice(0, msgIndex + 1);
-            await triggerAiReponse(history, { continueTargetId: id, skipFactExtraction: true });
+            await triggerAiReponse(history, {
+                continueTargetId: id,
+                skipFactExtraction: true,
+                speaker: msgToContinue.speaker,
+                sceneEnsemble: msgToContinue.sceneEnsemble,
+            });
         }
     };
 
@@ -866,7 +964,11 @@ export function useChatGeneration({
         deleteMessage(id);
         await triggerAiReponse(
             msgToRetry.speaker ? withSpeakerPrefixes(history) : history,
-            { skipFactExtraction: true, speaker: msgToRetry.speaker }
+            {
+                skipFactExtraction: true,
+                speaker: msgToRetry.speaker,
+                sceneEnsemble: msgToRetry.sceneEnsemble,
+            }
         );
     };
 

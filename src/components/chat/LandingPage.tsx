@@ -27,11 +27,11 @@ export function LandingPage({ onImportClick }: { onImportClick?: () => void }) {
                 {/* Title & Description */}
                 <div className="space-y-4">
                     <h1 className="text-4xl md:text-5xl font-extrabold tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-foreground to-foreground/70">
-                        Welcome to NexusAI
+                        Bienvenue sur NexusAI
                     </h1>
                     <p className="text-xl text-muted-foreground leading-relaxed max-w-lg mx-auto">
-                        Your advanced diverse roleplay companion. Select a character from the
-                        sidebar or import a new one to begin your journey.
+                        Votre compagnon de roleplay avancé. Sélectionnez un personnage dans la
+                        barre latérale ou importez-en un nouveau pour commencer votre aventure.
                     </p>
                 </div>
 
@@ -45,7 +45,7 @@ export function LandingPage({ onImportClick }: { onImportClick?: () => void }) {
                                 onClick={onImportClick}
                             >
                                 <Upload className="w-5 h-5" />
-                                Import Character
+                                Importer un personnage
                             </Button>
                         }
                     />
@@ -57,19 +57,19 @@ export function LandingPage({ onImportClick }: { onImportClick?: () => void }) {
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 transition={{ delay: 0.8, duration: 1 }}
-                className="absolute bottom-12 flex gap-8 text-sm text-muted-foreground/60"
+                className="absolute bottom-12 flex flex-wrap justify-center gap-x-8 gap-y-2 px-4 text-sm text-muted-foreground/60"
             >
                 <div className="flex items-center gap-2">
                     <MessageSquare className="w-4 h-4" />
-                    <span>Immersive Chat</span>
+                    <span>Discussion immersive</span>
                 </div>
                 <div className="flex items-center gap-2">
                     <Bot className="w-4 h-4" />
-                    <span>Smart Memory</span>
+                    <span>Mémoire intelligente</span>
                 </div>
                 <div className="flex items-center gap-2">
                     <Sparkles className="w-4 h-4" />
-                    <span>Dynamic World</span>
+                    <span>Monde dynamique</span>
                 </div>
             </motion.div>
         </div>

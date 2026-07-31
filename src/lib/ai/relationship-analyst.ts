@@ -99,17 +99,19 @@ export async function analyzeAndUpdateRelationships(
     messageId?: string
 ): Promise<void> {
     const settings = useSettingsStore.getState();
-    if (!settings.useCanonCodex || !(settings.enableRelationshipAnalyst ?? true)) return;
+    // Deliberately NOT gated on useCanonCodex: relationships also work for OC cards and
+    // canon-off setups (the panel stays functional). Only its own toggle disables it.
+    if (!(settings.enableRelationshipAnalyst ?? true)) return;
     if (!newMessage.trim()) return;
-
-    const work = resolveWork(card);
-    if (!work) return;
 
     const chat = useChatStore.getState();
     const conv = chat.conversations.find((c) => c.id === conversationId);
     if (!conv) return;
 
-    const dossiers = await getCanonDossiersByWork(work);
+    // Canon dossiers only enrich the analysis (persona cues, canon-seeded pairs) — the
+    // analyst runs without them.
+    const work = resolveWork(card);
+    const dossiers = work ? await getCanonDossiersByWork(work) : [];
 
     // Which cast members are involved in this beat?
     const activeNames = getActiveCanonNames(
@@ -129,7 +131,14 @@ export async function analyzeAndUpdateRelationships(
     if (changed) chat.setRelationships(conversationId, seeded);
 
     const activePersona = settings.personas.find((p) => p.id === settings.activePersonaId);
-    const userName = activePersona?.name || 'the player';
+    // Persona-at-send-time: the ledger must name the persona who actually played this
+    // beat, not whichever persona is active when the analysis runs.
+    const lastUserSpeaker = [...chat.messages]
+        .reverse()
+        .find(
+            (m) => m.conversationId === conversationId && m.role === 'user' && m.speaker?.name
+        )?.speaker?.name;
+    const userName = lastUserSpeaker || activePersona?.name || 'the player';
 
     // Relationships eligible for update: NPC-origin, touching an active character.
     const activeSet = new Set([USER_REL_KEY.toLowerCase(), ...activeNames.map((n) => n.toLowerCase())]);

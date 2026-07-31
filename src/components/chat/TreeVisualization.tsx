@@ -282,10 +282,10 @@ export function TreeVisualization({ isOpen, onClose }: TreeVisualizationProps) {
                         </div>
                         <div>
                             <h2 className="font-bold text-base md:text-lg leading-tight">
-                                Conversation Tree
+                                Arbre de conversation
                             </h2>
                             <p className="text-[10px] md:text-xs text-muted-foreground">
-                                Flow chart of all dialogue branches
+                                Schéma de toutes les branches du dialogue
                             </p>
                         </div>
                     </div>
@@ -340,9 +340,11 @@ export function TreeVisualization({ isOpen, onClose }: TreeVisualizationProps) {
                     {!hasData ? (
                         <div className="absolute inset-0 flex flex-col items-center justify-center text-muted-foreground opacity-50 select-none pointer-events-none">
                             <GitBranch className="h-16 w-16 mb-4 stroke-[1.5]" />
-                            <p className="font-medium text-lg">No visible messages in this tree</p>
+                            <p className="font-medium text-lg">
+                                Aucun message visible dans cet arbre
+                            </p>
                             <p className="text-sm">
-                                Technical system messages are hidden by default.
+                                Les messages système techniques sont masqués par défaut.
                             </p>
                         </div>
                     ) : (

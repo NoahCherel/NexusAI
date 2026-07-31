@@ -86,10 +86,10 @@ export function CharacterPanel({ trigger }: CharacterPanelProps) {
         const minutes = Math.floor(diff / 60000);
         const hours = Math.floor(diff / 3600000);
         const days = Math.floor(diff / 86400000);
-        if (minutes < 1) return 'Just now';
-        if (minutes < 60) return `${minutes}m ago`;
-        if (hours < 24) return `${hours}h ago`;
-        if (days < 7) return `${days}d ago`;
+        if (minutes < 1) return 'à l’instant';
+        if (minutes < 60) return `il y a ${minutes} min`;
+        if (hours < 24) return `il y a ${hours} h`;
+        if (days < 7) return `il y a ${days} j`;
         return new Date(ts).toLocaleDateString();
     };
 
@@ -149,7 +149,7 @@ export function CharacterPanel({ trigger }: CharacterPanelProps) {
                             <div className="p-1.5 bg-primary/10 rounded-md">
                                 <Users className="w-5 h-5 text-primary" />
                             </div>
-                            Characters
+                            Personnages
                         </SheetTitle>
                     </SheetHeader>
 
@@ -157,7 +157,7 @@ export function CharacterPanel({ trigger }: CharacterPanelProps) {
                         <div className="relative">
                             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                             <Input
-                                placeholder="Search characters..."
+                                placeholder="Rechercher des personnages…"
                                 value={searchTerm}
                                 onChange={(e) => setSearchTerm(e.target.value)}
                                 className="pl-9 bg-background/40 border-border/40 h-9"
@@ -171,7 +171,7 @@ export function CharacterPanel({ trigger }: CharacterPanelProps) {
                                         size="sm"
                                         className="gap-1.5 flex-1 h-9 border-primary/20 bg-primary/5 text-primary hover:bg-primary/10"
                                     >
-                                        <Upload className="w-4 h-4" /> Import
+                                        <Upload className="w-4 h-4" /> Importer
                                     </Button>
                                 }
                             />
@@ -181,7 +181,7 @@ export function CharacterPanel({ trigger }: CharacterPanelProps) {
                                 className="gap-1.5 flex-1 h-9 border-primary/20 bg-primary/5 text-primary hover:bg-primary/10"
                                 onClick={handleCreateNew}
                             >
-                                <Plus className="w-4 h-4" /> New
+                                <Plus className="w-4 h-4" /> Nouveau
                             </Button>
                         </div>
                         <div className="flex justify-end">
@@ -193,22 +193,22 @@ export function CharacterPanel({ trigger }: CharacterPanelProps) {
                                         className="h-8 gap-1 text-xs text-muted-foreground hover:text-foreground"
                                     >
                                         <ArrowUpDown className="w-3 h-3" />
-                                        Sort: {sortOption === 'recent' ? 'Recent' : 'Name'}
+                                        Tri : {sortOption === 'recent' ? 'Récents' : 'Nom'}
                                     </Button>
                                 </DropdownMenuTrigger>
                                 <DropdownMenuContent align="end" className="w-48">
-                                    <DropdownMenuLabel>Sort By</DropdownMenuLabel>
+                                    <DropdownMenuLabel>Trier par</DropdownMenuLabel>
                                     <DropdownMenuSeparator />
                                     <DropdownMenuItem onClick={() => setSortOption('name')}>
                                         <SortAsc className="w-4 h-4 mr-2" />
-                                        Name (A-Z)
+                                        Nom (A-Z)
                                         {sortOption === 'name' && (
                                             <Clock className="w-3 h-3 ml-auto opacity-0" />
                                         )}
                                     </DropdownMenuItem>
                                     <DropdownMenuItem onClick={() => setSortOption('recent')}>
                                         <Clock className="w-4 h-4 mr-2" />
-                                        Recent Activity
+                                        Activité récente
                                     </DropdownMenuItem>
                                 </DropdownMenuContent>
                             </DropdownMenu>
@@ -220,7 +220,7 @@ export function CharacterPanel({ trigger }: CharacterPanelProps) {
                             {characterGroups.length === 0 ? (
                                 <div className="text-center py-12 px-4">
                                     <p className="text-muted-foreground text-sm">
-                                        No characters found
+                                        Aucun personnage trouvé
                                     </p>
                                 </div>
                             ) : (

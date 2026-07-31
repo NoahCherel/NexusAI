@@ -41,6 +41,10 @@ export interface MemorySummary {
     embedding?: number[]; // For RAG
     childIds: string[]; // Child summary IDs
     createdAt: number;
+    // Ordered message IDs of the branch this summary was created on. Filtering mirrors
+    // facts/chunks: after a branch switch, summaries of the abandoned branch must not keep
+    // narrating it as ground truth. Absent = legacy (always included).
+    branchPath?: string[];
 }
 
 // ============================================
@@ -64,7 +68,6 @@ export interface WorldFact {
     fact: string; // "The player obtained the Fire Sword from dragon Kael"
     category: FactCategory;
     importance: number; // 1-10
-    active: boolean; // false if invalidated by a more recent fact
     timestamp: number;
     embedding?: number[]; // For RAG
     embeddingRevision?: string; // Embedding-space signature; cross-space cosine is invalid

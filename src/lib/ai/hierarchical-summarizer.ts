@@ -216,8 +216,14 @@ export function buildL0Prompt(
     characterName: string,
     userName: string
 ): string {
+    // Speaker-aware labels: Troupe turns carry their own character's name and user
+    // messages carry the persona used AT SEND TIME — never relabel everything with the
+    // main card character / currently active persona.
     const formatted = messages
-        .map((m) => `${m.role === 'user' ? userName : characterName}: ${m.content}`)
+        .map(
+            (m) =>
+                `${m.speaker?.name || (m.role === 'user' ? userName : characterName)}: ${m.content}`
+        )
         .join('\n\n');
 
     return `Character: ${characterName}\nPlayer: ${userName}\n\n--- Messages ---\n${formatted}\n\n--- End Messages ---\n\nSummarize this chunk:`;
@@ -261,7 +267,9 @@ export async function createSummary(
     keyFacts: string[],
     messageRange: [number, number],
     childIds: string[] = [],
-    embedding?: number[]
+    embedding?: number[],
+    /** Active-branch message IDs at creation time (branch-aware filtering, like facts). */
+    branchPath?: string[]
 ): Promise<MemorySummary> {
     const summary: MemorySummary = {
         id: crypto.randomUUID(),
@@ -273,6 +281,7 @@ export async function createSummary(
         embedding,
         childIds,
         createdAt: Date.now(),
+        branchPath,
     };
 
     await saveSummary(summary);
@@ -300,9 +309,37 @@ function deduplicateSummaries(summaries: MemorySummary[]): MemorySummary[] {
 
 export async function getBestContextSummary(
     conversationId: string,
-    maxTokens: number = 300
+    maxTokens: number = 300,
+    /**
+     * Number of branch messages EVICTED from the verbatim history window (index of the
+     * hysteresis cut). Summaries covering messages still inside the window are skipped —
+     * they'd restate verbatim text (paid twice, paraphrase drift). 0 = nothing evicted →
+     * no summary at all. Omit for legacy behaviour (display/tools).
+     */
+    evictedMessageCount?: number,
+    /** Active-branch message IDs — summaries from abandoned branches are dropped. */
+    activeBranchMessageIds?: string[]
 ): Promise<string> {
-    const summaries = await getSummariesByConversation(conversationId);
+    if (evictedMessageCount !== undefined && evictedMessageCount <= 0) return '';
+    let summaries = await getSummariesByConversation(conversationId);
+    if (activeBranchMessageIds && activeBranchMessageIds.length > 0) {
+        const branchSet = new Set(activeBranchMessageIds);
+        summaries = summaries.filter((s) =>
+            // Legacy summaries without branchPath stay (graceful degradation).
+            s.branchPath && s.branchPath.length > 0
+                ? s.branchPath.some((id) => branchSet.has(id))
+                : true
+        );
+    }
+    if (evictedMessageCount !== undefined) {
+        summaries = summaries.filter((s) =>
+            s.level === 0
+                ? // Fine-grained L0: only when its whole range fell out of the window.
+                  s.messageRange[1] <= evictedMessageCount
+                : // Coarse L1/L2: keep if they START in evicted territory (mostly history).
+                  s.messageRange[0] < evictedMessageCount
+        );
+    }
     if (summaries.length === 0) return '';
 
     // Try L2 first (most compressed)
@@ -405,26 +442,3 @@ function computeWordOverlap(a: string, b: string): number {
     return union > 0 ? intersection / union : 0;
 }
 
-/**
- * Get all summaries organized by level for display.
- */
-export async function getSummaryHierarchy(conversationId: string): Promise<{
-    l0: MemorySummary[];
-    l1: MemorySummary[];
-    l2: MemorySummary[];
-    totalMessages: number;
-}> {
-    const summaries = await getSummariesByConversation(conversationId);
-    return {
-        l0: summaries
-            .filter((s) => s.level === 0)
-            .sort((a, b) => a.messageRange[0] - b.messageRange[0]),
-        l1: summaries
-            .filter((s) => s.level === 1)
-            .sort((a, b) => a.messageRange[0] - b.messageRange[0]),
-        l2: summaries
-            .filter((s) => s.level === 2)
-            .sort((a, b) => a.messageRange[0] - b.messageRange[0]),
-        totalMessages: summaries.reduce((max, s) => Math.max(max, s.messageRange[1]), 0),
-    };
-}

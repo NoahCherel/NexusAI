@@ -174,15 +174,15 @@ export function CharacterEditor({ isOpen, onClose, character }: CharacterEditorP
                                 <User className="w-5 h-5 text-primary" />
                             </div>
                             <DialogTitle className="text-lg font-bold">
-                                {isEditing ? 'Edit Character' : 'Create Character'}
+                                {isEditing ? 'Modifier le personnage' : 'Créer un personnage'}
                             </DialogTitle>
                         </div>
                     </div>
                 </DialogHeader>
                 <DialogDescription className="sr-only">
                     {isEditing
-                        ? 'Make changes to your character card here.'
-                        : 'Create a new character card.'}
+                        ? 'Modifiez votre carte de personnage ici.'
+                        : 'Créez une nouvelle carte de personnage.'}
                 </DialogDescription>
 
                 <div className="flex-1 overflow-y-auto px-4">
@@ -192,7 +192,7 @@ export function CharacterEditor({ isOpen, onClose, character }: CharacterEditorP
                                 htmlFor="name"
                                 className="flex items-center gap-2 text-sm font-medium"
                             >
-                                <User className="w-4 h-4" /> Name *
+                                <User className="w-4 h-4" /> Nom *
                             </Label>
                             <Input
                                 id="name"
@@ -200,7 +200,7 @@ export function CharacterEditor({ isOpen, onClose, character }: CharacterEditorP
                                 onChange={(e) =>
                                     setFormData((prev) => ({ ...prev, name: e.target.value }))
                                 }
-                                placeholder="Character name (used in chat)"
+                                placeholder="Nom du personnage (utilisé dans le chat)"
                                 className="bg-background/50"
                             />
                         </div>
@@ -211,7 +211,7 @@ export function CharacterEditor({ isOpen, onClose, character }: CharacterEditorP
                                 htmlFor="displayName"
                                 className="flex items-center gap-2 text-sm font-medium"
                             >
-                                <Tags className="w-4 h-4" /> System Label (Optional)
+                                <Tags className="w-4 h-4" /> Étiquette système (optionnel)
                             </Label>
                             <Input
                                 id="displayName"
@@ -222,7 +222,7 @@ export function CharacterEditor({ isOpen, onClose, character }: CharacterEditorP
                                         displayName: e.target.value,
                                     }))
                                 }
-                                placeholder="UI label (e.g. 'Goku (Super)') - Only visible to you"
+                                placeholder="Étiquette d'interface (ex. 'Goku (Super)') — visible uniquement par vous"
                                 className="bg-background/50"
                             />
                         </div>
@@ -233,7 +233,7 @@ export function CharacterEditor({ isOpen, onClose, character }: CharacterEditorP
                                 htmlFor="folder"
                                 className="flex items-center gap-2 text-sm font-medium"
                             >
-                                <Folder className="w-4 h-4" /> Dossier (Optional)
+                                <Folder className="w-4 h-4" /> Dossier (optionnel)
                             </Label>
                             <Input
                                 id="folder"
@@ -271,7 +271,7 @@ export function CharacterEditor({ isOpen, onClose, character }: CharacterEditorP
                                         description: e.target.value,
                                     }))
                                 }
-                                placeholder="Character description and backstory..."
+                                placeholder="Description et passé du personnage…"
                                 className="min-h-[80px] bg-background/50"
                             />
                         </div>
@@ -282,7 +282,7 @@ export function CharacterEditor({ isOpen, onClose, character }: CharacterEditorP
                                 htmlFor="personality"
                                 className="flex items-center gap-2 text-sm font-medium"
                             >
-                                <Sparkles className="w-4 h-4" /> Personality
+                                <Sparkles className="w-4 h-4" /> Personnalité
                             </Label>
                             <Textarea
                                 id="personality"
@@ -293,7 +293,7 @@ export function CharacterEditor({ isOpen, onClose, character }: CharacterEditorP
                                         personality: e.target.value,
                                     }))
                                 }
-                                placeholder="Personality traits, quirks, mannerisms..."
+                                placeholder="Traits de personnalité, manies, tics de langage…"
                                 className="min-h-[80px] bg-background/50"
                             />
                         </div>
@@ -301,7 +301,7 @@ export function CharacterEditor({ isOpen, onClose, character }: CharacterEditorP
                         {/* Scenario */}
                         <div className="space-y-2">
                             <Label htmlFor="scenario" className="text-sm font-medium">
-                                Scenario
+                                Scénario
                             </Label>
                             <Textarea
                                 id="scenario"
@@ -309,7 +309,7 @@ export function CharacterEditor({ isOpen, onClose, character }: CharacterEditorP
                                 onChange={(e) =>
                                     setFormData((prev) => ({ ...prev, scenario: e.target.value }))
                                 }
-                                placeholder="The setting or situation for the roleplay..."
+                                placeholder="Le cadre ou la situation du roleplay…"
                                 className="min-h-[60px] bg-background/50"
                             />
                         </div>
@@ -320,7 +320,7 @@ export function CharacterEditor({ isOpen, onClose, character }: CharacterEditorP
                                 htmlFor="first_mes"
                                 className="flex items-center gap-2 text-sm font-medium"
                             >
-                                <MessageSquare className="w-4 h-4" /> First Message
+                                <MessageSquare className="w-4 h-4" /> Premier message
                             </Label>
                             <Textarea
                                 id="first_mes"
@@ -328,7 +328,7 @@ export function CharacterEditor({ isOpen, onClose, character }: CharacterEditorP
                                 onChange={(e) =>
                                     setFormData((prev) => ({ ...prev, first_mes: e.target.value }))
                                 }
-                                placeholder="The character's opening message..."
+                                placeholder="Le message d'ouverture du personnage…"
                                 className="min-h-[100px] bg-background/50"
                             />
                         </div>
@@ -336,7 +336,7 @@ export function CharacterEditor({ isOpen, onClose, character }: CharacterEditorP
                         {/* Example Messages */}
                         <div className="space-y-2">
                             <Label htmlFor="mes_example" className="text-sm font-medium">
-                                Example Messages
+                                Dialogues d&apos;exemple
                             </Label>
                             <Textarea
                                 id="mes_example"
@@ -347,7 +347,7 @@ export function CharacterEditor({ isOpen, onClose, character }: CharacterEditorP
                                         mes_example: e.target.value,
                                     }))
                                 }
-                                placeholder="Example dialogue format ({{user}}: / {{char}}:)..."
+                                placeholder="Format de dialogue d'exemple ({{user}}: / {{char}}:)…"
                                 className="min-h-[80px] bg-background/50 font-mono text-xs"
                             />
                         </div>
@@ -355,7 +355,7 @@ export function CharacterEditor({ isOpen, onClose, character }: CharacterEditorP
                         {/* System Prompt */}
                         <div className="space-y-2">
                             <Label htmlFor="system_prompt" className="text-sm font-medium">
-                                System Prompt Override
+                                System prompt de la carte
                             </Label>
                             <Textarea
                                 id="system_prompt"
@@ -366,9 +366,13 @@ export function CharacterEditor({ isOpen, onClose, character }: CharacterEditorP
                                         system_prompt: e.target.value,
                                     }))
                                 }
-                                placeholder="Custom system prompt (optional)..."
+                                placeholder="System prompt personnalisé (optionnel)…"
                                 className="min-h-[60px] bg-background/50"
                             />
+                            <p className="text-xs text-muted-foreground">
+                                Réellement injecté à la place du template du preset.{' '}
+                                {'{{original}}'} insère le template du preset à cet endroit.
+                            </p>
                         </div>
 
                         {/* Tags */}
@@ -385,7 +389,7 @@ export function CharacterEditor({ isOpen, onClose, character }: CharacterEditorP
                                 onChange={(e) =>
                                     setFormData((prev) => ({ ...prev, tags: e.target.value }))
                                 }
-                                placeholder="fantasy, romance, adventure (comma separated)"
+                                placeholder="fantasy, romance, adventure (séparés par des virgules)"
                                 className="bg-background/50"
                             />
                         </div>
@@ -430,7 +434,7 @@ export function CharacterEditor({ isOpen, onClose, character }: CharacterEditorP
                 {/* Footer */}
                 <div className="p-4 border-t bg-muted/10 flex gap-2 shrink-0">
                     <Button variant="ghost" className="flex-1" onClick={onClose}>
-                        Cancel
+                        Annuler
                     </Button>
                     <Button
                         className="flex-1 gap-2"
@@ -438,7 +442,7 @@ export function CharacterEditor({ isOpen, onClose, character }: CharacterEditorP
                         disabled={!formData.name.trim() || isSaving}
                     >
                         <Save className="w-4 h-4" />
-                        {isSaving ? 'Saving...' : isEditing ? 'Save Changes' : 'Create Character'}
+                        {isSaving ? 'Enregistrement…' : isEditing ? 'Enregistrer' : 'Créer'}
                     </Button>
                 </div>
             </DialogContent>

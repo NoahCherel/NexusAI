@@ -11,12 +11,23 @@
  * Failure at any step = no injection.
  */
 
-import { describe, it, expect } from 'vitest';
-import { getActiveCanonNames } from '@/lib/ai/canon-context';
+import { describe, it, expect, vi } from 'vitest';
+import { getActiveCanonNames, buildCanonOptions } from '@/lib/ai/canon-context';
 import { buildSystemPrompt, buildDynamicContextBlock } from '@/lib/ai/context-builder';
 import type { CharacterCard } from '@/types/character';
 import type { Message, Conversation } from '@/types/chat';
 import type { CanonDossier } from '@/types/canon';
+
+// Stub the db so buildCanonOptions can run its REAL isInjectable filter against a mixed
+// roster (full / stub / disabled) without IndexedDB.
+vi.mock('@/lib/db', () => ({
+    getCanonDossiersByWork: vi.fn(async () => [
+        fullDossier('Naruto Uzumaki'),
+        fullDossier('Sasuke Uchiha', { stub: true }),
+        fullDossier('Sakura Haruno', { enabled: false }),
+    ]),
+    getArcOutline: vi.fn(async () => undefined),
+}));
 
 const card: CharacterCard = {
     id: 'c1',
@@ -135,6 +146,25 @@ describe('STEP 2 — buildSystemPrompt only renders FULL ENABLED dossiers', () =
         const prompt = buildSystemPrompt(card, [], { template: '{{scenario}}' });
         expect(prompt).not.toContain('[CANON —');
         expect(prompt).not.toContain('[IN THIS RP —');
+    });
+
+    it('the REAL isInjectable filter drops stubs and disabled dossiers (buildCanonOptions)', async () => {
+        // All three cast members are mentioned; only Naruto has a FULL ENABLED dossier
+        // (Sasuke = stub, Sakura = disabled — see the db mock at the top of the file).
+        const opts = await buildCanonOptions(card, undefined, [
+            msg('Naruto Uzumaki, Sasuke Uchiha and Sakura Haruno enter the clearing.'),
+        ]);
+        expect(opts.canonDossiers?.map((d) => d.character)).toEqual(['Naruto Uzumaki']);
+        expect(opts.injectionMeta?.ignoredStubs).toEqual(['Sasuke Uchiha']);
+        expect(opts.injectionMeta?.ignoredDisabled).toEqual(['Sakura Haruno']);
+        // And the prompt renders ONLY the injectable one.
+        const prompt = buildSystemPrompt(card, [], {
+            template: '{{scenario}}',
+            canonDossiers: opts.canonDossiers,
+        });
+        expect(prompt).toContain('[CANON — Naruto Uzumaki');
+        expect(prompt).not.toContain('[CANON — Sasuke Uchiha');
+        expect(prompt).not.toContain('[CANON — Sakura Haruno');
     });
 });
 

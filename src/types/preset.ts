@@ -91,7 +91,7 @@ About {{user}}: {{user_bio}}
 export const DEFAULT_PRESETS: Omit<APIPreset, 'id' | 'createdAt'>[] = [
     {
         name: 'Balanced',
-        description: 'Default balanced settings for general roleplay',
+        description: 'Réglages équilibrés par défaut, pour du roleplay généraliste',
         temperature: 0.8,
         maxOutputTokens: 2048,
         maxContextTokens: 8192,
@@ -115,7 +115,7 @@ export const DEFAULT_PRESETS: Omit<APIPreset, 'id' | 'createdAt'>[] = [
     {
         name: 'Immersive RP',
         description:
-            'Sampling tuned for immersive roleplay (high creativity, no penalties — anti-repetition is handled by the RP engine ban list). Best paired with the Immersive Nexus engine.',
+            'Échantillonnage réglé pour le roleplay immersif (créativité élevée, aucune pénalité — l’anti-répétition est gérée par la liste noire du moteur RP). À associer au moteur Immersive Nexus.',
         temperature: 1,
         maxOutputTokens: 2048,
         maxContextTokens: 16384,
@@ -138,7 +138,7 @@ export const DEFAULT_PRESETS: Omit<APIPreset, 'id' | 'createdAt'>[] = [
     },
     {
         name: 'Creative',
-        description: 'Higher creativity for imaginative scenarios',
+        description: 'Créativité accrue pour les scénarios imaginatifs',
         temperature: 1.2,
         maxOutputTokens: 3000,
         maxContextTokens: 8192,
@@ -161,7 +161,7 @@ export const DEFAULT_PRESETS: Omit<APIPreset, 'id' | 'createdAt'>[] = [
     },
     {
         name: 'Precise',
-        description: 'Lower temperature for consistent, focused responses',
+        description: 'Température basse pour des réponses cohérentes et concentrées',
         temperature: 0.4,
         maxOutputTokens: 2048,
         maxContextTokens: 8192,

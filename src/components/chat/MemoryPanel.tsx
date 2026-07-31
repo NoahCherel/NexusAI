@@ -21,7 +21,6 @@ import {
 } from 'lucide-react';
 import { useCharacterStore } from '@/stores/character-store';
 import { useChatStore } from '@/stores/chat-store';
-import { generateMemorySummary, formatMemoryEntry } from '@/lib/memory-summarizer';
 import { extractRepeatedPhrases, isAnalysisStale } from '@/lib/ai/style-analyzer';
 import { cn } from '@/lib/utils';
 import {
@@ -46,7 +45,8 @@ interface MemoryPanelProps {
 type TabType = 'notes' | 'guidance' | 'scratchpad' | 'style' | 'facts' | 'summaries';
 
 export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
-    const { getActiveCharacter, updateLongTermMemory } = useCharacterStore();
+    const { getActiveCharacter } = useCharacterStore();
+    const scratchpadEnabled = useSettingsStore((s) => s.enableScratchpad);
     const {
         getActiveBranchMessages,
         getActiveBranchBanList,
@@ -59,7 +59,6 @@ export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
     const character = getActiveCharacter();
     const [activeTab, setActiveTab] = useState<TabType>('notes');
     const [newMemory, setNewMemory] = useState('');
-    const [isGenerating, setIsGenerating] = useState(false);
     const [expandedIndex, setExpandedIndex] = useState<number | null>(null);
     const [editingIndex, setEditingIndex] = useState<number | null>(null);
     const [editValue, setEditValue] = useState('');
@@ -250,7 +249,8 @@ export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
 
     const handleAddMemory = async () => {
         if (!newMemory.trim() || !activeConversationId) return;
-        const formattedEntry = formatMemoryEntry(newMemory.trim());
+        // Date-stamped note (was the deleted memory-summarizer's formatMemoryEntry).
+        const formattedEntry = `[${new Date().toLocaleDateString()}] ${newMemory.trim()}`;
         const updated = [...memories, formattedEntry];
         updateConversationNotes(activeConversationId, updated);
         setNewMemory('');
@@ -269,26 +269,6 @@ export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
         const updated = memories.filter((_, i) => i !== index);
         updateConversationNotes(activeConversationId, updated);
         setConfirmDeleteIndex(null);
-    };
-
-    const handleGenerateSummary = async () => {
-        if (!conversation || !activeConversationId) return;
-        setIsGenerating(true);
-        try {
-            const msgs = getActiveBranchMessages(activeConversationId);
-            const formattedMessages = msgs.map((m) => ({
-                role: m.role,
-                content: m.content,
-            }));
-            const summary = await generateMemorySummary(formattedMessages, character.name);
-            const formattedEntry = formatMemoryEntry(summary);
-            const updated = [...memories, formattedEntry];
-            updateConversationNotes(activeConversationId, updated);
-        } catch (error) {
-            console.error('Failed to generate summary:', error);
-        } finally {
-            setIsGenerating(false);
-        }
     };
 
     const handleDeleteFact = async (factId: string) => {
@@ -334,7 +314,7 @@ export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
             const { mergedFacts, deletedIds, clusterCount } = mergeRelatedFacts(facts, 0.7);
 
             if (clusterCount === 0) {
-                setMergeResult('No similar facts found to merge.');
+                setMergeResult('Aucun fait similaire à fusionner.');
                 return;
             }
 
@@ -362,13 +342,13 @@ export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
             await saveFactsBatch(newFacts);
 
             setMergeResult(
-                `Merged ${deletedIds.length} facts into ${newFacts.length} (${clusterCount} clusters)`
+                `${deletedIds.length} faits fusionnés en ${newFacts.length} (${clusterCount} groupes)`
             );
             await loadRagData();
         } catch (err) {
             console.error('[MemoryPanel] Merge failed:', err);
             setMergeResult(
-                'Merge failed: ' + (err instanceof Error ? err.message : 'Unknown error')
+                'Échec de la fusion : ' + (err instanceof Error ? err.message : 'Erreur inconnue')
             );
         } finally {
             setIsMergingFacts(false);
@@ -390,12 +370,12 @@ export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
     const handleReindex = async () => {
         if (!activeConversationId || !character || isReindexing) return;
         setIsReindexing(true);
-        setReindexProgress('Starting full reindex...');
+        setReindexProgress('Démarrage de la réindexation complète…');
 
         try {
             const msgs = getActiveBranchMessages(activeConversationId);
             if (msgs.length === 0) {
-                setReindexProgress('No messages to index.');
+                setReindexProgress('Aucun message à indexer.');
                 setIsReindexing(false);
                 return;
             }
@@ -408,7 +388,7 @@ export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
                 apiKey = (await decryptApiKey(orConfig.encryptedKey)) || '';
             }
             if (!apiKey) {
-                setReindexProgress('Error: No API key found.');
+                setReindexProgress('Erreur : aucune clé API trouvée.');
                 setIsReindexing(false);
                 return;
             }
@@ -451,7 +431,7 @@ export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
             const userName = activePersona?.name || 'You';
 
             // Clear all existing summaries and vectors for a clean rebuild
-            setReindexProgress('Clearing old summaries and vectors...');
+            setReindexProgress('Suppression des anciens résumés et vecteurs…');
             await deleteSummariesByConversation(activeConversationId);
             await deleteVectorsByConversation(activeConversationId);
 
@@ -460,20 +440,22 @@ export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
             const totalToProcess = Math.floor(msgs.length / chunkSize);
 
             if (totalToProcess <= 0) {
-                setReindexProgress('Not enough messages for a summary chunk (need at least 10).');
+                setReindexProgress(
+                    'Pas assez de messages pour un fragment de résumé (au moins 10 requis).'
+                );
                 await loadRagData();
                 setIsReindexing(false);
                 return;
             }
 
-            setReindexProgress(`Processing ${totalToProcess} chunks of 10 messages...`);
+            setReindexProgress(`Traitement de ${totalToProcess} fragments de 10 messages…`);
 
             for (let i = 0; i < totalToProcess; i++) {
                 const startIdx = i * chunkSize;
                 const chunk = msgs.slice(startIdx, startIdx + chunkSize);
                 if (chunk.length < chunkSize) break;
 
-                setReindexProgress(`Summarizing chunk ${i + 1}/${totalToProcess}...`);
+                setReindexProgress(`Résumé du fragment ${i + 1}/${totalToProcess}…`);
 
                 // Create L0 summary via backgroundAICall (handles 429 retries + model fallback)
                 const prompt = buildL0Prompt(chunk, character.name, userName);
@@ -496,7 +478,8 @@ export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
                             parsed.keyFacts,
                             [startIdx, startIdx + chunk.length],
                             [],
-                            embedding
+                            embedding,
+                            msgs.map((m) => m.id)
                         );
                         await indexMessageChunk(chunk, activeConversationId, parsed.summary, {
                             characters: [character.name],
@@ -514,7 +497,7 @@ export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
             }
 
             // Create L1 summaries (loop to handle multiple batches)
-            setReindexProgress('Creating higher-level summaries...');
+            setReindexProgress('Création des résumés de niveau supérieur…');
             let currentSummaries = await getSummaries(activeConversationId);
 
             while (shouldCreateL1Summary(currentSummaries)) {
@@ -543,7 +526,8 @@ export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
                             parsed.keyFacts,
                             range,
                             l0s.map((s) => s.id),
-                            embedding
+                            embedding,
+                            msgs.map((m) => m.id)
                         );
                     }
                 } else {
@@ -580,7 +564,8 @@ export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
                             parsed.keyFacts,
                             range,
                             l1s.map((s) => s.id),
-                            embedding
+                            embedding,
+                            msgs.map((m) => m.id)
                         );
                     }
                 } else {
@@ -589,11 +574,13 @@ export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
                 currentSummaries = await getSummaries(activeConversationId);
             }
 
-            setReindexProgress('Reindexing complete!');
+            setReindexProgress('Réindexation terminée !');
             await loadRagData();
         } catch (err) {
             console.error('[MemoryPanel] Reindex failed:', err);
-            setReindexProgress(`Error: ${err instanceof Error ? err.message : 'Reindex failed'}`);
+            setReindexProgress(
+                `Erreur : ${err instanceof Error ? err.message : 'Échec de la réindexation'}`
+            );
         } finally {
             setTimeout(() => {
                 setIsReindexing(false);
@@ -618,8 +605,8 @@ export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
     };
 
     const getLevelLabel = (level: number) => {
-        const labels = ['Chunk (L0)', 'Section (L1)', 'Arc (L2)'];
-        return labels[level] || `Level ${level}`;
+        const labels = ['Fragment (L0)', 'Section (L1)', 'Arc (L2)'];
+        return labels[level] || `Niveau ${level}`;
     };
 
     const getLevelColor = (level: number) => {
@@ -633,11 +620,11 @@ export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
 
     const tabs: { key: TabType; label: string; icon: typeof Brain; count?: number }[] = [
         { key: 'notes', label: 'Notes', icon: Brain, count: memories.length },
-        { key: 'guidance', label: 'Guidance', icon: Sparkles },
+        { key: 'guidance', label: 'Guidage', icon: Sparkles },
         { key: 'scratchpad', label: 'Scratchpad', icon: BrainCircuit },
         { key: 'style', label: 'Style', icon: Feather, count: activeBanList.length },
         { key: 'facts', label: 'Facts', icon: Database, count: facts.length },
-        { key: 'summaries', label: 'Summaries', icon: Layers, count: summaries.length },
+        { key: 'summaries', label: 'Résumés', icon: Layers, count: summaries.length },
     ];
 
     return (
@@ -650,9 +637,9 @@ export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
                             <Brain className="w-5 h-5 text-primary" />
                         </div>
                         <div className="min-w-0">
-                            <h2 className="font-bold text-sm truncate">Memory & Knowledge</h2>
+                            <h2 className="font-bold text-sm truncate">Mémoire & Connaissances</h2>
                             <p className="text-xs text-muted-foreground truncate">
-                                {conversation?.title || character.name} — conversation memory
+                                {conversation?.title || character.name} — mémoire de la conversation
                             </p>
                         </div>
                     </div>
@@ -712,10 +699,10 @@ export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
                                         <div className="text-center py-8">
                                             <Brain className="w-12 h-12 mx-auto text-muted-foreground/30 mb-3" />
                                             <p className="text-sm text-muted-foreground">
-                                                No memories yet
+                                                Aucun souvenir pour l&apos;instant
                                             </p>
                                             <p className="text-xs text-muted-foreground/70 mt-1">
-                                                Add notes or generate AI summaries
+                                                Ajoutez des notes ou générez des résumés IA
                                             </p>
                                         </div>
                                     ) : (
@@ -743,7 +730,7 @@ export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
                                                                 }
                                                                 className="h-7 text-[10px]"
                                                             >
-                                                                Cancel
+                                                                Annuler
                                                             </Button>
                                                             <Button
                                                                 size="sm"
@@ -752,7 +739,7 @@ export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
                                                                 }
                                                                 className="h-7 text-[10px]"
                                                             >
-                                                                Save
+                                                                Enregistrer
                                                             </Button>
                                                         </div>
                                                     </div>
@@ -777,10 +764,11 @@ export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
                                                             {memory}
                                                         </p>
                                                         <div className="flex items-center gap-1 shrink-0">
+                                                            {/* pointer-coarse: no hover on touch — the buttons must stay visible (and big enough) */}
                                                             <Button
                                                                 variant="ghost"
                                                                 size="icon"
-                                                                className="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity"
+                                                                className="h-6 w-6 opacity-0 group-hover:opacity-100 pointer-coarse:opacity-60 pointer-coarse:h-9 pointer-coarse:w-9 transition-opacity"
                                                                 onClick={(e) => {
                                                                     e.stopPropagation();
                                                                     setEditValue(memory);
@@ -792,7 +780,7 @@ export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
                                                             <Button
                                                                 variant="ghost"
                                                                 size="icon"
-                                                                className="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-destructive/10"
+                                                                className="h-6 w-6 opacity-0 group-hover:opacity-100 pointer-coarse:opacity-60 pointer-coarse:h-9 pointer-coarse:w-9 transition-opacity hover:bg-destructive/10"
                                                                 onClick={(e) => {
                                                                     e.stopPropagation();
                                                                     setConfirmDeleteIndex(index);
@@ -812,36 +800,23 @@ export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
                             {/* Add Memory */}
                             <div className="p-4 border-t bg-muted/10 space-y-3 shrink-0">
                                 <Textarea
-                                    placeholder="Add a memory note..."
+                                    placeholder="Ajouter une note de mémoire…"
                                     value={newMemory}
                                     onChange={(e) => setNewMemory(e.target.value)}
                                     className="min-h-[60px] resize-none text-sm"
                                 />
-                                <div className="flex gap-2">
-                                    <Button
-                                        onClick={handleAddMemory}
-                                        disabled={!newMemory.trim()}
-                                        size="sm"
-                                        className="flex-1 gap-2"
-                                    >
-                                        <Plus className="w-3.5 h-3.5" />
-                                        Add Note
-                                    </Button>
-                                    <Button
-                                        onClick={handleGenerateSummary}
-                                        disabled={isGenerating || !conversation}
-                                        variant="outline"
-                                        size="sm"
-                                        className="flex-1 gap-2"
-                                    >
-                                        {isGenerating ? (
-                                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                                        ) : (
-                                            <Sparkles className="w-3.5 h-3.5" />
-                                        )}
-                                        AI Summary
-                                    </Button>
-                                </div>
+                                {/* The old "AI Summary" button (legacy memory-summarizer) is
+                                    gone: it burned the PAID foreground model to restate what
+                                    the hierarchical summaries already inject for free. */}
+                                <Button
+                                    onClick={handleAddMemory}
+                                    disabled={!newMemory.trim()}
+                                    size="sm"
+                                    className="w-full gap-2"
+                                >
+                                    <Plus className="w-3.5 h-3.5" />
+                                    Ajouter une note
+                                </Button>
                             </div>
                         </div>
                     )}
@@ -851,13 +826,13 @@ export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
                         <div className="flex flex-col flex-1 min-h-0 p-4 space-y-4">
                             <div className="flex items-center gap-2 text-sm font-medium text-primary">
                                 <Sparkles className="w-4 h-4" />
-                                Story Guidance (Author&apos;s Note)
+                                Guidage narratif (Note d&apos;auteur)
                             </div>
                             <p className="text-xs text-muted-foreground leading-relaxed">
-                                Write a memo to guide the AI&apos;s narrative direction. This will be injected directly into the system prompt to subtly (or overtly) nudge the story, character behavior, or upcoming events.
+                                Rédigez un mémo pour orienter la direction narrative de l&apos;IA. Il sera injecté directement dans le prompt système pour infléchir subtilement (ou ouvertement) l&apos;histoire, le comportement des personnages ou les événements à venir.
                             </p>
                             <Textarea
-                                placeholder="e.g., 'Subtly nudge the player towards the old tavern', 'Act more suspicious of the player's motives', 'The weather is slowly turning into a thunderstorm...'"
+                                placeholder="ex. : « Pousse subtilement le joueur vers la vieille taverne », « Montre-toi plus méfiant envers les motivations du joueur », « Le temps tourne lentement à l'orage… »"
                                 value={conversation?.storyGuidance || ''}
                                 onChange={(e) => {
                                     if (activeConversationId) {
@@ -874,20 +849,33 @@ export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
                         <div className="flex flex-col flex-1 min-h-0 p-4 space-y-4">
                             <div className="flex items-center gap-2 text-sm font-medium text-primary">
                                 <BrainCircuit className="w-4 h-4" />
-                                AI Scratchpad (Working Memory)
+                                Scratchpad IA (mémoire de travail)
                             </div>
+                            {/* Editing while the feature is OFF silently did nothing — the
+                                scratchpad is neither injected nor re-emitted. Make it read-only
+                                and say so instead of accepting edits into the void. */}
+                            {!scratchpadEnabled && (
+                                <p className="text-xs text-amber-500/90 leading-relaxed">
+                                    Le Scratchpad est désactivé (Réglages → Fonctions IA) : ce
+                                    contenu n&apos;est ni injecté ni mis à jour tant qu&apos;il
+                                    est éteint.
+                                </p>
+                            )}
                             <p className="text-xs text-muted-foreground leading-relaxed">
-                                This is the AI&apos;s internal working memory from the previous turn. It uses this space to plan its next moves, track state, and maintain continuity. You can edit it to correct the AI&apos;s assumptions.
+                                C&apos;est la mémoire de travail interne de l&apos;IA issue du tour précédent. Elle s&apos;en sert pour planifier ses prochaines actions, suivre l&apos;état de la scène et maintenir la continuité. Vous pouvez la modifier pour corriger ses suppositions.
                             </p>
                             <Textarea
-                                placeholder="The AI's scratchpad is currently empty."
+                                placeholder="Le scratchpad de l'IA est actuellement vide."
                                 value={conversation?.scratchpad || ''}
+                                readOnly={!scratchpadEnabled}
                                 onChange={(e) => {
-                                    if (activeConversationId) {
+                                    if (activeConversationId && scratchpadEnabled) {
                                         useChatStore.getState().updateScratchpad(activeConversationId, e.target.value);
                                     }
                                 }}
-                                className="flex-1 resize-none text-sm p-3 bg-muted/30 border-border/50 focus-visible:ring-primary/20 font-mono"
+                                className={`flex-1 resize-none text-sm p-3 bg-muted/30 border-border/50 focus-visible:ring-primary/20 font-mono ${
+                                    scratchpadEnabled ? '' : 'opacity-60'
+                                }`}
                             />
                         </div>
                     )}
@@ -897,12 +885,13 @@ export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
                         <div className="flex flex-col flex-1 min-h-0 p-4 space-y-4 overflow-y-auto">
                             <div className="flex items-center gap-2 text-sm font-medium text-primary">
                                 <Feather className="w-4 h-4" />
-                                Style Guard (Anti-Cliché)
+                                Garde-style (anti-cliché)
                             </div>
                             <p className="text-xs text-muted-foreground leading-relaxed">
-                                Analyze your recent AI replies for repetitive or cliché habits.
-                                Keep the suggestions you agree with — they&apos;re injected into the
-                                prompt as patterns the AI must avoid, for this chat only.
+                                Analysez vos dernières réponses IA pour repérer les habitudes
+                                répétitives ou clichées. Gardez les suggestions qui vous
+                                conviennent — elles sont injectées dans le prompt comme motifs à
+                                éviter, pour cette conversation uniquement.
                             </p>
                             <Button
                                 onClick={handleAnalyzeStyle}
@@ -915,14 +904,14 @@ export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
                                 ) : (
                                     <Sparkles className="w-3.5 h-3.5" />
                                 )}
-                                Analyze my style
+                                Analyser mon style
                             </Button>
 
                             {styleSuggestions.length > 0 && (
                                 <div className="space-y-2">
                                     <div className="flex items-center justify-between">
                                         <span className="text-xs font-medium text-muted-foreground">
-                                            Suggestions — edit before adding
+                                            Suggestions — modifiez avant d&apos;ajouter
                                         </span>
                                         <Button
                                             variant="ghost"
@@ -930,7 +919,7 @@ export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
                                             className="h-6 text-xs"
                                             onClick={addAllBanRules}
                                         >
-                                            Add all
+                                            Tout ajouter
                                         </Button>
                                     </div>
                                     {styleSuggestions.map((rule, i) => (
@@ -948,15 +937,15 @@ export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
                                             />
                                             <button
                                                 onClick={() => acceptSuggestion(i)}
-                                                className="text-primary hover:text-primary/70 shrink-0"
-                                                title="Add to ban list"
+                                                className="text-primary hover:text-primary/70 shrink-0 pointer-coarse:p-2"
+                                                title="Ajouter à la liste d'interdits"
                                             >
                                                 <Plus className="w-3.5 h-3.5" />
                                             </button>
                                             <button
                                                 onClick={() => dismissSuggestion(i)}
-                                                className="text-muted-foreground hover:text-foreground shrink-0"
-                                                title="Dismiss"
+                                                className="text-muted-foreground hover:text-foreground shrink-0 pointer-coarse:p-2"
+                                                title="Ignorer"
                                             >
                                                 <X className="w-3.5 h-3.5" />
                                             </button>
@@ -967,11 +956,12 @@ export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
 
                             <div className="space-y-2">
                                 <span className="text-xs font-medium text-muted-foreground">
-                                    Active ban list ({activeBanList.length})
+                                    Liste d&apos;interdits active ({activeBanList.length})
                                 </span>
                                 {activeBanList.length === 0 ? (
                                     <p className="text-xs text-muted-foreground/70 italic">
-                                        No rules yet — analyze your style or add one below.
+                                        Aucune règle pour l&apos;instant — analysez votre style ou
+                                        ajoutez-en une ci-dessous.
                                     </p>
                                 ) : (
                                     activeBanList.map((rule, i) => (
@@ -984,8 +974,8 @@ export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
                                             </span>
                                             <button
                                                 onClick={() => removeBanRule(rule)}
-                                                className="text-muted-foreground hover:text-destructive shrink-0"
-                                                title="Remove"
+                                                className="text-muted-foreground hover:text-destructive shrink-0 pointer-coarse:p-2"
+                                                title="Retirer"
                                             >
                                                 <Trash2 className="w-3.5 h-3.5" />
                                             </button>
@@ -996,7 +986,7 @@ export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
                                     <Input
                                         value={newBanRule}
                                         onChange={(e) => setNewBanRule(e.target.value)}
-                                        placeholder="Add a rule manually..."
+                                        placeholder="Ajouter une règle manuellement…"
                                         className="h-8 text-xs"
                                         onKeyDown={(e) => {
                                             if (e.key === 'Enter') {
@@ -1014,7 +1004,7 @@ export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
                                             setNewBanRule('');
                                         }}
                                     >
-                                        Add
+                                        Ajouter
                                     </Button>
                                 </div>
                             </div>
@@ -1029,7 +1019,7 @@ export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
                                 <div className="relative">
                                     <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
                                     <Input
-                                        placeholder="Search facts..."
+                                        placeholder="Rechercher des faits…"
                                         value={factSearchTerm}
                                         onChange={(e) => setFactSearchTerm(e.target.value)}
                                         className="pl-8 h-8 text-xs bg-background/40 border-border/40"
@@ -1054,10 +1044,10 @@ export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
                                         <div className="text-center py-8">
                                             <Database className="w-12 h-12 mx-auto text-muted-foreground/30 mb-3" />
                                             <p className="text-sm text-muted-foreground">
-                                                No extracted facts
+                                                Aucun fait extrait
                                             </p>
                                             <p className="text-xs text-muted-foreground/70 mt-1">
-                                                Facts are auto-extracted from conversations
+                                                Les faits sont extraits automatiquement des conversations
                                             </p>
                                         </div>
                                     ) : (
@@ -1147,7 +1137,7 @@ export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
                                             ) : (
                                                 <Sparkles className="w-3.5 h-3.5" />
                                             )}
-                                            Merge Similar
+                                            Fusionner les similaires
                                         </Button>
                                         <Button
                                             variant="outline"
@@ -1156,7 +1146,7 @@ export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
                                             onClick={() => setConfirmClearFacts(true)}
                                         >
                                             <Trash2 className="w-3.5 h-3.5" />
-                                            Clear All ({facts.length})
+                                            Tout effacer ({facts.length})
                                         </Button>
                                     </div>
                                 </div>
@@ -1172,7 +1162,7 @@ export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
                                 <div className="relative">
                                     <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
                                     <Input
-                                        placeholder="Search summaries..."
+                                        placeholder="Rechercher des résumés…"
                                         value={summarySearchTerm}
                                         onChange={(e) => setSummarySearchTerm(e.target.value)}
                                         className="pl-8 h-8 text-xs bg-background/40 border-border/40"
@@ -1197,10 +1187,10 @@ export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
                                         <div className="text-center py-8">
                                             <Layers className="w-12 h-12 mx-auto text-muted-foreground/30 mb-3" />
                                             <p className="text-sm text-muted-foreground">
-                                                No summaries yet
+                                                Aucun résumé pour l&apos;instant
                                             </p>
                                             <p className="text-xs text-muted-foreground/70 mt-1">
-                                                Summaries are auto-created every 10 messages
+                                                Les résumés sont créés automatiquement tous les 10 messages
                                             </p>
                                         </div>
                                     ) : (
@@ -1278,7 +1268,7 @@ export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
                                     ) : (
                                         <RefreshCw className="w-3.5 h-3.5" />
                                     )}
-                                    {isReindexing ? 'Reindexing...' : 'Reindex Conversation'}
+                                    {isReindexing ? 'Réindexation…' : 'Réindexer la conversation'}
                                 </Button>
                             </div>
                         </div>
@@ -1292,8 +1282,8 @@ export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
                 >
                     <DialogContent className="sm:max-w-[350px]">
                         <DialogHeader>
-                            <DialogTitle>Delete Memory?</DialogTitle>
-                            <DialogDescription>This action cannot be undone.</DialogDescription>
+                            <DialogTitle>Supprimer le souvenir ?</DialogTitle>
+                            <DialogDescription>Cette action est irréversible.</DialogDescription>
                         </DialogHeader>
                         <DialogFooter className="flex-row gap-2">
                             <Button
@@ -1301,7 +1291,7 @@ export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
                                 className="flex-1"
                                 onClick={() => setConfirmDeleteIndex(null)}
                             >
-                                Cancel
+                                Annuler
                             </Button>
                             <Button
                                 variant="destructive"
@@ -1311,7 +1301,7 @@ export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
                                     handleDeleteMemory(confirmDeleteIndex)
                                 }
                             >
-                                Delete
+                                Supprimer
                             </Button>
                         </DialogFooter>
                     </DialogContent>
@@ -1321,10 +1311,10 @@ export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
                 <Dialog open={confirmClearFacts} onOpenChange={setConfirmClearFacts}>
                     <DialogContent className="sm:max-w-[350px]">
                         <DialogHeader>
-                            <DialogTitle>Clear All Facts?</DialogTitle>
+                            <DialogTitle>Effacer tous les faits ?</DialogTitle>
                             <DialogDescription>
-                                This will delete {facts.length} extracted facts. This cannot be
-                                undone.
+                                Cela supprimera {facts.length} faits extraits. Cette action est
+                                irréversible.
                             </DialogDescription>
                         </DialogHeader>
                         <DialogFooter className="flex-row gap-2">
@@ -1333,14 +1323,14 @@ export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
                                 className="flex-1"
                                 onClick={() => setConfirmClearFacts(false)}
                             >
-                                Cancel
+                                Annuler
                             </Button>
                             <Button
                                 variant="destructive"
                                 className="flex-1"
                                 onClick={handleClearAllFacts}
                             >
-                                Clear All
+                                Tout effacer
                             </Button>
                         </DialogFooter>
                     </DialogContent>

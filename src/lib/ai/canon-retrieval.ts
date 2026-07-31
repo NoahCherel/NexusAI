@@ -73,7 +73,8 @@ async function getRetrievalConfig(): Promise<{ apiKey: string; model: string } |
  * `}` inside the array and synthetically close the array + object. This means a partial
  * roster still yields a usable parse instead of dropping everything.
  */
-function extractJsonObject(text: string): unknown | null {
+/** Exported for tests — the salvage logic must be tested against THIS implementation. */
+export function extractJsonObject(text: string): unknown | null {
     const cleaned = text
         .replace(/<think>[\s\S]*?<\/think>/gi, '')
         .replace(/```json\n?/gi, '')

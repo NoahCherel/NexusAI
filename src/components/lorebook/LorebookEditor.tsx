@@ -22,7 +22,7 @@ import {
     Download,
 } from 'lucide-react';
 import type { LorebookEntry, Lorebook } from '@/types';
-import { toast } from 'sonner';
+import { useNotificationStore } from '@/components/ui/api-notification';
 import { cn } from '@/lib/utils';
 import {
     Dialog,
@@ -32,6 +32,13 @@ import {
     DialogDescription,
     DialogFooter,
 } from '@/components/ui/dialog';
+
+/** In-app toast (sonner's <Toaster/> is never mounted — use the real notification system). */
+function notify(message: string, status: 'success' | 'error' = 'success'): void {
+    const { addNotification, updateNotification } = useNotificationStore.getState();
+    const id = addNotification(message, 'world');
+    updateNotification(id, status, message);
+}
 
 export function LorebookEditor({ onClose }: { onClose: () => void }) {
     const {
@@ -103,10 +110,10 @@ export function LorebookEditor({ onClose }: { onClose: () => void }) {
                 };
 
                 updateLorebook(newLorebook);
-                toast.success('Lorebook imported successfully');
+                notify('Lorebook importé avec succès');
             } catch (error) {
                 console.error('Import failed:', error);
-                toast.error('Failed to import lorebook: Invalid JSON');
+                notify('Échec de l’import du lorebook : JSON invalide', 'error');
             }
         };
         reader.readAsText(file);
@@ -130,13 +137,13 @@ export function LorebookEditor({ onClose }: { onClose: () => void }) {
         document.body.removeChild(a);
         URL.revokeObjectURL(url);
 
-        toast.success('Lorebook exported');
+        notify('Lorebook exporté');
     };
 
     const handleAddEntry = () => {
         const newEntry: LorebookEntry = {
-            keys: ['new keyword'],
-            content: 'Description here...',
+            keys: ['nouveau mot-clé'],
+            content: 'Description ici…',
             enabled: true,
             priority: 10,
         };
@@ -288,8 +295,8 @@ export function LorebookEditor({ onClose }: { onClose: () => void }) {
                     <Book className="w-5 h-5 text-primary shrink-0" />
                     <h2 className="font-bold text-sm sm:text-base truncate">
                         {isMobile && currentEntry
-                            ? currentEntry.keys[0] || 'Entry Details'
-                            : 'Lorebook Editor'}
+                            ? currentEntry.keys[0] || 'Détails de l’entrée'
+                            : 'Éditeur de lorebook'}
                     </h2>
                 </div>
                 <div className="flex items-center gap-1 sm:gap-2 shrink-0">
@@ -305,7 +312,7 @@ export function LorebookEditor({ onClose }: { onClose: () => void }) {
                                 variant="ghost"
                                 size="icon"
                                 className="h-8 w-8 text-muted-foreground hover:text-primary"
-                                title="Import Lorebook JSON"
+                                title="Importer un lorebook JSON"
                                 asChild
                             >
                                 <span>
@@ -318,7 +325,7 @@ export function LorebookEditor({ onClose }: { onClose: () => void }) {
                             size="icon"
                             onClick={handleExport}
                             className="h-8 w-8 text-muted-foreground hover:text-primary"
-                            title="Export to JSON"
+                            title="Exporter en JSON"
                         >
                             <Download className="w-4 h-4" />
                         </Button>
@@ -342,7 +349,7 @@ export function LorebookEditor({ onClose }: { onClose: () => void }) {
                         <div className="relative">
                             <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted-foreground outline-none" />
                             <Input
-                                placeholder="Search keys..."
+                                placeholder="Rechercher des mots-clés…"
                                 className="pl-9 h-9 text-xs bg-background/50 border-border/50 focus-visible:ring-primary/20"
                                 value={searchQuery}
                                 onChange={(e) => setSearchQuery(e.target.value)}
@@ -353,7 +360,7 @@ export function LorebookEditor({ onClose }: { onClose: () => void }) {
                             size="sm"
                             className="w-full text-xs gap-2 font-semibold h-9 shadow-sm"
                         >
-                            <Plus className="w-3.5 h-3.5" /> New Entry
+                            <Plus className="w-3.5 h-3.5" /> Nouvelle entrée
                         </Button>
                     </div>
 
@@ -368,7 +375,7 @@ export function LorebookEditor({ onClose }: { onClose: () => void }) {
                             )}
                         >
                             <span className="flex items-center justify-center gap-2">
-                                <Book className="w-3.5 h-3.5" /> Entries (
+                                <Book className="w-3.5 h-3.5" /> Entrées (
                                 {activeLorebook?.entries.length || 0})
                             </span>
                         </button>
@@ -414,7 +421,7 @@ export function LorebookEditor({ onClose }: { onClose: () => void }) {
                                         )}
                                     >
                                         <span className="truncate font-semibold px-1 flex-1">
-                                            {entry.keys[0] || 'Untitled'}
+                                            {entry.keys[0] || 'Sans titre'}
                                         </span>
                                         <div className="flex items-center gap-1.5 opacity-60">
                                             {entry.keys.length > 1 && (
@@ -448,7 +455,7 @@ export function LorebookEditor({ onClose }: { onClose: () => void }) {
                                             <Search className="w-6 h-6 opacity-20" />
                                         </div>
                                         <p className="text-muted-foreground text-xs font-medium">
-                                            No lore entries found
+                                            Aucune entrée de lore trouvée
                                         </p>
                                     </div>
                                 )}
@@ -457,7 +464,7 @@ export function LorebookEditor({ onClose }: { onClose: () => void }) {
                             <div className="flex flex-col p-2 gap-2 pt-3">
                                 <div className="flex items-center justify-between px-2 mb-1">
                                     <p className="text-[10px] text-muted-foreground uppercase font-bold tracking-wider">
-                                        Pending Review
+                                        En attente de validation
                                     </p>
                                     {pendingSuggestions.length > 0 && (
                                         <div className="flex gap-1.5">
@@ -468,24 +475,24 @@ export function LorebookEditor({ onClose }: { onClose: () => void }) {
                                                     for (const s of pendingSuggestions) {
                                                         await acceptSuggestion(s.id);
                                                     }
-                                                    toast.success(
-                                                        `Accepted ${pendingSuggestions.length} suggestions`
+                                                    notify(
+                                                        `${pendingSuggestions.length} suggestions acceptées`
                                                     );
                                                 }}
                                                 className="h-6 text-[9px] gap-1 text-green-500 hover:text-green-600 hover:bg-green-500/10 border-green-500/20 px-2"
                                             >
-                                                <Check className="w-2.5 h-2.5" /> Accept All
+                                                <Check className="w-2.5 h-2.5" /> Tout accepter
                                             </Button>
                                             <Button
                                                 size="sm"
                                                 variant="outline"
                                                 onClick={() => {
                                                     clearSuggestions();
-                                                    toast.success('All suggestions rejected');
+                                                    notify('Toutes les suggestions rejetées');
                                                 }}
                                                 className="h-6 text-[9px] gap-1 text-destructive hover:text-destructive hover:bg-destructive/10 border-destructive/20 px-2"
                                             >
-                                                <X className="w-2.5 h-2.5" /> Reject All
+                                                <X className="w-2.5 h-2.5" /> Tout rejeter
                                             </Button>
                                         </div>
                                     )}
@@ -515,7 +522,7 @@ export function LorebookEditor({ onClose }: { onClose: () => void }) {
                                                 onClick={() => acceptSuggestion(suggestion.id)}
                                                 className="h-7 text-[10px] gap-1 flex-1 text-green-500 hover:text-green-600 hover:bg-green-500/10 border-green-500/20"
                                             >
-                                                <Check className="w-3 h-3" /> Accept
+                                                <Check className="w-3 h-3" /> Accepter
                                             </Button>
                                             <Button
                                                 size="sm"
@@ -523,7 +530,7 @@ export function LorebookEditor({ onClose }: { onClose: () => void }) {
                                                 onClick={() => rejectSuggestion(suggestion.id)}
                                                 className="h-7 text-[10px] gap-1 flex-1 text-destructive hover:text-destructive hover:bg-destructive/10 border-destructive/20"
                                             >
-                                                <X className="w-3 h-3" /> Reject
+                                                <X className="w-3 h-3" /> Rejeter
                                             </Button>
                                         </div>
                                     </div>
@@ -534,7 +541,7 @@ export function LorebookEditor({ onClose }: { onClose: () => void }) {
                                             <Inbox className="w-6 h-6 opacity-20" />
                                         </div>
                                         <p className="text-muted-foreground text-xs font-medium">
-                                            No pending suggestions
+                                            Aucune suggestion en attente
                                         </p>
                                     </div>
                                 )}
@@ -554,7 +561,7 @@ export function LorebookEditor({ onClose }: { onClose: () => void }) {
                         <div className="flex-1 flex flex-col p-4 sm:p-6 gap-6 overflow-y-auto">
                             <div className="space-y-3">
                                 <label className="text-[10px] font-bold uppercase tracking-widest text-primary/70">
-                                    Character Names / Triggers
+                                    Noms de personnages / Déclencheurs
                                 </label>
                                 <Input
                                     className="bg-muted/5 focus-visible:ring-primary/20 h-10 font-medium"
@@ -586,14 +593,14 @@ export function LorebookEditor({ onClose }: { onClose: () => void }) {
                                             });
                                         }
                                     }}
-                                    placeholder="e.g. Erza, Natsu, Gray (comma-separated)"
+                                    placeholder="ex. : Erza, Natsu, Gray (séparés par des virgules)"
                                 />
                             </div>
 
                             <div className="flex-1 flex flex-col gap-3 min-h-0">
                                 <div className="flex items-center justify-between">
                                     <label className="text-[10px] font-bold uppercase tracking-widest text-primary/70">
-                                        Character Description
+                                        Description du personnage
                                     </label>
                                     <div className="flex items-center gap-2">
                                         <Button
@@ -604,17 +611,17 @@ export function LorebookEditor({ onClose }: { onClose: () => void }) {
                                                 isSummarizing || currentEntry.content.length < 100
                                             }
                                             className="h-7 gap-1.5 text-xs text-primary/70 hover:text-primary hover:bg-primary/10"
-                                            title="AI-powered summarization to reduce token usage"
+                                            title="Résumé par IA pour réduire la consommation de tokens"
                                         >
                                             {isSummarizing ? (
                                                 <Loader2 className="w-3.5 h-3.5 animate-spin" />
                                             ) : (
                                                 <Sparkles className="w-3.5 h-3.5" />
                                             )}
-                                            Summarize
+                                            Résumer
                                         </Button>
                                         <span className="text-[10px] text-muted-foreground font-mono">
-                                            {currentEntry.content.length} chars
+                                            {currentEntry.content.length} caractères
                                         </span>
                                     </div>
                                 </div>
@@ -627,7 +634,7 @@ export function LorebookEditor({ onClose }: { onClose: () => void }) {
                                             content: e.target.value,
                                         })
                                     }
-                                    placeholder="Describe the character's personality, appearance, abilities, and role in the story..."
+                                    placeholder="Décrivez la personnalité, l'apparence, les capacités et le rôle du personnage dans l'histoire…"
                                 />
                             </div>
 
@@ -646,7 +653,7 @@ export function LorebookEditor({ onClose }: { onClose: () => void }) {
                                             className="w-4 h-4 rounded border-border/50 bg-muted/20 text-primary shadow-sm focus:ring-primary/20 cursor-pointer"
                                         />
                                         <span className="text-sm font-semibold opacity-80 group-hover:opacity-100 transition-opacity">
-                                            Enabled
+                                            Activée
                                         </span>
                                     </label>
                                 </div>
@@ -656,7 +663,7 @@ export function LorebookEditor({ onClose }: { onClose: () => void }) {
                                     className="text-destructive hover:bg-destructive/10 hover:text-destructive h-9 px-4 font-semibold"
                                     onClick={() => setConfirmDeleteOpen(true)}
                                 >
-                                    <Trash2 className="w-4 h-4 mr-2" /> Delete
+                                    <Trash2 className="w-4 h-4 mr-2" /> Supprimer
                                 </Button>
                             </div>
                         </div>
@@ -667,10 +674,10 @@ export function LorebookEditor({ onClose }: { onClose: () => void }) {
                                     <Book className="w-8 h-8 text-primary/40" />
                                 </div>
                                 <div className="space-y-1">
-                                    <h3 className="font-bold">No Lore Selected</h3>
+                                    <h3 className="font-bold">Aucune entrée sélectionnée</h3>
                                     <p className="text-xs text-muted-foreground leading-relaxed">
-                                        Select an entry from the list or create a new one to define
-                                        keys and world info.
+                                        Sélectionnez une entrée dans la liste ou créez-en une
+                                        nouvelle pour définir des mots-clés et des infos de monde.
                                     </p>
                                 </div>
                             </div>
@@ -686,11 +693,13 @@ export function LorebookEditor({ onClose }: { onClose: () => void }) {
                         <div className="w-12 h-12 bg-destructive/10 rounded-full flex items-center justify-center mx-auto mb-4">
                             <Trash2 className="w-6 h-6 text-destructive" />
                         </div>
-                        <DialogTitle className="text-center">Delete Lore Entry?</DialogTitle>
+                        <DialogTitle className="text-center">
+                            Supprimer l&apos;entrée de lore ?
+                        </DialogTitle>
                         <DialogDescription className="text-center pt-2">
-                            This action cannot be undone. You are about to delete{' '}
+                            Cette action est irréversible. Vous êtes sur le point de supprimer{' '}
                             <span className="font-bold text-foreground">
-                                &quot;{currentEntry?.keys[0] || 'this entry'}&quot;
+                                «&nbsp;{currentEntry?.keys[0] || 'cette entrée'}&nbsp;»
                             </span>
                             .
                         </DialogDescription>
@@ -701,7 +710,7 @@ export function LorebookEditor({ onClose }: { onClose: () => void }) {
                             className="flex-1"
                             onClick={() => setConfirmDeleteOpen(false)}
                         >
-                            Cancel
+                            Annuler
                         </Button>
                         <Button
                             variant="destructive"
@@ -714,7 +723,7 @@ export function LorebookEditor({ onClose }: { onClose: () => void }) {
                                 }
                             }}
                         >
-                            Delete
+                            Supprimer
                         </Button>
                     </DialogFooter>
                 </DialogContent>

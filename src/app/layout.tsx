@@ -25,6 +25,9 @@ export const viewport: Viewport = {
     initialScale: 1,
     maximumScale: 1,
     userScalable: false,
+    // Android Chrome 108+: the keyboard only resizes the VISUAL viewport by default, so
+    // h-dvh layouts keep the input bar hidden under it. This restores layout resizing.
+    interactiveWidget: 'resizes-content',
 };
 
 export default function RootLayout({
@@ -33,7 +36,7 @@ export default function RootLayout({
     children: React.ReactNode;
 }>) {
     return (
-        <html lang="en" className="dark" suppressHydrationWarning>
+        <html lang="fr" className="dark" suppressHydrationWarning>
             <head>
                 <link rel="apple-touch-icon" href="/icons/icon-192.png" />
                 <meta name="apple-mobile-web-app-capable" content="yes" />

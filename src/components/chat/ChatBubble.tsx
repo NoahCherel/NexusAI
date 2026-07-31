@@ -88,6 +88,11 @@ interface ChatBubbleProps {
     /** Scene Mode: narration by the AI director — rendered italic and slightly muted. */
     narrator?: boolean;
     showThoughts?: boolean;
+    /**
+     * false while a generation streams: framer-motion's `layout` FLIP measurement across
+     * ~200 bubbles per chunk is the dominant streaming jank — animations resume after.
+     */
+    animateLayout?: boolean;
     onEdit?: (id: string, newContent: string) => void;
     onRegenerate?: (id: string) => void;
     onContinue?: (id: string) => void;
@@ -113,6 +118,7 @@ export const ChatBubble = memo(function ChatBubble({
     name,
     narrator = false,
     showThoughts = true,
+    animateLayout = true,
     onEdit,
     onRegenerate,
     onContinue,
@@ -168,7 +174,7 @@ export const ChatBubble = memo(function ChatBubble({
             initial="hidden"
             animate="visible"
             exit="exit"
-            layout={isEditing ? false : 'position'}
+            layout={isEditing || !animateLayout ? false : 'position'}
             className="flex gap-3 group items-start py-4 border-b border-white/[0.03] last:border-0"
             onMouseEnter={() => setIsHovered(true)}
             onMouseLeave={() => setIsHovered(false)}
@@ -189,6 +195,7 @@ export const ChatBubble = memo(function ChatBubble({
                     {displayThought && showThoughts && (
                         <button
                             aria-label="Toggle thoughts"
+                            className="pointer-coarse:min-h-9 pointer-coarse:px-2 inline-flex items-center gap-0.5"
                             onClick={() => setIsThoughtOpen(!isThoughtOpen)}
                         >
                             <ChevronDown
@@ -219,7 +226,7 @@ export const ChatBubble = memo(function ChatBubble({
 
                 {/* Main Content */}
                 {isEditing ? (
-                    <div className="w-[300px] sm:w-[500px] max-w-full bg-[#242525] border border-white/10 rounded-xl p-3 shadow-2xl">
+                    <div className="w-full sm:w-[500px] max-w-full bg-[#242525] border border-white/10 rounded-xl p-3 shadow-2xl">
                         <textarea
                             ref={textareaRef}
                             className="w-full bg-transparent resize-none outline-none text-base text-foreground placeholder:text-muted-foreground min-h-[80px] overflow-hidden"

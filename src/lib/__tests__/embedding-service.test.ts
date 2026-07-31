@@ -79,7 +79,8 @@ describe('findTopK', () => {
             embedding: [1 - i * 0.04, i * 0.04, 0],
         }));
         const result = findTopK(query, items, 3);
-        expect(result.length).toBeLessThanOrEqual(3);
+        // Exact: 20 candidates all above threshold → k must be FILLED ([] passed the old <=).
+        expect(result.length).toBe(3);
     });
 
     it('skips items without embeddings', () => {

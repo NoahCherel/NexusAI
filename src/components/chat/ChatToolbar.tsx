@@ -55,7 +55,7 @@ export function ChatToolbar({
                 size="sm"
                 className="h-8 w-8 pointer-coarse:h-10 pointer-coarse:w-10 p-0 text-muted-foreground hover:text-foreground shrink-0"
                 onClick={onOpenTree}
-                title="View Branch Tree"
+                title="Arbre des branches"
             >
                 <GitBranch className="h-4 w-4" />
             </Button>
@@ -64,7 +64,7 @@ export function ChatToolbar({
                 size="sm"
                 className="h-8 w-8 pointer-coarse:h-10 pointer-coarse:w-10 p-0 text-muted-foreground hover:text-foreground shrink-0"
                 onClick={onOpenMemory}
-                title="Long-Term Memory"
+                title="Mémoire long terme"
             >
                 <Brain className="h-4 w-4" />
             </Button>
@@ -82,7 +82,7 @@ export function ChatToolbar({
                 size="sm"
                 className="h-8 w-8 pointer-coarse:h-10 pointer-coarse:w-10 p-0 text-muted-foreground hover:text-foreground shrink-0"
                 onClick={onContextPreview}
-                title="Context Preview"
+                title="Aperçu du contexte"
             >
                 <Eye className="h-4 w-4" />
             </Button>

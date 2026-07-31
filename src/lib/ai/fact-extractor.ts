@@ -26,8 +26,7 @@ Output format:
     "fact": "description of what happened",
     "category": "event",
     "importance": 7,
-    "entities": ["Character1", "ItemName"],
-    "tags": ["combat", "discovery"]
+    "entities": ["Character1", "ItemName"]
   }
 ]
 
@@ -35,54 +34,6 @@ IMPORTANT: Only extract facts that represent NEW information or changes. Skip:
 - Routine greetings or small talk (unless establishing a new relationship)
 - Descriptions that don't advance the story
 - Repetitions of known information`;
-
-/**
- * Build the fact extraction prompt with optional custom categories.
- * If customCategories are provided, they are appended to the base categories.
- */
-export function buildFactExtractionSystemPrompt(customCategories: string[] = []): string {
-    const baseCategories = [
-        'event',
-        'relationship',
-        'item',
-        'location',
-        'lore',
-        'consequence',
-        'dialogue',
-    ];
-    const allCategories = [
-        ...baseCategories,
-        ...customCategories.filter((c) => !baseCategories.includes(c.toLowerCase())),
-    ];
-
-    return `You are a RPG chronicle keeper. Extract atomic facts from this roleplay exchange.
-
-RULES:
-- Each fact must be a single, self-contained statement
-- Facts should capture WHO did WHAT, WHERE, and consequences
-- Rate importance 1-10: 1=trivial dialog, 5=notable event, 8=major plot point, 10=world-changing
-- List entities involved (character names, item names, location names)
-- Categorize each fact accurately
-- Output ONLY valid JSON array, no markdown
-
-Categories: ${allCategories.join(', ')}
-
-Output format:
-[
-  {
-    "fact": "description of what happened",
-    "category": "event",
-    "importance": 7,
-    "entities": ["Character1", "ItemName"],
-    "tags": ["combat", "discovery"]
-  }
-]
-
-IMPORTANT: Only extract facts that represent NEW information or changes. Skip:
-- Routine greetings or small talk (unless establishing a new relationship)
-- Descriptions that don't advance the story
-- Repetitions of known information`;
-}
 
 /**
  * Parse the AI response into WorldFact objects.
@@ -110,7 +61,6 @@ export function parseFactExtractionResponse(
                 fact: String(f.fact),
                 category: validateCategory(String(f.category)),
                 importance: Math.max(1, Math.min(10, Number(f.importance))),
-                active: true,
                 timestamp: now,
                 relatedEntities: Array.isArray(f.entities) ? f.entities : [],
                 lastAccessedAt: now,
@@ -144,9 +94,14 @@ function validateCategory(cat: string): FactCategory {
 export function buildFactExtractionPrompt(
     messageContent: string,
     characterName: string,
-    userName: string
+    userName: string,
+    /** Other NPCs present in the scene (Troupe mode) — facts must credit the right one. */
+    extraCharacters?: string[]
 ): string {
-    const context = `Characters: ${characterName} (NPC), ${userName} (Player)
+    const npcs = [characterName, ...(extraCharacters ?? [])].filter(
+        (n, i, a) => !!n && a.indexOf(n) === i && n !== userName
+    );
+    const context = `Characters: ${npcs.map((n) => `${n} (NPC)`).join(', ')}, ${userName} (Player)
 
 Message to analyze:
 "${messageContent}"
@@ -331,7 +286,6 @@ export function mergeFactCluster(cluster: WorldFact[]): Omit<WorldFact, 'id' | '
         fact: mergedFact,
         category: primary.category,
         importance: Math.max(...cluster.map((f) => f.importance)),
-        active: cluster.some((f) => f.active), // Active if any are active
         timestamp: Math.max(...cluster.map((f) => f.timestamp)),
         relatedEntities: Array.from(allEntities),
         lastAccessedAt: Math.max(...cluster.map((f) => f.lastAccessedAt)),

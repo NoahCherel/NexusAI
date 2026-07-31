@@ -60,7 +60,7 @@ export function getActiveCanonNames(
     depth = 10
 ): string[] {
     // Fallback roster for cards without a canonCast: the names seen in the directional
-    // relationship system (the live one — the legacy scalar worldState is frozen).
+    // relationship system (the legacy scalar world-state map is removed).
     const roster =
         card.canonCast && card.canonCast.length > 0
             ? card.canonCast
@@ -186,11 +186,30 @@ export async function buildCanonOptions(
         persistSticky?: boolean;
     } = {}
 ): Promise<CanonPromptOptions> {
+    // Relationships and the momentum nudge are NOT canon features: they must keep reaching
+    // the prompt even when the Canon Codex is off or the card has no resolvable work —
+    // otherwise the Relations panel silently edits into the void.
+    const nonCanonFallback = (): CanonPromptOptions => {
+        const rels = conversation?.relationships || [];
+        const names = [
+            ...new Set(
+                rels
+                    .flatMap((r) => [r.from, r.to])
+                    .filter((n) => n !== USER_REL_KEY)
+            ),
+        ].sort((a, b) => a.localeCompare(b));
+        return {
+            relationshipBlock:
+                formatRelationshipBlock(rels, names, userName) || undefined,
+            momentumNudge: conversation?.momentumNudge,
+        };
+    };
+
     // Master switch: when off, nothing canon-related reaches the prompt.
-    if (!useSettingsStore.getState().useCanonCodex) return {};
+    if (!useSettingsStore.getState().useCanonCodex) return nonCanonFallback();
 
     const work = resolveWork(card);
-    if (!work) return {};
+    if (!work) return nonCanonFallback();
 
     const all = await getCanonDossiersByWork(work);
     const isInjectable = (d: CanonDossier) => d.enabled !== false && !d.stub && !!d.identity.trim();

@@ -55,6 +55,7 @@ export async function exportConversationForCharacter(character: CharacterCard): 
             createdAt: m.createdAt,
             isActiveBranch: m.isActiveBranch,
             speaker: m.speaker,
+            sceneEnsemble: m.sceneEnsemble,
         })),
         exportedAt: new Date().toISOString(),
     };
@@ -98,7 +99,7 @@ export function importConversationFromFile(): void {
                 characterId = existingChar.id;
                 if (
                     !confirm(
-                        `Character "${data.character.name}" already exists. Import conversation for this character?`
+                        `Le personnage « ${data.character.name} » existe déjà. Importer la conversation pour ce personnage ?`
                     )
                 ) {
                     return;
@@ -123,7 +124,7 @@ export function importConversationFromFile(): void {
             const chatStore = useChatStore.getState();
             const convId = await chatStore.createConversation(
                 characterId,
-                data.conversation.title || `Imported Chat - ${new Date().toLocaleDateString()}`
+                data.conversation.title || `Discussion importée - ${new Date().toLocaleDateString()}`
             );
 
             // Import messages as ONE chained branch. parentId must link each message to
@@ -146,6 +147,7 @@ export function importConversationFromFile(): void {
                     messageOrder: i + 1,
                     regenerationIndex: 0,
                     speaker: msg.speaker,
+                    sceneEnsemble: msg.sceneEnsemble,
                 });
                 prevId = msgId;
             }

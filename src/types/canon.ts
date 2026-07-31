@@ -1,5 +1,5 @@
 // Canon Codex types — immutable, web-sourced ground truth for characters of an
-// existing work (anime/book/etc.). The RP layer (rpJournal, world state) is layered
+// existing work (anime/book/etc.). The RP layer (rpJournal, relationships) is layered
 // ON TOP of this and never overwrites it.
 
 /** Canonical relationship of a character toward another, as established in the work. */

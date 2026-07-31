@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+﻿import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { loadRagDataByConversation } from '../rag-data-loader';
 import type { MemorySummary, WorldFact } from '@/types/rag';
 
@@ -26,7 +26,6 @@ describe('loadRagDataByConversation', () => {
                 fact: 'The hero found a key',
                 category: 'event',
                 importance: 6,
-                active: true,
                 timestamp: 1,
                 relatedEntities: [],
                 lastAccessedAt: 1,
@@ -91,7 +90,6 @@ describe('loadRagDataByConversation', () => {
                 fact: 'The city gates are sealed',
                 category: 'location',
                 importance: 7,
-                active: true,
                 timestamp: 1,
                 relatedEntities: ['City Gate'],
                 lastAccessedAt: 1,

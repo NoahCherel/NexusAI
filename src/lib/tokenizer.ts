@@ -26,6 +26,39 @@ export function countTokensBatch(texts: string[]): number {
     return texts.reduce((sum, text) => sum + countTokens(text), 0);
 }
 
+// ---------------------------------------------------------------------------
+// Per-message memoization: every generation re-tokenizes the WHOLE history
+// (hundreds of ms of BPE on long chats at the moment the user hits send).
+// Finalized messages are immutable, so cache by id + a cheap content hash
+// (djb2 ≈ 50× cheaper than BPE; edits and streaming still recount).
+// ---------------------------------------------------------------------------
+
+const MESSAGE_TOKEN_CACHE_MAX = 4096;
+const messageTokenCache = new Map<string, number>();
+
+function cheapHash(text: string): number {
+    let h = 5381;
+    for (let i = 0; i < text.length; i++) {
+        h = ((h << 5) + h + text.charCodeAt(i)) | 0;
+    }
+    return h;
+}
+
+/** Memoized `countTokens` for message content, keyed by message id + content hash. */
+export function countMessageTokens(id: string, text: string): number {
+    if (!text) return 0;
+    const key = `${id}:${text.length}:${cheapHash(text)}`;
+    const hit = messageTokenCache.get(key);
+    if (hit !== undefined) return hit;
+    const count = countTokens(text);
+    if (messageTokenCache.size >= MESSAGE_TOKEN_CACHE_MAX) {
+        const oldest = messageTokenCache.keys().next().value;
+        if (oldest) messageTokenCache.delete(oldest);
+    }
+    messageTokenCache.set(key, count);
+    return count;
+}
+
 /**
  * Truncate text to fit within a token budget.
  * Returns the truncated text and the actual token count.

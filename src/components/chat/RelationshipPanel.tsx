@@ -243,14 +243,14 @@ function RelationshipCard({
                 <div className="flex items-center gap-1 shrink-0">
                     <button
                         onClick={() => setShowLedger((v) => !v)}
-                        className="p-1 text-muted-foreground hover:text-foreground"
+                        className="p-1 pointer-coarse:p-2.5 text-muted-foreground hover:text-foreground"
                         title="Historique"
                     >
                         <History className="w-3.5 h-3.5" />
                     </button>
                     <button
                         onClick={onRemove}
-                        className="p-1 text-muted-foreground hover:text-destructive"
+                        className="p-1 pointer-coarse:p-2.5 text-muted-foreground hover:text-destructive"
                         title="Supprimer"
                     >
                         <Trash2 className="w-3.5 h-3.5" />
@@ -271,7 +271,7 @@ function RelationshipCard({
                             <div className="flex items-center gap-0.5 shrink-0">
                                 <button
                                     onClick={() => onSetAxis(axis, v - 5)}
-                                    className="w-6 h-6 flex items-center justify-center bg-muted/40 hover:bg-muted rounded text-sm"
+                                    className="w-6 h-6 pointer-coarse:w-9 pointer-coarse:h-9 flex items-center justify-center bg-muted/40 hover:bg-muted rounded text-sm"
                                 >
                                     −
                                 </button>
@@ -279,13 +279,13 @@ function RelationshipCard({
                                     type="number"
                                     value={v}
                                     onChange={(e) => onSetAxis(axis, parseInt(e.target.value) || 0)}
-                                    className="w-12 h-6 text-center text-[11px] px-1"
+                                    className="w-12 h-6 pointer-coarse:h-9 text-center text-[11px] px-1"
                                     min={-100}
                                     max={100}
                                 />
                                 <button
                                     onClick={() => onSetAxis(axis, v + 5)}
-                                    className="w-6 h-6 flex items-center justify-center bg-muted/40 hover:bg-muted rounded text-sm"
+                                    className="w-6 h-6 pointer-coarse:w-9 pointer-coarse:h-9 flex items-center justify-center bg-muted/40 hover:bg-muted rounded text-sm"
                                 >
                                     +
                                 </button>

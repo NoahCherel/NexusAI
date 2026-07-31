@@ -516,10 +516,12 @@ export function MarketplaceBrowser({
                             {avatar(card, 'w-16 h-20 sm:w-20 sm:h-24')}
                             <div className="flex-1 min-w-0 flex flex-col gap-1">
                                 <div className="flex items-baseline gap-2 min-w-0">
-                                    <span className="text-sm font-semibold truncate">
+                                    <span className="text-sm font-semibold truncate shrink-0 max-w-[60%]">
                                         {card.name}
                                     </span>
-                                    <span className="text-[10px] text-muted-foreground truncate shrink-0">
+                                    {/* truncate needs the element to SHRINK — shrink-0 let a
+                                        long @author push the row under the stats column */}
+                                    <span className="text-[10px] text-muted-foreground truncate min-w-0">
                                         @{card.author}
                                         {card.createdAt ? ` · ${formatAge(card.createdAt)}` : ''}
                                     </span>

@@ -178,7 +178,7 @@ export function CharacterImporter({ trigger, onImported, isCollapsed }: Characte
                             className="w-full gap-2 border-primary/20 bg-primary/5 text-primary hover:bg-primary/10 h-10"
                         >
                             <Upload className="h-4 w-4" />
-                            <span className="text-sm font-medium">Import Character</span>
+                            <span className="text-sm font-medium">Importer un personnage</span>
                         </Button>
                     ))}
             </DialogTrigger>
@@ -290,14 +290,16 @@ export function CharacterImporter({ trigger, onImported, isCollapsed }: Characte
                                 </div>
                                 <div>
                                     <p className="font-medium">
-                                        {isDragActive ? 'Drop file here' : 'Drag file here'}
+                                        {isDragActive
+                                            ? 'Déposez le fichier ici'
+                                            : 'Glissez un fichier ici'}
                                     </p>
                                     <p className="text-sm text-muted-foreground mt-1">
-                                        or click to browse
+                                        ou cliquez pour parcourir
                                     </p>
                                 </div>
                                 <p className="text-xs text-muted-foreground">
-                                    PNG (Character Card V2) or JSON
+                                    PNG (Character Card V2) ou JSON
                                 </p>
                             </motion.div>
                         )}
@@ -322,7 +324,7 @@ export function CharacterImporter({ trigger, onImported, isCollapsed }: Characte
                                         <Upload className="w-8 h-8 text-muted-foreground" />
                                     </motion.div>
                                 </div>
-                                <p className="font-medium">Importing...</p>
+                                <p className="font-medium">Import en cours…</p>
                             </motion.div>
                         )}
 
@@ -340,7 +342,7 @@ export function CharacterImporter({ trigger, onImported, isCollapsed }: Characte
                                 <div className="text-center">
                                     <p className="font-medium">{importedChar.name}</p>
                                     <p className="text-sm text-muted-foreground">
-                                        Imported successfully!
+                                        Import réussi !
                                     </p>
                                 </div>
                             </motion.div>
@@ -358,7 +360,7 @@ export function CharacterImporter({ trigger, onImported, isCollapsed }: Characte
                                     <AlertCircle className="w-8 h-8 text-destructive" />
                                 </div>
                                 <div className="text-center">
-                                    <p className="font-medium text-destructive">Error</p>
+                                    <p className="font-medium text-destructive">Erreur</p>
                                     <p className="text-sm text-muted-foreground">{error}</p>
                                 </div>
                                 <Button
@@ -370,7 +372,7 @@ export function CharacterImporter({ trigger, onImported, isCollapsed }: Characte
                                         setError(null);
                                     }}
                                 >
-                                    Retry
+                                    Réessayer
                                 </Button>
                             </motion.div>
                         )}

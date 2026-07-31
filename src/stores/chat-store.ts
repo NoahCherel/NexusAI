@@ -21,7 +21,18 @@ interface ChatState {
     createConversation: (characterId: string, title: string) => Promise<string>;
     setActiveConversation: (id: string | null) => void;
     addMessage: (message: Message) => void;
-    updateMessage: (id: string, updates: Partial<Message>) => void;
+    updateMessage: (
+        id: string,
+        updates: Partial<Message>,
+        options?: {
+            /**
+             * false = store-only update, no IndexedDB write. Used by the streaming hot
+             * path (one IDB put per chunk of a growing message is quadratic I/O); the
+             * caller MUST persist once at stream end/error/abort.
+             */
+            persist?: boolean;
+        }
+    ) => void;
     deleteMessage: (id: string) => void;
     getConversationMessages: (conversationId: string) => Message[];
     getActiveBranchMessages: (conversationId: string) => Message[];
@@ -66,14 +77,23 @@ const sortByTimeline = (a: Message, b: Message) => {
 };
 
 const getDescendantIds = (messages: Message[], parentId: string): Set<string> => {
-    const descendants = new Set<string>();
-    const queue = messages.filter((m) => m.parentId === parentId).map((m) => m.id);
+    // One O(n) index instead of an O(n) filter per BFS node (O(n²) on deep trees).
+    const childrenByParent = new Map<string, string[]>();
+    for (const m of messages) {
+        if (!m.parentId) continue;
+        const siblings = childrenByParent.get(m.parentId);
+        if (siblings) siblings.push(m.id);
+        else childrenByParent.set(m.parentId, [m.id]);
+    }
 
+    const descendants = new Set<string>();
+    const queue = [...(childrenByParent.get(parentId) ?? [])];
     while (queue.length > 0) {
-        const id = queue.shift()!;
+        const id = queue.pop()!;
         if (descendants.has(id)) continue;
         descendants.add(id);
-        queue.push(...messages.filter((m) => m.parentId === id).map((m) => m.id));
+        const children = childrenByParent.get(id);
+        if (children) queue.push(...children);
     }
 
     return descendants;
@@ -266,14 +286,12 @@ export const useChatStore = create<ChatState>()((set, get) => ({
         const messages = state.messages;
         let changedExistingMessages: Message[] = [];
 
-        // Calculate messageOrder by finding parent chain depth
-        let messageOrder = 1;
-        let currentParentId = message.parentId;
-        while (currentParentId) {
-            messageOrder++;
-            const parent = messages.find((m) => m.id === currentParentId);
-            currentParentId = parent?.parentId || null;
-        }
+        // The parent already knows its depth — no need to walk the whole ancestor chain
+        // (O(depth × n) message scans on every send in long linear chats).
+        const parent = message.parentId
+            ? messages.find((m) => m.id === message.parentId)
+            : undefined;
+        const messageOrder = message.parentId ? (parent?.messageOrder ?? 1) + 1 : 1;
 
         // Calculate regenerationIndex by counting siblings
         const siblings = messages.filter((m) => m.parentId === message.parentId);
@@ -320,7 +338,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
         saveMessage(enrichedMessage).catch(console.error);
     },
 
-    updateMessage: (id, updates) => {
+    updateMessage: (id, updates, options) => {
         let updatedMessage: Message | undefined;
         set((state) => ({
             messages: state.messages.map((m) => {
@@ -332,8 +350,8 @@ export const useChatStore = create<ChatState>()((set, get) => ({
             }),
         }));
 
-        // Persist message
-        if (updatedMessage) {
+        // Persist message (skipped on the streaming hot path — final write at stream end).
+        if (updatedMessage && options?.persist !== false) {
             saveMessage(updatedMessage).catch(console.error);
         }
     },

@@ -20,7 +20,6 @@ interface CharacterState {
     setActiveCharacter: (id: string | null) => void;
     setActiveCharacterId: (id: string | null) => void; // Alias for compatibility
     getActiveCharacter: () => CharacterWithMemory | null;
-    updateLongTermMemory: (id: string, memory: string[]) => Promise<void>;
 }
 
 export const useCharacterStore = create<CharacterState>()((set, get) => ({
@@ -103,18 +102,5 @@ export const useCharacterStore = create<CharacterState>()((set, get) => ({
     getActiveCharacter: () => {
         const state = get();
         return state.characters.find((c) => c.id === state.activeCharacterId) ?? null;
-    },
-
-    // Long-term memory helpers
-    updateLongTermMemory: async (id, memory) => {
-        const existingChar = get().characters.find((c) => c.id === id);
-        if (!existingChar) return;
-
-        const updatedChar = { ...existingChar, longTermMemory: memory };
-        await saveCharacter(updatedChar);
-
-        set((state) => ({
-            characters: state.characters.map((c) => (c.id === id ? updatedChar : c)),
-        }));
     },
 }));

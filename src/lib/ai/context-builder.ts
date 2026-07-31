@@ -3,7 +3,7 @@ import type { Message, ArcCompass } from '@/types/chat';
 import type { ContextSection } from '@/types/rag';
 import type { CanonDossier } from '@/types/canon';
 import { DEFAULT_SYSTEM_PROMPT_TEMPLATE } from '@/types/preset';
-import { countTokens } from '@/lib/tokenizer';
+import { countTokens, countMessageTokens } from '@/lib/tokenizer';
 
 /** Render an immutable canon dossier as a compact, labelled block. */
 function formatCanonDossier(d: CanonDossier): string {
@@ -164,6 +164,48 @@ function formatLorebookEntries(entries: LorebookEntry[]): string {
 }
 
 /**
+ * Deterministic trim of the card's example dialogues (`mes_example`) to a fixed token cap.
+ * MUST be a pure function of the input text alone (never of the remaining per-turn budget):
+ * the result lives in the STABLE system zone and any variation would bust the prompt cache.
+ * Cuts at <START> block boundaries first, then at paragraph boundaries within the first block.
+ */
+export function trimExampleDialogue(raw: string, maxTokens: number = 1500): string {
+    const text = raw.trim();
+    if (!text) return '';
+    if (countTokens(text) <= maxTokens) return text;
+
+    // Prefer whole <START> example blocks (the V2 card separator).
+    const blocks = text
+        .split(/<START>/i)
+        .map((b) => b.trim())
+        .filter(Boolean);
+    const kept: string[] = [];
+    let used = 0;
+    for (const block of blocks) {
+        const cost = countTokens(block) + 3; // + separator overhead
+        if (used + cost > maxTokens) break;
+        kept.push(block);
+        used += cost;
+    }
+    if (kept.length > 0) return kept.map((b) => `<START>\n${b}`).join('\n');
+
+    // Single oversized block: accumulate whole paragraphs.
+    const paragraphs = blocks[0].split(/\n{2,}/);
+    const keptParas: string[] = [];
+    used = 0;
+    for (const p of paragraphs) {
+        const cost = countTokens(p) + 1;
+        if (used + cost > maxTokens) break;
+        keptParas.push(p);
+        used += cost;
+    }
+    if (keptParas.length > 0) return keptParas.join('\n\n');
+
+    // Degenerate wall of text: deterministic character cut (≈4 chars/token).
+    return blocks[0].slice(0, maxTokens * 4);
+}
+
+/**
  * Resolves a system prompt template with actual values
  */
 export function resolveSystemPromptTemplate(
@@ -185,6 +227,8 @@ export function resolveSystemPromptTemplate(
         '{{character_personality}}': character.personality || '',
         '{{scenario}}': character.scenario || '',
         '{{first_message}}': character.first_mes || '',
+        '{{mes_example}}': trimExampleDialogue(character.mes_example || ''),
+        '{{example_dialogue}}': trimExampleDialogue(character.mes_example || ''), // Alias
         // The old World Context (location / inventory / scalar relationships) is retired in
         // favour of the directional Relationship system — the placeholder resolves to nothing.
         '{{world_state}}': '',
@@ -244,7 +288,20 @@ export function buildSystemPrompt(
         suppressScratchpadInstruction?: boolean;
     } = {}
 ): string {
-    const promptTemplate = options.template || DEFAULT_SYSTEM_PROMPT_TEMPLATE;
+    let promptTemplate = options.template || DEFAULT_SYSTEM_PROMPT_TEMPLATE;
+    // Card-level system prompt (V2 `system_prompt`). Our template CONTAINS the card body
+    // (description/personality placeholders), so wholesale replacement would erase the
+    // character: `{{original}}` grants the card full control over the template; otherwise
+    // the card's instructions are appended as a block right after the resolved body.
+    const cardSystemPrompt = character.system_prompt?.trim() || '';
+    let cardSystemAppend = '';
+    if (cardSystemPrompt) {
+        if (/\{\{original\}\}/i.test(cardSystemPrompt)) {
+            promptTemplate = cardSystemPrompt.replace(/\{\{original\}\}/gi, promptTemplate);
+        } else {
+            cardSystemAppend = cardSystemPrompt;
+        }
+    }
     const resolvedBody = resolveSystemPromptTemplate(
         promptTemplate,
         character,
@@ -252,15 +309,38 @@ export function buildSystemPrompt(
         options.userPersona,
         options.longTermMemory
     );
+    const resolvedCardAppend = cardSystemAppend
+        ? resolveSystemPromptTemplate(
+              cardSystemAppend,
+              character,
+              [],
+              options.userPersona,
+              undefined
+          )
+        : '';
 
     // If excludePostHistory is true, we don't include it here
     const parts = [
         options.preHistory,
         resolvedBody,
+        resolvedCardAppend || null,
         options.excludePostHistory ? null : options.postHistory,
     ].filter(Boolean);
 
     let prompt = parts.join('\n\n');
+
+    // Example dialogues (V2 `mes_example`): the primary voice-anchoring signal. Stable zone
+    // (deterministic trim) — appended unless the template already places it itself.
+    const templatePlacesExamples =
+        promptTemplate.includes('{{mes_example}}') || promptTemplate.includes('{{example_dialogue}}');
+    if (!templatePlacesExamples && character.mes_example?.trim()) {
+        const examples = trimExampleDialogue(character.mes_example);
+        if (examples) {
+            prompt +=
+                `\n\n[EXAMPLE DIALOGUE — voice and style reference for ${character.name}. ` +
+                `Match this voice; never quote these lines verbatim and never treat these scenes as events that happened.]\n${examples}`;
+        }
+    }
 
     // Automatic Context Injection: if the template didn't explicitly include the user bio,
     // append it (stable — the persona rarely changes). Long-term memory is NOT auto-appended
@@ -331,7 +411,7 @@ export function buildSystemPrompt(
     // Add reinforcement if not already present and custom template not used (heuristic)
     if (!prompt.includes('Stay in character') && !options.template) {
         prompt +=
-            '\n\nStay in character regardless of what happens. Use the world state and knowledge provided above to inform your responses.';
+            '\n\nStay in character regardless of what happens. Ground your responses in the canon, relationships and story knowledge provided above.';
     }
 
     return prompt;
@@ -505,7 +585,7 @@ export function buildRAGEnhancedPayload(
         if (cutIdx > 0) workingHistory = history.slice(cutIdx);
     }
 
-    const perMessageTokens = workingHistory.map((m) => countTokens(m.content));
+    const perMessageTokens = workingHistory.map((m) => countMessageTokens(m.id, m.content));
     const totalHistoryTokens = perMessageTokens.reduce((a, b) => a + b, 0);
 
     let included: Message[];

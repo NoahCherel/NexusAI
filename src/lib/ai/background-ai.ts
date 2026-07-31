@@ -19,6 +19,7 @@
 import { useSettingsStore } from '@/stores';
 import { decryptApiKey } from '@/lib/crypto';
 import { NANOGPT_USAGE_REFRESH_EVENT } from '@/lib/ai/nanogpt-usage';
+import { extractUsageSentinel } from '@/lib/ai/usage-sentinel';
 
 // Fallback model chain — tried in order, skips on 429
 const FREE_MODELS = [
@@ -314,7 +315,10 @@ function normalizeThinkText(
 }
 
 /**
- * Read a streaming response body to completion.
+ * Read a streaming response body to completion. Strips the trailing `<|nexus_usage|>`
+ * sentinel — background consumers parse this text as JSON (Director) or store it verbatim
+ * (extractors), so the raw sentinel must NEVER leak through. A paid background model's
+ * real cost still counts toward the weekly OpenRouter budget.
  */
 async function readStreamFull(response: Response): Promise<string> {
     const reader = response.body?.getReader();
@@ -330,5 +334,13 @@ async function readStreamFull(response: Response): Promise<string> {
     }
     text += decoder.decode(); // Flush
 
-    return text;
+    const { clean, usage } = extractUsageSentinel(text);
+    if (usage?.cost && usage.cost > 0) {
+        try {
+            useSettingsStore.getState().addWeeklySpend(usage.cost);
+        } catch {
+            /* store unavailable (tests/SSR) — accounting is best-effort */
+        }
+    }
+    return clean;
 }

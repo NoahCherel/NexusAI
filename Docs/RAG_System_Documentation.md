@@ -494,7 +494,6 @@ Combines keyword + semantic embedding similarity for more accurate lorebook acti
 
 | Setting           | Default | Description                                         |
 | ----------------- | ------- | --------------------------------------------------- |
-| `showWorldState`  | `true`  | Show world state panel in chat                      |
 | `showThoughts`    | `true`  | Show CoT reasoning thoughts                         |
 | `immersiveMode`   | `false` | Fullscreen chat mode                                |
 | `enableReasoning` | `false` | Enable Chain-of-Thought for models like DeepSeek R1 |
@@ -669,7 +668,7 @@ User sends message
 | `src/app/chat/page.tsx`                      | Main chat page, integration hub for all systems          |
 | `src/components/chat/MemoryPanel.tsx`        | Memory panel UI (Notes/Facts/Summaries + Reindex)        |
 | `src/components/chat/ChatBubble.tsx`         | Message rendering with edit/regenerate/continue/branch   |
-| `src/components/chat/WorldStatePanel.tsx`    | World state display (location, relationships, inventory) |
+| `src/components/chat/RelationshipPanel.tsx`  | Directional multi-axis relationships (Relations panel)   |
 | `src/components/chat/TreeVisualization.tsx`  | Message branch tree visualization                        |
 | `src/components/lorebook/LorebookEditor.tsx` | Lorebook editor with suggestions                         |
 | `src/components/settings/PresetEditor.tsx`   | Settings/presets with RAG toggles                        |
@@ -690,7 +689,7 @@ User sends message
 | `src/types/rag.ts`       | VectorEntry, MemorySummary, WorldFact, ContextSection, etc. |
 | `src/types/preset.ts`    | APIPreset fields, default presets, system prompt template   |
 | `src/types/character.ts` | CharacterCard type                                          |
-| `src/types/chat.ts`      | Message, Conversation, WorldState types                     |
+| `src/types/chat.ts`      | Message, Conversation, DirectedRelationship types           |
 
 ---
 

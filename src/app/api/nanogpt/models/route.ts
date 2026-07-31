@@ -1,4 +1,4 @@
-import { NextRequest } from 'next/server';
+﻿import { NextRequest } from 'next/server';
 
 export const runtime = 'edge';
 
@@ -10,7 +10,7 @@ export async function POST(req: NextRequest) {
         const { apiKey } = await req.json();
 
         if (!apiKey) {
-            return new Response(JSON.stringify({ error: 'API key is required', models: [] }), {
+            return new Response(JSON.stringify({ error: 'Clé API requise', models: [] }), {
                 status: 401,
                 headers: { 'Content-Type': 'application/json' },
             });

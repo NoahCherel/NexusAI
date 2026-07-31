@@ -159,7 +159,6 @@ interface SettingsState {
     // (GET /api/subscription/v1/models). Empty until a valid NanoGPT key is saved.
     nanogptModels: CustomModel[];
     temperature: number;
-    maxTokens: number;
     enableReasoning: boolean;
     useFlexTier: boolean;
 
@@ -176,7 +175,6 @@ interface SettingsState {
     customEngines: RPEngine[]; // user-created engines (built-ins live as code constants)
 
     // UI Settings
-    theme: 'dark' | 'light' | 'system';
     showThoughts: boolean;
     immersiveMode: boolean;
     lorebookAutoExtract: boolean;
@@ -193,7 +191,6 @@ interface SettingsState {
     enableHierarchicalSummaries: boolean;
     enableRAGRetrieval: boolean;
     minRAGConfidence: number; // 0–1, minimum confidence threshold for RAG sections
-    customFactCategories: string[]; // User-defined fact categories (in addition to built-in ones)
 
     // Per-response <scratchpad> working memory. Costs output tokens on every reply and
     // invalidates prompt caching, so it's opt-in.
@@ -231,7 +228,6 @@ interface SettingsState {
     removeCustomModel: (id: string) => void;
     setNanogptModels: (models: CustomModel[]) => void;
     setTemperature: (temp: number) => void;
-    setMaxTokens: (tokens: number) => void;
     setEnableReasoning: (enabled: boolean) => void;
     setUseFlexTier: (enabled: boolean) => void;
 
@@ -241,7 +237,6 @@ interface SettingsState {
     deletePersona: (id: string) => void;
     setActivePersonaId: (id: string | null) => void;
 
-    setTheme: (theme: 'dark' | 'light' | 'system') => void;
     setShowThoughts: (show: boolean) => void;
     setImmersiveMode: (immersive: boolean) => void;
     setLorebookAutoExtract: (enabled: boolean) => void;
@@ -260,7 +255,6 @@ interface SettingsState {
     setEnableHierarchicalSummaries: (enabled: boolean) => void;
     setEnableRAGRetrieval: (enabled: boolean) => void;
     setMinRAGConfidence: (value: number) => void;
-    setCustomFactCategories: (categories: string[]) => void;
     setUseCanonCodex: (enabled: boolean) => void;
     setUseCanonAutoFetch: (enabled: boolean) => void;
 
@@ -290,7 +284,6 @@ export const useSettingsStore = create<SettingsState>()(
             customModels: [],
             nanogptModels: [],
             temperature: 0.8,
-            maxTokens: 2048,
             enableReasoning: false,
             useFlexTier: false,
             personas: [],
@@ -299,7 +292,6 @@ export const useSettingsStore = create<SettingsState>()(
             activePresetId: null,
             activeEngineId: IMMERSIVE_NEXUS_KEY,
             customEngines: [],
-            theme: 'dark',
             showThoughts: true,
             immersiveMode: false,
             lorebookAutoExtract: true,
@@ -318,7 +310,6 @@ export const useSettingsStore = create<SettingsState>()(
             enableHierarchicalSummaries: true,
             enableRAGRetrieval: true,
             minRAGConfidence: 0,
-            customFactCategories: [],
             useCanonCodex: true,
             useCanonAutoFetch: true,
 
@@ -350,7 +341,6 @@ export const useSettingsStore = create<SettingsState>()(
             setNanogptModels: (models) => set({ nanogptModels: models }),
 
             setTemperature: (temperature) => set({ temperature }),
-            setMaxTokens: (maxTokens) => set({ maxTokens }),
             setEnableReasoning: (enableReasoning) => set({ enableReasoning }),
             setUseFlexTier: (useFlexTier) => set({ useFlexTier }),
 
@@ -367,7 +357,6 @@ export const useSettingsStore = create<SettingsState>()(
                 })),
             setActivePersonaId: (activePersonaId) => set({ activePersonaId }),
 
-            setTheme: (theme) => set({ theme }),
             setShowThoughts: (showThoughts) => set({ showThoughts }),
             setImmersiveMode: (immersiveMode) => set({ immersiveMode }),
             setLorebookAutoExtract: (lorebookAutoExtract) => set({ lorebookAutoExtract }),
@@ -398,7 +387,6 @@ export const useSettingsStore = create<SettingsState>()(
             setUseCanonAutoFetch: (useCanonAutoFetch) => set({ useCanonAutoFetch }),
             setMinRAGConfidence: (minRAGConfidence) =>
                 set({ minRAGConfidence: Math.max(0, Math.min(1, minRAGConfidence)) }),
-            setCustomFactCategories: (customFactCategories) => set({ customFactCategories }),
 
             // Preset Actions
             addPreset: (preset) =>
@@ -515,6 +503,8 @@ export const useSettingsStore = create<SettingsState>()(
         }),
         {
             name: 'nexusai-settings',
+            // NOTE: everything persisted here is genuinely needed across reloads
+            // (nanogptModels is only refetched when the key is saved) — no partialize.
         }
     )
 );

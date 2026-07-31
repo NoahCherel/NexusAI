@@ -66,10 +66,10 @@ describe('parseFactExtractionResponse', () => {
         expect(result[1].importance).toBe(10);
     });
 
-    it('validates category to known types', () => {
-        const response = `[{"fact":"test","category":"invalid_category","importance":5,"entities":[],"tags":[]}]`;
+    it('passes custom categories through (no whitelist), normalized to lowercase', () => {
+        const response = `[{"fact":"test","category":"Invalid_Category","importance":5,"entities":[],"tags":[]}]`;
         const result = parseFactExtractionResponse(response, 'c', 'm');
-        expect(result[0].category).toBe('invalid_category'); // Custom categories are now accepted
+        expect(result[0].category).toBe('invalid_category');
     });
 
     it('filters out entries missing required fields', () => {
@@ -110,7 +110,8 @@ describe('heuristicImportance', () => {
         const longText = 'word '.repeat(200); // ~1000 chars
         const shortScore = heuristicImportance(shortText);
         const longScore = heuristicImportance(longText);
-        expect(longScore).toBeGreaterThanOrEqual(shortScore);
+        // STRICT: deleting the length boost would make both equal and still pass a >=.
+        expect(longScore).toBeGreaterThan(shortScore);
     });
 });
 
@@ -123,7 +124,6 @@ describe('deduplicateFacts', () => {
             fact: 'The warrior found a magical sword',
             category: 'item',
             importance: 7,
-            active: true,
             timestamp: Date.now(),
             relatedEntities: ['Warrior', 'Magical Sword'],
             lastAccessedAt: Date.now(),
@@ -139,8 +139,7 @@ describe('deduplicateFacts', () => {
                 fact: 'The warrior found a magical sword',
                 category: 'item' as const,
                 importance: 7,
-                active: true,
-                timestamp: Date.now(),
+                    timestamp: Date.now(),
                 relatedEntities: ['Warrior', 'Magical Sword'],
                 lastAccessedAt: Date.now(),
                 accessCount: 0,
@@ -158,8 +157,7 @@ describe('deduplicateFacts', () => {
                 fact: 'The mage cast a protective barrier',
                 category: 'event' as const,
                 importance: 6,
-                active: true,
-                timestamp: Date.now(),
+                    timestamp: Date.now(),
                 relatedEntities: ['Mage'],
                 lastAccessedAt: Date.now(),
                 accessCount: 0,
@@ -177,8 +175,7 @@ describe('deduplicateFacts', () => {
                 fact: 'Something happened',
                 category: 'event' as const,
                 importance: 5,
-                active: true,
-                timestamp: Date.now(),
+                    timestamp: Date.now(),
                 relatedEntities: [],
                 lastAccessedAt: Date.now(),
                 accessCount: 0,

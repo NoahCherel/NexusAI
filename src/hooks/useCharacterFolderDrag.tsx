@@ -149,7 +149,7 @@ export function useCharacterFolderDrag() {
                               )}
                           >
                               <Folder className="h-3 w-3 shrink-0" />
-                              {dragState.targetFolder || 'Choose a folder'}
+                              {dragState.targetFolder || 'Choisir un dossier'}
                           </p>
                       </div>
                   </div>,

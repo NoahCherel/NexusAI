@@ -110,16 +110,12 @@ export function CharacterCard({
                     <div className="flex items-center justify-between gap-2 min-w-0 overflow-hidden">
                         <h3
                             className={cn(
-                                'font-bold text-sm leading-none pt-0.5 flex-1 min-w-0',
+                                'font-bold text-sm leading-none pt-0.5 flex-1 min-w-0 truncate',
                                 isActive ? 'text-primary' : 'text-foreground'
                             )}
                         >
-                            {(character.displayName?.length || 0) > 16
-                                ? character.displayName!.slice(0, 16) + '...'
-                                : character.displayName ||
-                                  (character.name.length > 16
-                                      ? character.name.slice(0, 16) + '...'
-                                      : character.name)}
+                            {/* CSS truncation handles overflow — no JS slicing of the name */}
+                            {character.displayName || character.name}
                         </h3>
                     </div>
 
@@ -130,8 +126,10 @@ export function CharacterCard({
                             const text = htmlToPlainText(
                                 character.description || character.personality || ''
                             );
-                            if (!text) return 'No description';
-                            return text.length > 16 ? text.slice(0, 16) + '...' : text;
+                            if (!text) return 'Pas de description';
+                            // line-clamp-2 does the visual truncation; the slice only
+                            // bounds the DOM text (was 16 — a typo'd 160).
+                            return text.length > 160 ? text.slice(0, 160) + '...' : text;
                         })()}
                     </p>
                     {lastPlayed && (
@@ -161,7 +159,7 @@ export function CharacterCard({
                         <button
                             type="button"
                             className="flex h-7 w-7 touch-none items-center justify-center rounded-md text-muted-foreground opacity-100 transition-opacity hover:bg-muted/60 hover:text-foreground sm:opacity-0 sm:group-hover:opacity-100"
-                            title="Drag to folder"
+                            title="Glisser vers un dossier"
                             onPointerDown={(e) => onDragHandlePointerDown(character, e)}
                             onClick={(e) => e.stopPropagation()}
                         >
