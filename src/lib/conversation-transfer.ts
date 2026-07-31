@@ -54,6 +54,7 @@ export async function exportConversationForCharacter(character: CharacterCard): 
             thought: m.thought,
             createdAt: m.createdAt,
             isActiveBranch: m.isActiveBranch,
+            speaker: m.speaker,
         })),
         exportedAt: new Date().toISOString(),
     };
@@ -144,6 +145,7 @@ export function importConversationFromFile(): void {
                     createdAt: new Date(msg.createdAt || new Date()),
                     messageOrder: i + 1,
                     regenerationIndex: 0,
+                    speaker: msg.speaker,
                 });
                 prevId = msgId;
             }

@@ -72,8 +72,8 @@ export function buildDirectorUserPrompt(params: {
     const transcript = recentMessages
         .slice(-10)
         .map((m) => {
-            const who =
-                m.role === 'user' ? userName : m.speaker?.name || 'GM';
+            // Prefer the stamped speaker (persona at send time / scene attribution).
+            const who = m.speaker?.name || (m.role === 'user' ? userName : 'GM');
             return `${who}: ${m.content.slice(0, 600)}`;
         })
         .join('\n');

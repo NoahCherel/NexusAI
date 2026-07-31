@@ -30,10 +30,14 @@ export interface Message {
         estimated?: boolean;
     };
 
-    // Scene Mode (Troupe): who is talking. Absent = the card's main character (legacy).
+    // Who is talking: Scene Mode attribution (character/narrator) AND, for user messages,
+    // the persona active AT SEND TIME — switching personas later must not rewrite history.
+    // Absent = legacy fallback (card's main character / currently active persona).
     speaker?: {
         kind: 'user' | 'character' | 'narrator';
         name: string;
+        /** For kind 'user': id of the persona used when sending (avatar lookup). */
+        personaId?: string;
     };
 }
 

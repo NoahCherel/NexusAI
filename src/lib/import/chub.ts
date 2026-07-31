@@ -52,11 +52,15 @@ export interface ChubNode {
     rating?: number;
     ratingCount?: number;
     definition?: {
+        name?: string;
         first_message?: string;
         personality?: string;
         tavern_personality?: string;
         scenario?: string;
         description?: string;
+        system_prompt?: string;
+        post_history_instructions?: string;
+        example_dialogs?: string;
         alternate_greetings?: string[];
         embedded_lorebook?: unknown;
     } | null;
@@ -124,29 +128,41 @@ export function buildChubSearchParams(options: {
  */
 export async function downloadChubCardInBrowser(
     fullPath: string
-): Promise<{ card: import('@/types/character').CharacterCard; avatarDataUrl: string } | null> {
+): Promise<{ card: import('@/types/character').CharacterCard; avatarDataUrl?: string } | null> {
+    // 1. Official card download (exact tavern PNG). This is a preflighted POST — some
+    // setups get it CORS/WAF-blocked even when the simple GETs pass.
     try {
         const res = await fetch(CHUB_DOWNLOAD_URL, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ format: 'tavern', fullPath }),
         });
-        if (!res.ok) return null;
-        const buf = await res.arrayBuffer();
-        const { parseCharacterCardPNGBuffer } = await import('@/lib/character-parser');
-        const card = parseCharacterCardPNGBuffer(buf);
-        // Chunked base64 conversion — String.fromCharCode(...) on a whole card PNG would
-        // blow the call stack.
-        let binary = '';
-        const bytes = new Uint8Array(buf);
-        for (let i = 0; i < bytes.length; i += 8192) {
-            binary += String.fromCharCode(...bytes.subarray(i, i + 8192));
+        if (res.ok) {
+            const buf = await res.arrayBuffer();
+            const { parseCharacterCardPNGBuffer } = await import('@/lib/character-parser');
+            const card = parseCharacterCardPNGBuffer(buf);
+            // Chunked base64 conversion — String.fromCharCode(...) on a whole card PNG
+            // would blow the call stack.
+            let binary = '';
+            const bytes = new Uint8Array(buf);
+            for (let i = 0; i < bytes.length; i += 8192) {
+                binary += String.fromCharCode(...bytes.subarray(i, i + 8192));
+            }
+            return { card, avatarDataUrl: `data:image/png;base64,${btoa(binary)}` };
         }
-        return { card, avatarDataUrl: `data:image/png;base64,${btoa(binary)}` };
     } catch (err) {
-        console.warn('[Chub] Browser download fallback failed:', err);
-        return null;
+        console.warn('[Chub] Browser PNG download failed, trying detail JSON:', err);
     }
+
+    // 2. Last resort: rebuild the card from the detail JSON (simple GET, no preflight —
+    // the endpoint the preview panel already uses successfully).
+    try {
+        const node = await fetchChubNodeInBrowser(fullPath);
+        if (node) return await buildCardFromChubNode(node);
+    } catch (err) {
+        console.warn('[Chub] Detail-JSON card build failed:', err);
+    }
+    return null;
 }
 
 export function normalizeChubNodes(nodes: ChubNode[]): MarketplaceCard[] {
@@ -190,19 +206,93 @@ export function normalizeChubDetail(node: ChubNode): ChubCardDetail | null {
 }
 
 /**
- * BROWSER-ONLY detail fetch fallback (same WAF story as the search/download fallbacks:
- * the page's real Chrome fingerprint passes where the server's undici gets 403).
+ * BROWSER-ONLY raw node fetch (same WAF story as the other fallbacks: the page's real
+ * Chrome fingerprint passes where the server's undici gets 403, and this is a SIMPLE GET —
+ * no CORS preflight, unlike the download POST).
  */
-export async function fetchChubDetailInBrowser(fullPath: string): Promise<ChubCardDetail | null> {
+export async function fetchChubNodeInBrowser(fullPath: string): Promise<ChubNode | null> {
     try {
         const res = await fetch(chubDetailUrl(fullPath), {
             headers: { Accept: 'application/json' },
         });
         if (!res.ok) return null;
         const json = (await res.json()) as { node?: ChubNode };
-        return json.node ? normalizeChubDetail(json.node) : null;
+        return json.node ?? null;
     } catch (err) {
-        console.warn('[Chub] Browser detail fallback failed:', err);
+        console.warn('[Chub] Browser node fetch failed:', err);
         return null;
     }
+}
+
+/** BROWSER-ONLY detail fetch fallback for the preview panel. */
+export async function fetchChubDetailInBrowser(fullPath: string): Promise<ChubCardDetail | null> {
+    const node = await fetchChubNodeInBrowser(fullPath);
+    return node ? normalizeChubDetail(node) : null;
+}
+
+/** Defensive mapping of Chub's embedded_lorebook into our character_book shape. */
+function sanitizeEmbeddedLorebook(
+    raw: unknown
+): { name?: string; entries: { keys: string[]; content: string; enabled: boolean }[] } | undefined {
+    if (!raw || typeof raw !== 'object') return undefined;
+    const lb = raw as { name?: unknown; entries?: unknown };
+    if (!Array.isArray(lb.entries)) return undefined;
+    const entries = lb.entries
+        .map((e) => {
+            if (!e || typeof e !== 'object') return null;
+            const entry = e as { keys?: unknown; content?: unknown; enabled?: unknown };
+            const keys = Array.isArray(entry.keys)
+                ? entry.keys.filter((k): k is string => typeof k === 'string')
+                : typeof entry.keys === 'string'
+                  ? [entry.keys]
+                  : [];
+            if (keys.length === 0 || typeof entry.content !== 'string') return null;
+            return { keys, content: entry.content, enabled: entry.enabled !== false };
+        })
+        .filter((e): e is { keys: string[]; content: string; enabled: boolean } => e !== null);
+    if (entries.length === 0) return undefined;
+    return { name: typeof lb.name === 'string' ? lb.name : undefined, entries };
+}
+
+/**
+ * Build a CharacterCard from the detail node's `definition` — the LAST-RESORT import path
+ * when both the server proxy and the browser download POST are blocked. Uses the same
+ * field mapping as the server's metadata fallback; the avatar stays a remote URL unless
+ * the CDN lets us inline the bytes.
+ */
+export async function buildCardFromChubNode(
+    node: ChubNode
+): Promise<{ card: import('@/types/character').CharacterCard; avatarDataUrl?: string } | null> {
+    const def = node.definition;
+    if (!def) return null;
+    const { normalizeCharacterCard } = await import('@/lib/character-parser');
+    const card = normalizeCharacterCard({
+        ...def,
+        name: def.name || node.name,
+        first_mes: def.first_message,
+        mes_example: def.example_dialogs,
+        character_book: sanitizeEmbeddedLorebook(def.embedded_lorebook),
+    });
+    if (!card.name || card.name === 'Unknown Character') return null;
+
+    const avatarUrl =
+        node.avatar_url || `https://avatars.charhub.io/avatars/${node.fullPath}/avatar.webp`;
+    card.avatar = avatarUrl; // remote fallback — always renders in <img>
+    let avatarDataUrl: string | undefined;
+    try {
+        const res = await fetch(avatarUrl);
+        if (res.ok) {
+            const buf = await res.arrayBuffer();
+            let binary = '';
+            const bytes = new Uint8Array(buf);
+            for (let i = 0; i < bytes.length; i += 8192) {
+                binary += String.fromCharCode(...bytes.subarray(i, i + 8192));
+            }
+            const mime = res.headers.get('content-type') || 'image/webp';
+            avatarDataUrl = `data:${mime};base64,${btoa(binary)}`;
+        }
+    } catch {
+        /* CORS-blocked avatar bytes — the remote URL stays */
+    }
+    return { card, avatarDataUrl };
 }

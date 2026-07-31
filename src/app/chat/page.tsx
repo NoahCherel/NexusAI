@@ -525,18 +525,31 @@ export default function ChatPage() {
                                                         }
                                                         avatar={
                                                             msg.role === 'user'
-                                                                ? personas.find(
+                                                                ? // Persona AT SEND TIME (by id,
+                                                                  // then name); legacy messages
+                                                                  // fall back to the active one.
+                                                                  personas.find(
                                                                       (p) =>
-                                                                          p.id === activePersonaId
+                                                                          p.id ===
+                                                                          (msg.speaker
+                                                                              ?.personaId ??
+                                                                              activePersonaId)
+                                                                  )?.avatar ??
+                                                                  personas.find(
+                                                                      (p) =>
+                                                                          p.name ===
+                                                                          msg.speaker?.name
                                                                   )?.avatar
                                                                 : character.avatar
                                                         }
                                                         name={
                                                             msg.role === 'user'
-                                                                ? personas.find(
+                                                                ? msg.speaker?.name ||
+                                                                  personas.find(
                                                                       (p) =>
                                                                           p.id === activePersonaId
-                                                                  )?.name || 'You'
+                                                                  )?.name ||
+                                                                  'You'
                                                                 : msg.speaker?.name ||
                                                                   character.name
                                                         }

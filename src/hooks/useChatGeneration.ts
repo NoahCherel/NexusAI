@@ -664,6 +664,9 @@ export function useChatGeneration({
 
         const lastParams = messages.length > 0 ? messages[messages.length - 1] : null;
 
+        // Stamp the persona used AT SEND TIME — switching personas later must not rewrite
+        // the attribution of past messages.
+        const sendPersona = personas.find((p) => p.id === activePersonaId);
         const newUserMessage: Message = {
             id: crypto.randomUUID(),
             conversationId: activeConversationId,
@@ -674,6 +677,11 @@ export function useChatGeneration({
             createdAt: new Date(),
             messageOrder: messages.length + 1,
             regenerationIndex: 0,
+            speaker: {
+                kind: 'user',
+                name: sendPersona?.name || 'You',
+                personaId: sendPersona?.id,
+            },
         };
 
         addMessage(newUserMessage);
