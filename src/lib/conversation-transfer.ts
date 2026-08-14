@@ -7,6 +7,7 @@
  */
 
 import type { CharacterCard } from '@/types/character';
+import type { DirectedRelationship } from '@/types/chat';
 import { useChatStore, useCharacterStore } from '@/stores';
 import { useNotificationStore } from '@/components/ui/api-notification';
 
@@ -47,6 +48,9 @@ export async function exportConversationForCharacter(character: CharacterCard): 
             title: latestConv.title,
             createdAt: latestConv.createdAt,
             updatedAt: latestConv.updatedAt,
+            // Hand-authored data now: bonds are created in the Relations panel, not
+            // regenerated from the cast each beat. Dropping them here loses real user work.
+            relationships: latestConv.relationships,
         },
         messages: messages.map((m) => ({
             role: m.role,
@@ -120,12 +124,21 @@ export function importConversationFromFile(): void {
                 await useCharacterStore.getState().addCharacter(newCharacter);
             }
 
-            // Create new conversation
+            // Create new conversation. The character name seeds the player↔character bond
+            // only when the export carries no relationships of its own.
             const chatStore = useChatStore.getState();
+            const importedRels = Array.isArray(data.conversation.relationships)
+                ? (data.conversation.relationships as DirectedRelationship[])
+                : undefined;
             const convId = await chatStore.createConversation(
                 characterId,
-                data.conversation.title || `Discussion importée - ${new Date().toLocaleDateString()}`
+                data.conversation.title ||
+                    `Discussion importée - ${new Date().toLocaleDateString()}`,
+                importedRels ? undefined : data.character.name
             );
+            if (importedRels) {
+                useChatStore.getState().setRelationships(convId, importedRels);
+            }
 
             // Import messages as ONE chained branch. parentId must link each message to
             // the previous one: with every message at the root, they'd all be siblings —

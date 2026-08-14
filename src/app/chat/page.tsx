@@ -207,7 +207,8 @@ export default function ChatPage() {
             } else {
                 const newId = await createConversation(
                     character.id,
-                    `Discussion avec ${character.name}`
+                    `Discussion avec ${character.name}`,
+                    character.name
                 );
 
                 if (character.first_mes) {

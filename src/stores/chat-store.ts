@@ -7,6 +7,7 @@ import {
     getConversationMessages,
     deleteMessagedb,
 } from '@/lib/db';
+import { mainCharacterBond } from '@/lib/ai/relationship-context';
 
 interface ChatState {
     conversations: Conversation[];
@@ -18,7 +19,15 @@ interface ChatState {
 
     // Actions
     loadConversations: (characterId: string) => Promise<void>;
-    createConversation: (characterId: string, title: string) => Promise<string>;
+    /**
+     * `characterName` seeds the one automatic relationship (player ↔ that character). Omit it
+     * to start with no bonds at all — imports restore their own.
+     */
+    createConversation: (
+        characterId: string,
+        title: string,
+        characterName?: string
+    ) => Promise<string>;
     setActiveConversation: (id: string | null) => void;
     addMessage: (message: Message) => void;
     updateMessage: (
@@ -240,7 +249,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
         }
     },
 
-    createConversation: async (characterId, title) => {
+    createConversation: async (characterId, title, characterName) => {
         const id = generateId();
         const conversation: Conversation = {
             id,
@@ -248,6 +257,10 @@ export const useChatStore = create<ChatState>()((set, get) => ({
             title,
             createdAt: new Date(),
             updatedAt: new Date(),
+            // The only bond seeded automatically, and only here: every other relationship is
+            // created by hand in the Relations panel. Seeding at creation (rather than lazily,
+            // per beat) is what makes deleting it stick.
+            ...(characterName ? { relationships: mainCharacterBond(characterName) } : {}),
         };
 
         set((state) => ({

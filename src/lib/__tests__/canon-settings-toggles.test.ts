@@ -80,8 +80,78 @@ describe('useCanonCodex (master switch)', () => {
         } as import('@/types/chat').Conversation;
         const opts = await buildCanonOptions(card, conv, [], 'Alex');
         expect(opts.momentumNudge).toBe('NUDGE_MARKER');
+        // The card's own character is always on stage, even with no messages to scan.
         expect(opts.relationshipBlock).toContain('NarutoRPG');
         expect(opts.canonDossiers).toBeUndefined();
+    });
+
+    it('when off, an OFF-STAGE character bond is left out of the block', async () => {
+        // The non-canon fallback used to pass EVERY name in the list as "on stage", so a bond
+        // with someone last seen hundreds of messages ago shipped on every single turn.
+        useSettingsStore.setState({ useCanonCodex: false });
+        const rel = (from: string) => ({
+            from,
+            to: '{{user}}',
+            axes: { trust: 40, affection: 10, respect: 0, attraction: 0 },
+            ledger: [],
+        });
+        const conv = {
+            id: 'cv1',
+            characterId: 'c1',
+            title: 't',
+            createdAt: new Date(0),
+            updatedAt: new Date(0),
+            relationships: [rel('NarutoRPG'), rel('Gaara')],
+        } as import('@/types/chat').Conversation;
+        const recent = [{ content: 'The village gate stood open.' }] as never;
+        const opts = await buildCanonOptions(card, conv, recent, 'Alex');
+        expect(opts.relationshipBlock).toContain('NarutoRPG');
+        expect(opts.relationshipBlock).not.toContain('Gaara');
+    });
+
+    it('when ON, off-stage bonds are excluded too, and the card character always ships', async () => {
+        useSettingsStore.setState({ useCanonCodex: true });
+        const rel = (from: string) => ({
+            from,
+            to: '{{user}}',
+            axes: { trust: 40, affection: 10, respect: 0, attraction: 0 },
+            ledger: [],
+        });
+        const conv = {
+            id: 'cv1',
+            characterId: 'c1',
+            title: 't',
+            createdAt: new Date(0),
+            updatedAt: new Date(0),
+            relationships: [rel('NarutoRPG'), rel('Gaara')],
+        } as import('@/types/chat').Conversation;
+        const recent = [{ content: 'Rain drummed on the rooftops.' }] as never;
+        const opts = await buildCanonOptions(card, conv, recent, 'Alex');
+        // Nobody is named in the scene, yet the card's own character is never dropped.
+        expect(opts.relationshipBlock).toContain('NarutoRPG');
+        expect(opts.relationshipBlock).not.toContain('Gaara');
+    });
+
+    it('brings an off-stage bond back only once that character is named', async () => {
+        useSettingsStore.setState({ useCanonCodex: false });
+        const conv = {
+            id: 'cv1',
+            characterId: 'c1',
+            title: 't',
+            createdAt: new Date(0),
+            updatedAt: new Date(0),
+            relationships: [
+                {
+                    from: 'Gaara',
+                    to: '{{user}}',
+                    axes: { trust: -20, affection: 0, respect: 0, attraction: 0 },
+                    ledger: [],
+                },
+            ],
+        } as import('@/types/chat').Conversation;
+        const recent = [{ content: 'Gaara stepped out of the sand.' }] as never;
+        const opts = await buildCanonOptions(card, conv, recent, 'Alex');
+        expect(opts.relationshipBlock).toContain('Gaara');
     });
 
     it('returns full options when on', async () => {

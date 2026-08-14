@@ -1,26 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import {
     seedAxesFromNature,
-    ensureRelationships,
+    mainCharacterBond,
     formatRelationshipBlock,
 } from '@/lib/ai/relationship-context';
 import { makeRelationship } from '@/lib/ai/relationship-engine';
-import { USER_REL_KEY, type DirectedRelationship } from '@/types/chat';
-import type { CanonDossier } from '@/types/canon';
-
-function dossier(name: string, rels: { name: string; nature: string }[] = []): CanonDossier {
-    return {
-        work: 'naruto',
-        character: name,
-        timelineCap: 'S1E1',
-        identity: `${name} is a shinobi.`,
-        backstory: '',
-        relationships: rels,
-        fetchedAt: 0,
-        stub: false,
-        enabled: true,
-    };
-}
+import { USER_REL_KEY } from '@/types/chat';
 
 describe('seedAxesFromNature', () => {
     it('seeds a rival as high respect, low trust', () => {
@@ -42,36 +27,27 @@ describe('seedAxesFromNature', () => {
     });
 });
 
-describe('ensureRelationships', () => {
-    it('creates {{user}}↔char (both directions) as neutral strangers', () => {
-        const { relationships, changed } = ensureRelationships(undefined, ['Naruto'], []);
-        expect(changed).toBe(true);
-        const userToNaruto = relationships.find((r) => r.from === USER_REL_KEY && r.to === 'Naruto');
-        const narutoToUser = relationships.find((r) => r.from === 'Naruto' && r.to === USER_REL_KEY);
+describe('mainCharacterBond', () => {
+    it('is the ONLY automatic pair: player ↔ the card character, both ways, neutral', () => {
+        const bond = mainCharacterBond('Naruto');
+        expect(bond).toHaveLength(2);
+        const userToNaruto = bond.find((r) => r.from === USER_REL_KEY && r.to === 'Naruto');
+        const narutoToUser = bond.find((r) => r.from === 'Naruto' && r.to === USER_REL_KEY);
         expect(userToNaruto?.axes.trust).toBe(0); // the player earns everything
         expect(narutoToUser?.axes.trust).toBe(0);
+        // Never flagged as canon: nothing was read from a dossier.
+        expect(bond.every((r) => !r.seededFromCanon)).toBe(true);
     });
 
-    it('seeds cast↔cast from the canon dossier relationships', () => {
-        const dossiers = [
-            dossier('Sasuke', [{ name: 'Naruto', nature: 'rival' }]),
-            dossier('Naruto', [{ name: 'Sasuke', nature: 'best friend and rival' }]),
-        ];
-        const { relationships } = ensureRelationships(undefined, ['Sasuke', 'Naruto'], dossiers);
-        const sasukeToNaruto = relationships.find((r) => r.from === 'Sasuke' && r.to === 'Naruto');
-        expect(sasukeToNaruto?.seededFromCanon).toBe(true);
-        expect(sasukeToNaruto?.axes.respect).toBeGreaterThan(40);
+    it('seeds nothing for a blank or sentinel name', () => {
+        expect(mainCharacterBond('   ')).toEqual([]);
+        expect(mainCharacterBond(USER_REL_KEY)).toEqual([]);
     });
 
-    it('does not duplicate or overwrite existing relationships', () => {
-        const existing: DirectedRelationship[] = [
-            makeRelationship('Naruto', USER_REL_KEY, { trust: 50 }),
-        ];
-        const { relationships, changed } = ensureRelationships(existing, ['Naruto'], []);
-        // Naruto→user kept as-is (trust 50), only the missing user→Naruto added.
-        expect(relationships.find((r) => r.from === 'Naruto' && r.to === USER_REL_KEY)?.axes.trust).toBe(50);
-        expect(changed).toBe(true);
-        expect(relationships.filter((r) => r.from === 'Naruto' && r.to === USER_REL_KEY)).toHaveLength(1);
+    it('costs no prompt line until the user edits it (only the NPC side shows)', () => {
+        const block = formatRelationshipBlock(mainCharacterBond('Naruto'), ['Naruto'], 'Kael');
+        expect(block).toContain('Naruto → Kael');
+        expect(block).not.toContain('Kael → Naruto');
     });
 });
 

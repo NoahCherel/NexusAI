@@ -5,6 +5,12 @@
  * justified, capped relationship deltas. Heavily biased AGAINST the LLM's instinct to make
  * everyone warm up instantly.
  *
+ * It MOVES existing bonds; it never creates one. Pairs are created by hand in the Relations
+ * panel (plus the single player↔card bond seeded at conversation creation). The guarantee is
+ * structural, not a prompt instruction: an unknown pair is dropped at the `findRelationship`
+ * check below. Auto-minting bonds for every name detected on stage is what used to bloat the
+ * prompt with walk-on NPCs nobody cared about.
+ *
  * Only NPC-origin relationships are updated (NPC→player, NPC→NPC). The player's own feelings
  * ({{user}}→X) are never authored by the AI — that's the user's to set in the editor.
  */
@@ -14,7 +20,6 @@ import { useChatStore } from '@/stores/chat-store';
 import { backgroundAICall } from '@/lib/ai/background-ai';
 import { getCanonDossiersByWork } from '@/lib/db';
 import { resolveWork, getActiveCanonNames } from '@/lib/ai/canon-context';
-import { ensureRelationships } from '@/lib/ai/relationship-context';
 import {
     applyDeltas,
     findRelationship,
@@ -36,6 +41,7 @@ You output small, JUSTIFIED changes (deltas) to four axes, each -100..100:
 - attraction — romantic/sexual interest.
 
 HARD RULES:
+- You may ONLY move relationships that already appear in the list you are given. Never invent a pair, and never introduce a character that is not listed — such changes are discarded.
 - DEFAULT TO NO CHANGE. Most beats move nothing. Only emit a delta when the message contains a concrete cause (an action, a revelation, a betrayal, a kindness, a display of skill, a slight).
 - Deltas are SMALL: normally between -8 and +8. Reserve magnitudes up to ±25 (set "major": true) ONLY for genuinely major events (betrayal, saving a life, a confession, a killing).
 - Trust barely moves up on nice words — it grows from repeated, costly, demonstrated reliability. It drops sharply on deception or betrayal.
@@ -46,6 +52,9 @@ HARD RULES:
 
 Respond with ONLY this JSON:
 { "changes": [ { "from": "Character", "to": "Character or {{user}}", "axis": "trust|affection|respect|attraction", "delta": -8..25, "major": false, "reason": "what in the scene caused it" } ] }`;
+
+/** Defensive cap on how many bonds are described to the analyst in one call. */
+const MAX_ANALYZED_BONDS = 20;
 
 interface RawChange {
     from?: string;
@@ -89,8 +98,9 @@ function describeRelationships(rels: DirectedRelationship[], userName: string): 
 
 /**
  * Analyze the latest beat and update NPC-origin relationships among the characters on stage.
- * Gated by the Canon Codex master switch and its own toggle (it makes a background API call
- * on the unified background layer — NanoGPT quota or free OpenRouter models).
+ * Gated by its own toggle (it makes a background API call on the unified background layer —
+ * NanoGPT quota or free OpenRouter models). Creates nothing: a conversation with no
+ * hand-made bond costs zero here, not even a DB read.
  */
 export async function analyzeAndUpdateRelationships(
     card: CharacterCard,
@@ -108,8 +118,12 @@ export async function analyzeAndUpdateRelationships(
     const conv = chat.conversations.find((c) => c.id === conversationId);
     if (!conv) return;
 
-    // Canon dossiers only enrich the analysis (persona cues, canon-seeded pairs) — the
-    // analyst runs without them.
+    // Nothing tracked → nothing to move. Bail before the dossier read and the API call:
+    // bonds are only born in the Relations panel, so an untouched conversation is free.
+    const tracked = conv.relationships || [];
+    if (tracked.length === 0) return;
+
+    // Canon dossiers only enrich the analysis (personality cues) — the analyst runs without them.
     const work = resolveWork(card);
     const dossiers = work ? await getCanonDossiersByWork(work) : [];
 
@@ -122,14 +136,6 @@ export async function analyzeAndUpdateRelationships(
     );
     if (activeNames.length === 0) return; // no tracked character on stage → nothing to update
 
-    // Seed any missing pairs (NPC→player + canon-seeded NPC→NPC) and persist if new ones appeared.
-    const { relationships: seeded, changed } = ensureRelationships(
-        conv.relationships,
-        activeNames,
-        dossiers
-    );
-    if (changed) chat.setRelationships(conversationId, seeded);
-
     const activePersona = settings.personas.find((p) => p.id === settings.activePersonaId);
     // Persona-at-send-time: the ledger must name the persona who actually played this
     // beat, not whichever persona is active when the analysis runs.
@@ -140,14 +146,19 @@ export async function analyzeAndUpdateRelationships(
         )?.speaker?.name;
     const userName = lastUserSpeaker || activePersona?.name || 'the player';
 
-    // Relationships eligible for update: NPC-origin, touching an active character.
+    // Relationships eligible for update: NPC-origin, touching an active character. Capped so a
+    // conversation with a large hand-built web can't balloon this prompt (the message body is
+    // already truncated below); NPC→player bonds are the ones that matter most, so they win.
     const activeSet = new Set([USER_REL_KEY.toLowerCase(), ...activeNames.map((n) => n.toLowerCase())]);
-    const eligible = seeded.filter(
-        (r) =>
-            r.from !== USER_REL_KEY &&
-            activeSet.has(r.from.toLowerCase()) &&
-            activeSet.has(r.to.toLowerCase())
-    );
+    const eligible = tracked
+        .filter(
+            (r) =>
+                r.from !== USER_REL_KEY &&
+                activeSet.has(r.from.toLowerCase()) &&
+                activeSet.has(r.to.toLowerCase())
+        )
+        .sort((a, b) => Number(b.to === USER_REL_KEY) - Number(a.to === USER_REL_KEY))
+        .slice(0, MAX_ANALYZED_BONDS);
     if (eligible.length === 0) return;
 
     // Short personality cues so the analyst can modulate by character.
@@ -189,8 +200,10 @@ export async function analyzeAndUpdateRelationships(
         if (c.from === USER_REL_KEY || c.from.toLowerCase() === userName.toLowerCase()) continue; // never the player
         if (!RELATIONSHIP_AXES.includes(c.axis as RelationshipAxis)) continue;
         const toKey = c.to.toLowerCase() === userName.toLowerCase() ? USER_REL_KEY : c.to;
-        const rel = findRelationship(seeded, c.from, toKey);
-        if (!rel) continue; // only update pairs we already track (no surprise new characters here)
+        const rel = findRelationship(tracked, c.from, toKey);
+        // The creation guard: an unknown pair is dropped, never minted. Bonds are born by hand
+        // in the Relations panel — the model only gets to move what already exists.
+        if (!rel) continue;
         const k = relKey(rel.from, rel.to);
         if (!byKey.has(k)) byKey.set(k, { rel, deltas: [] });
         byKey.get(k)!.deltas.push({
@@ -207,7 +220,7 @@ export async function analyzeAndUpdateRelationships(
     for (const { rel, deltas } of byKey.values()) {
         updatedByKey.set(relKey(rel.from, rel.to), applyDeltas(rel, deltas, messageId));
     }
-    const next = seeded.map((r) => updatedByKey.get(relKey(r.from, r.to)) || r);
+    const next = tracked.map((r) => updatedByKey.get(relKey(r.from, r.to)) || r);
     useChatStore.getState().setRelationships(conversationId, next);
     console.log(`[Relationships] Updated ${updatedByKey.size} bond(s) from the last beat.`);
 }

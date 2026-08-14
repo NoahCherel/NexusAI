@@ -937,12 +937,15 @@ export function SettingsPanel({ open, onOpenChange }: SettingsPanelProps) {
                                         onChange={setUseCanonAutoFetch}
                                         disabled={!useCanonCodex}
                                     />
+                                    {/* Pas de `disabled={!useCanonCodex}` : l'analyste ne consulte
+                                        pas ce drapeau (il sert aussi aux cartes OC), il tournait
+                                        donc encore une fois le Codex éteint — sans pouvoir être
+                                        coupé. */}
                                     <FeatureToggle
                                         title="Analyste de relations"
-                                        description="1 appel de fond par beat : fait évoluer les liens dirigés (confiance/affection/respect/attirance) entre personnages."
+                                        description="1 appel de fond par beat : fait évoluer les liens existants (confiance/affection/respect/attirance). Il n'en crée jamais — la création se fait à la main dans le panneau Relations."
                                         value={enableRelationshipAnalyst ?? true}
                                         onChange={setEnableRelationshipAnalyst}
-                                        disabled={!useCanonCodex}
                                     />
                                     <FeatureToggle
                                         title="Anti-enlisement (momentum)"

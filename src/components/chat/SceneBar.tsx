@@ -6,16 +6,15 @@
  * narration / NPC initiative / time passing).
  */
 
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Clapperboard, Play, X, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useChatStore } from '@/stores/chat-store';
-import { USER_REL_KEY } from '@/types/chat';
 import type { CharacterCard } from '@/types/character';
 import type { Conversation, Message } from '@/types/chat';
-import { getActiveCanonNames, resolveWork } from '@/lib/ai/canon-context';
-import { getCanonDossiersByWork } from '@/lib/db';
+import { getActiveCanonNames } from '@/lib/ai/canon-context';
+import { useKnownCastNames } from '@/hooks/useKnownCastNames';
 
 export function SceneBar({
     conversation,
@@ -33,42 +32,16 @@ export function SceneBar({
     const { setSceneMode, setSceneRoster, setSceneStyle } = useChatStore();
     const [newName, setNewName] = useState('');
     const [showAdd, setShowAdd] = useState(false);
-    // Known character names for typo-proof roster additions: canonCast + canon dossiers
-    // of the work + names seen in the relationship system.
-    const [dossierNames, setDossierNames] = useState<string[]>([]);
-    useEffect(() => {
-        const work = character ? resolveWork(character) : undefined;
-        if (!work) return;
-        let cancelled = false;
-        getCanonDossiersByWork(work)
-            .then((dossiers) => {
-                if (!cancelled) setDossierNames(dossiers.map((d) => d.character));
-            })
-            .catch(() => {});
-        return () => {
-            cancelled = true;
-        };
-    }, [character]);
+    // Typo-proof roster additions, from the shared cast pool (canonCast + canon dossiers of
+    // the work + names seen in the relationship system).
+    const castPool = useKnownCastNames(character, conversation);
 
     const rosterSource = conversation?.sceneRoster;
     const roster = useMemo(() => rosterSource ?? [], [rosterSource]);
     const knownNames = useMemo(() => {
         const inRoster = new Set(roster.map((n) => n.toLowerCase()));
-        const all = [
-            ...(character.canonCast ?? []),
-            ...dossierNames,
-            ...(conversation?.relationships ?? [])
-                .flatMap((r) => [r.from, r.to])
-                .filter((n) => n !== USER_REL_KEY),
-        ];
-        const seen = new Set<string>();
-        return all.filter((n) => {
-            const k = n.toLowerCase();
-            if (inRoster.has(k) || seen.has(k)) return false;
-            seen.add(k);
-            return true;
-        });
-    }, [character, dossierNames, conversation?.relationships, roster]);
+        return castPool.filter((n) => !inRoster.has(n.toLowerCase()));
+    }, [castPool, roster]);
 
     const suggestions = useMemo(() => {
         const q = newName.trim().toLowerCase();

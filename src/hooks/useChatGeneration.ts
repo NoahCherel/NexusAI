@@ -110,7 +110,16 @@ export function useChatGeneration({
         options: {
             isImpersonation?: boolean;
             prefill?: string;
-            skipFactExtraction?: boolean;
+            /**
+             * Not a fresh beat: a non-final Troupe turn, or a regenerate/continue/retry.
+             * Suppresses fact extraction AND the relationship analyst.
+             */
+            skipBeatAnalyses?: boolean;
+            /**
+             * Troupe: the earlier speakers' lines of the beat in progress (name-prefixed), so
+             * the final turn can hand the analyst the whole beat instead of its last reply.
+             */
+            beatPrefix?: string;
             /**
              * Continue-in-place for providers WITHOUT assistant prefill (NanoGPT/OpenAI):
              * `history` must END with this existing assistant message; the model gets an
@@ -514,7 +523,14 @@ export function useChatGeneration({
                             .find((m) => m.role === 'user' && m.speaker?.name)?.speaker
                             ?.name ?? activePersona?.name,
                     isImpersonation: !!options.isImpersonation,
-                    skipFactExtraction: !!options.skipFactExtraction,
+                    skipBeatAnalyses: !!options.skipBeatAnalyses,
+                    // Troupe final turn: stitch this reply onto the earlier speakers' lines so
+                    // the relationship analyst judges the beat as a whole.
+                    beatContent: options.beatPrefix
+                        ? `${options.beatPrefix}\n${
+                              options.speaker?.name ? `${options.speaker.name}: ` : ''
+                          }${finalContent}`
+                        : undefined,
                 });
             }
 
@@ -583,8 +599,10 @@ export function useChatGeneration({
     /**
      * Scene Mode beat: one cheap Director call (background AI) decides narration, roster
      * changes and up to 3 speakers; each speaker then gets their own streamed generation
-     * attributed via `speaker`. Post-beat analyses (facts/relations/journal) run ONCE, on
-     * the last turn, over the whole beat.
+     * attributed via `speaker`. Post-beat analyses (facts/relations/journal) run ONCE, on the
+     * last turn, over the whole beat — `skipBeatAnalyses` holds back the earlier turns and
+     * `beatPrefix` carries their lines forward. (Relations used to ignore that and fire per
+     * speaker: N background calls, and N × NORMAL_DELTA_CAP of drift for a single beat.)
      */
     const runSceneBeat = async (historyOverride?: CAMessage[]) => {
         if (!activeConversationId || !character) return;
@@ -634,7 +652,7 @@ export function useChatGeneration({
                         narrationHint: decision.narration,
                         userName,
                     },
-                    skipFactExtraction: false,
+                    skipBeatAnalyses: false,
                 });
                 return;
             }
@@ -662,17 +680,23 @@ export function useChatGeneration({
             const speakers = decision.speakers;
             // One retrieval stack per beat: computed on the first turn, reused after.
             const beatRetrievalKey = crypto.randomUUID();
+            // Lines written so far in THIS beat, handed to the final turn so the post-beat
+            // analyses see the whole scene and not just whoever spoke last.
+            const beatLines: string[] = [];
             for (let i = 0; i < speakers.length; i++) {
                 if (stopRequestedRef.current) break;
                 const speaker = { kind: 'character' as const, name: speakers[i].name };
+                const isFinalTurn = i === speakers.length - 1;
                 const result = await triggerAiReponse(withSpeakerPrefixes(beatHistory), {
                     speaker,
                     sceneDirection: speakers[i].direction,
                     sceneGoal: i === 0 ? decision.sceneGoal : undefined,
-                    skipFactExtraction: i < speakers.length - 1,
+                    skipBeatAnalyses: !isFinalTurn,
+                    beatPrefix: isFinalTurn && beatLines.length > 0 ? beatLines.join('\n') : undefined,
                     retrievalCacheKey: beatRetrievalKey,
                 });
                 if (!result) break;
+                beatLines.push(`${speaker.name}: ${result.content}`);
                 beatHistory.push({
                     id: result.id,
                     conversationId: activeConversationId,
@@ -901,7 +925,7 @@ export function useChatGeneration({
             await triggerAiReponse(
                 msgToRegen.speaker ? withSpeakerPrefixes(history) : history,
                 {
-                    skipFactExtraction: true,
+                    skipBeatAnalyses: true,
                     speaker: msgToRegen.speaker,
                     // Unified beat: replay the SAME Director context — without it the scene
                     // would collapse into an ordinary single-character reply.
@@ -933,7 +957,7 @@ export function useChatGeneration({
                 msgToContinue.speaker ? withSpeakerPrefixes(history) : history,
                 {
                     prefill,
-                    skipFactExtraction: true,
+                    skipBeatAnalyses: true,
                     speaker: msgToContinue.speaker,
                     sceneEnsemble: msgToContinue.sceneEnsemble,
                 }
@@ -948,7 +972,7 @@ export function useChatGeneration({
             const history = messages.slice(0, msgIndex + 1);
             await triggerAiReponse(history, {
                 continueTargetId: id,
-                skipFactExtraction: true,
+                skipBeatAnalyses: true,
                 speaker: msgToContinue.speaker,
                 sceneEnsemble: msgToContinue.sceneEnsemble,
             });
@@ -965,7 +989,7 @@ export function useChatGeneration({
         await triggerAiReponse(
             msgToRetry.speaker ? withSpeakerPrefixes(history) : history,
             {
-                skipFactExtraction: true,
+                skipBeatAnalyses: true,
                 speaker: msgToRetry.speaker,
                 sceneEnsemble: msgToRetry.sceneEnsemble,
             }

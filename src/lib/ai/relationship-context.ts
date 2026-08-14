@@ -1,17 +1,24 @@
 /**
- * Relationship context: seeding from canon, ensuring missing pairs exist, and formatting the
- * directional relationship block injected into the RP prompt.
+ * Relationship context: the canon seeding heuristic (applied only to bonds the user creates by
+ * hand), the one automatic bond, and the directional relationship block injected into the RP
+ * prompt.
+ *
+ * Relationships are CREATED MANUALLY, in the Relations panel. Nothing here mints pairs from the
+ * cast automatically: doing so used to fabricate them in N² — every name detected on stage got
+ * bonds with the player and with every other name — so walk-on NPCs accumulated relationships
+ * that then shipped in the prompt on every single turn. The only exception is
+ * `mainCharacterBond`, seeded once when the conversation is created.
  */
 
 import type { DirectedRelationship, RelationshipAxes } from '@/types/chat';
 import { USER_REL_KEY } from '@/types/chat';
-import type { CanonDossier } from '@/types/canon';
-import { axisLabel, makeRelationship, findRelationship, NEUTRAL_AXES } from '@/lib/ai/relationship-engine';
+import { axisLabel, makeRelationship, NEUTRAL_AXES } from '@/lib/ai/relationship-engine';
 
 /**
  * Map a canonical relationship description (e.g. "younger sister, devoted", "rival") to starting
- * axis values. Coarse keyword heuristic — the analyst refines it as the RP unfolds. {{user}} is
- * never seeded this way (the player is a newcomer who must earn everything).
+ * axis values. Coarse keyword heuristic — the analyst refines it as the RP unfolds. Applied when
+ * the user adds a bond the canon dossier already describes; {{user}} is never seeded this way
+ * (the player is a newcomer who must earn everything).
  */
 export function seedAxesFromNature(nature: string): Partial<RelationshipAxes> {
     const n = nature.toLowerCase();
@@ -41,45 +48,17 @@ export function seedAxesFromNature(nature: string): Partial<RelationshipAxes> {
 }
 
 /**
- * Ensure relationships exist for the given active characters, returning a possibly-extended list.
- * Creates {{user}}↔char (neutral — strangers earn everything) and char→{{user}}, plus cast↔cast
- * among active characters seeded from the canon dossier's relationships. Pure: returns a new list
- * and a `changed` flag so the caller can persist only when needed.
+ * The one bond created without the user asking for it: the player ↔ the card's own character,
+ * both directions, neutral (the player is a newcomer who earns everything). Seeded ONCE, when
+ * the conversation is created — never lazily re-added, so deleting it in the panel sticks.
+ *
+ * Costs about one prompt line: the neutral {{user}}→character direction stays hidden by
+ * `formatRelationshipBlock` until the user actually sets it.
  */
-export function ensureRelationships(
-    existing: DirectedRelationship[] | undefined,
-    activeNames: string[],
-    dossiers: CanonDossier[]
-): { relationships: DirectedRelationship[]; changed: boolean } {
-    const list = [...(existing || [])];
-    let changed = false;
-    const ensure = (from: string, to: string, axes: Partial<RelationshipAxes>, seeded: boolean) => {
-        if (from.toLowerCase() === to.toLowerCase()) return;
-        if (findRelationship(list, from, to)) return;
-        list.push(makeRelationship(from, to, axes, seeded));
-        changed = true;
-    };
-
-    const dossierByName = new Map(dossiers.map((d) => [d.character.toLowerCase(), d]));
-
-    for (const name of activeNames) {
-        // {{user}} ↔ character: both directions, neutral (the player is a newcomer).
-        ensure(USER_REL_KEY, name, {}, false);
-        ensure(name, USER_REL_KEY, {}, false);
-
-        // character → other active characters: seed from canon relationship nature.
-        const dossier = dossierByName.get(name.toLowerCase());
-        if (dossier?.relationships) {
-            for (const other of activeNames) {
-                if (other.toLowerCase() === name.toLowerCase()) continue;
-                const canonRel = dossier.relationships.find(
-                    (r) => r.name.toLowerCase() === other.toLowerCase()
-                );
-                if (canonRel) ensure(name, other, seedAxesFromNature(canonRel.nature), true);
-            }
-        }
-    }
-    return { relationships: list, changed };
+export function mainCharacterBond(characterName: string): DirectedRelationship[] {
+    const name = characterName.trim();
+    if (!name || name === USER_REL_KEY) return [];
+    return [makeRelationship(USER_REL_KEY, name), makeRelationship(name, USER_REL_KEY)];
 }
 
 /** Resolve the {{user}} sentinel to a display name. */

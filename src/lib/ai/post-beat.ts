@@ -48,7 +48,18 @@ export interface PostBeatParams {
     branchMessageIds: string[];
     personaName?: string;
     isImpersonation: boolean;
-    skipFactExtraction: boolean;
+    /**
+     * This generation is not a fresh beat worth analysing: a non-final Troupe turn, or a
+     * regenerate/continue/retry of something already analysed. Suppresses BOTH fact extraction
+     * and the relationship analyst — running either again double-counts the same beat.
+     */
+    skipBeatAnalyses: boolean;
+    /**
+     * Troupe: the whole beat (every speaker, name-prefixed) instead of just the last turn's
+     * line. The relationship analyst needs it — judging a 3-speaker beat from its last reply
+     * alone misses what the other characters actually did. Defaults to `finalContent`.
+     */
+    beatContent?: string;
 }
 
 /**
@@ -66,7 +77,8 @@ export function runPostBeatAnalyses(params: PostBeatParams): void {
         branchMessageIds,
         personaName,
         isImpersonation,
-        skipFactExtraction,
+        skipBeatAnalyses,
+        beatContent,
     } = params;
 
     const settings = useSettingsStore.getState();
@@ -121,16 +133,22 @@ export function runPostBeatAnalyses(params: PostBeatParams): void {
         }
     }
 
-    // ===== Relationships (Phase 2): update NPC bonds from this beat, in the background. =====
-    if (finalContent && !isImpersonation) {
-        analyzeAndUpdateRelationships(character, conversationId, finalContent, targetId).catch(
-            (e) => console.error('[Relationships] analysis failed', e)
-        );
+    // ===== Relationships (Phase 2): update NPC bonds from this beat, in the background.
+    // ONCE per beat — `skipBeatAnalyses` holds it back on the non-final Troupe turns (it used
+    // to fire per speaker, which multiplied the background calls AND let one beat move an axis
+    // by 3 × NORMAL_DELTA_CAP) and on regenerate/continue/retry. =====
+    if (finalContent && !isImpersonation && !skipBeatAnalyses) {
+        analyzeAndUpdateRelationships(
+            character,
+            conversationId,
+            beatContent || finalContent,
+            targetId
+        ).catch((e) => console.error('[Relationships] analysis failed', e));
     }
 
     // ===== RAG: background fact extraction from the AI response (skip on regeneration).
     // Quality gate: skip extraction for trivial/short responses to save API calls. =====
-    if (settings.enableFactExtraction && fullContent && !skipFactExtraction) {
+    if (settings.enableFactExtraction && fullContent && !skipBeatAnalyses) {
         const responseQuality = scoreMessageQuality({ role: 'assistant', content: fullContent });
         if (responseQuality.score >= 4) {
             (async () => {

@@ -186,21 +186,25 @@ export async function buildCanonOptions(
         persistSticky?: boolean;
     } = {}
 ): Promise<CanonPromptOptions> {
+    // The card's own character is always on stage, even on the turns where nobody says their
+    // name — without this, the one bond that always matters would drop out of the prompt.
+    const withCardCharacter = (names: string[]): string[] =>
+        card.name ? [...new Set([...names, card.name])] : names;
+
     // Relationships and the momentum nudge are NOT canon features: they must keep reaching
     // the prompt even when the Canon Codex is off or the card has no resolvable work —
     // otherwise the Relations panel silently edits into the void.
     const nonCanonFallback = (): CanonPromptOptions => {
         const rels = conversation?.relationships || [];
-        const names = [
-            ...new Set(
-                rels
-                    .flatMap((r) => [r.from, r.to])
-                    .filter((n) => n !== USER_REL_KEY)
-            ),
-        ].sort((a, b) => a.localeCompare(b));
+        // Only who is actually on stage. This used to pass EVERY name in the list, so a bond
+        // with an NPC last seen 200 messages ago shipped on every single turn — the main
+        // reason the block kept growing and eating history.
+        const onStage = withCardCharacter(
+            getActiveCanonNames(card, conversation, recentMessages, SCAN_DEPTH)
+        );
         return {
             relationshipBlock:
-                formatRelationshipBlock(rels, names, userName) || undefined,
+                formatRelationshipBlock(rels, onStage, userName) || undefined,
             momentumNudge: conversation?.momentumNudge,
         };
     };
@@ -283,9 +287,11 @@ export async function buildCanonOptions(
         : conversation?.arc;
 
     // Relationships (Phase 2): inject the directional bonds among the characters on stage.
+    // `activeNameList` itself is left alone — it also drives dossier injection, and widening
+    // it would buy canon dossiers we didn't ask for.
     const relationshipBlock = formatRelationshipBlock(
         conversation?.relationships,
-        activeNameList,
+        withCardCharacter(activeNameList),
         userName
     );
 
