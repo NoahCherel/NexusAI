@@ -207,20 +207,21 @@ export async function initDB(): Promise<IDBPDatabase<NexusAIDB>> {
                 sumStore.createIndex('by-level', 'level');
             }
 
-            // v8: drop `facts` and `vectors`. Long-term memory is the Chronicle alone; neither
-            // store has a reader any more, and their embeddings (384 floats per row) were by far
-            // the heaviest thing on disk. Dropping the store is the only way to reclaim that.
-            if (oldVersion > 0 && oldVersion < 8) {
-                // `deleteObjectStore` is typed against the CURRENT schema, which no longer
-                // declares these two — the cast is what lets us name stores we just removed.
-                const legacy = db as unknown as {
-                    objectStoreNames: DOMStringList;
-                    deleteObjectStore: (name: string) => void;
-                };
-                for (const dead of ['facts', 'vectors']) {
-                    if (legacy.objectStoreNames.contains(dead)) legacy.deleteObjectStore(dead);
-                }
-            }
+            // v8 NO LONGER DROPS ANYTHING.
+            //
+            // It used to call `deleteObjectStore` on `facts` and `vectors` to reclaim disk.
+            // That is not worth the risk: an upgrade callback that throws aborts the whole
+            // versionchange transaction, and the app then fails to open the database at all —
+            // an empty screen over intact data, indistinguishable from data loss.
+            //
+            // The two stores are simply left in place, unread and unwritten. They cost disk
+            // space and nothing else. Reclaiming that space, if ever wanted, belongs behind an
+            // explicit user action with a backup taken first — never in a silent migration
+            // that runs the moment someone reloads the page.
+            //
+            // The version bump itself is kept: IndexedDB cannot open a database at a LOWER
+            // version than the one already on disk, so going back to 7 would lock out every
+            // client that already reached 8.
 
             // Canon Codex stores (v6) — additive, no data transform.
             // Out-of-line keys: canon = `${work}::${character}`, arcOutlines = `work`.
