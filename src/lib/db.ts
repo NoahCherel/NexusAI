@@ -1,10 +1,10 @@
 import { openDB, DBSchema, IDBPDatabase } from 'idb';
 import type { CharacterCard, Conversation, Message, LorebookEntry } from '@/types';
-import type { VectorEntry, MemorySummary, WorldFact } from '@/types/rag';
+import type { MemorySummary } from '@/types/rag';
 import type { CanonDossier, ArcOutline } from '@/types/canon';
 
 // Database version - increment when schema changes
-const DB_VERSION = 7;
+const DB_VERSION = 8;
 const DB_NAME = 'nexusai-db';
 
 // Lorebook history entry for blockchain-style tracking
@@ -48,20 +48,10 @@ interface NexusAIDB extends DBSchema {
         key: string;
         value: unknown;
     };
-    vectors: {
-        key: string;
-        value: VectorEntry;
-        indexes: { 'by-conversation': string };
-    };
     summaries: {
         key: string;
         value: MemorySummary;
         indexes: { 'by-conversation': string; 'by-level': number };
-    };
-    facts: {
-        key: string;
-        value: WorldFact;
-        indexes: { 'by-conversation': string; 'by-category': string; 'by-importance': number };
     };
     canon: {
         key: string; // `${work}::${character}` lowercased
@@ -210,21 +200,26 @@ export async function initDB(): Promise<IDBPDatabase<NexusAIDB>> {
                 db.createObjectStore('settings', { keyPath: 'key' });
             }
 
-            // RAG stores (v5)
-            if (!db.objectStoreNames.contains('vectors')) {
-                const vecStore = db.createObjectStore('vectors', { keyPath: 'id' });
-                vecStore.createIndex('by-conversation', 'conversationId');
-            }
+            // Summaries — the Chronicle (v5)
             if (!db.objectStoreNames.contains('summaries')) {
                 const sumStore = db.createObjectStore('summaries', { keyPath: 'id' });
                 sumStore.createIndex('by-conversation', 'conversationId');
                 sumStore.createIndex('by-level', 'level');
             }
-            if (!db.objectStoreNames.contains('facts')) {
-                const factStore = db.createObjectStore('facts', { keyPath: 'id' });
-                factStore.createIndex('by-conversation', 'conversationId');
-                factStore.createIndex('by-category', 'category');
-                factStore.createIndex('by-importance', 'importance');
+
+            // v8: drop `facts` and `vectors`. Long-term memory is the Chronicle alone; neither
+            // store has a reader any more, and their embeddings (384 floats per row) were by far
+            // the heaviest thing on disk. Dropping the store is the only way to reclaim that.
+            if (oldVersion > 0 && oldVersion < 8) {
+                // `deleteObjectStore` is typed against the CURRENT schema, which no longer
+                // declares these two — the cast is what lets us name stores we just removed.
+                const legacy = db as unknown as {
+                    objectStoreNames: DOMStringList;
+                    deleteObjectStore: (name: string) => void;
+                };
+                for (const dead of ['facts', 'vectors']) {
+                    if (legacy.objectStoreNames.contains(dead)) legacy.deleteObjectStore(dead);
+                }
             }
 
             // Canon Codex stores (v6) — additive, no data transform.
@@ -296,6 +291,8 @@ export async function deleteConversation(id: string): Promise<void> {
         cursor = await cursor.continue();
     }
     await tx.done;
+    // And its Chronicle — these used to survive their conversation forever.
+    await deleteSummariesByConversation(id);
 }
 
 // Message operations
@@ -337,35 +334,17 @@ export async function getSetting<T>(key: string): Promise<T | undefined> {
     return (result as { value: unknown } | undefined)?.value as T | undefined;
 }
 
-// ============ RAG Store Operations ============
+// ============ Chronicle (summary) operations ============
 
-// Vector operations
-export async function saveVector(entry: VectorEntry): Promise<void> {
-    const db = await initDB();
-    await db.put('vectors', entry);
-}
-
-export async function getVectorsByConversation(conversationId: string): Promise<VectorEntry[]> {
-    const db = await initDB();
-    return db.getAllFromIndex('vectors', 'by-conversation', conversationId);
-}
-
-export async function deleteVectorsByConversation(conversationId: string): Promise<void> {
-    const db = await initDB();
-    const tx = db.transaction('vectors', 'readwrite');
-    const index = tx.store.index('by-conversation');
-    let cursor = await index.openCursor(IDBKeyRange.only(conversationId));
-    while (cursor) {
-        await cursor.delete();
-        cursor = await cursor.continue();
-    }
-    await tx.done;
-}
-
-// Summary operations
+/** Upsert — also the update path: read, patch, save back. */
 export async function saveSummary(summary: MemorySummary): Promise<void> {
     const db = await initDB();
     await db.put('summaries', summary);
+}
+
+export async function deleteSummary(id: string): Promise<void> {
+    const db = await initDB();
+    await db.delete('summaries', id);
 }
 
 export async function getSummariesByConversation(conversationId: string): Promise<MemorySummary[]> {
@@ -376,46 +355,6 @@ export async function getSummariesByConversation(conversationId: string): Promis
 export async function deleteSummariesByConversation(conversationId: string): Promise<void> {
     const db = await initDB();
     const tx = db.transaction('summaries', 'readwrite');
-    const index = tx.store.index('by-conversation');
-    let cursor = await index.openCursor(IDBKeyRange.only(conversationId));
-    while (cursor) {
-        await cursor.delete();
-        cursor = await cursor.continue();
-    }
-    await tx.done;
-}
-
-// Fact operations
-export async function saveFact(fact: WorldFact): Promise<void> {
-    const db = await initDB();
-    await db.put('facts', fact);
-}
-
-export async function saveFactsBatch(facts: WorldFact[]): Promise<void> {
-    const db = await initDB();
-    const tx = db.transaction('facts', 'readwrite');
-    for (const fact of facts) {
-        await tx.store.put(fact);
-    }
-    await tx.done;
-}
-
-export async function getFactsByConversation(conversationId: string): Promise<WorldFact[]> {
-    const db = await initDB();
-    return db.getAllFromIndex('facts', 'by-conversation', conversationId);
-}
-
-export async function updateFact(id: string, updates: Partial<WorldFact>): Promise<void> {
-    const db = await initDB();
-    const existing = await db.get('facts', id);
-    if (existing) {
-        await db.put('facts', { ...existing, ...updates });
-    }
-}
-
-export async function deleteFactsByConversation(conversationId: string): Promise<void> {
-    const db = await initDB();
-    const tx = db.transaction('facts', 'readwrite');
     const index = tx.store.index('by-conversation');
     let cursor = await index.openCursor(IDBKeyRange.only(conversationId));
     while (cursor) {

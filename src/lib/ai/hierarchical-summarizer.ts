@@ -1,18 +1,23 @@
 /**
- * Hierarchical Summarization Service
+ * The Chronicle — hierarchical long-term memory.
  *
- * Implements a 3-level pyramid of summaries:
- * - Level 0: Chunk summaries (every ~10 messages) — ~200 tokens each
- * - Level 1: Section summaries (every ~5 L0 summaries) — ~150 tokens each
- * - Level 2: Arc summaries (every ~3 L1 summaries) — ~100 tokens each
+ * A 3-level pyramid, each level compressing the one below:
+ * - Level 0 — Fragment: ~10 messages
+ * - Level 1 — Section:  5 Fragments ≈ 50 messages
+ * - Level 2 — Arc:      3 Sections  ≈ 150 messages
  *
- * Each level compresses the level below, creating an efficient memory hierarchy.
+ * `buildChronicle` renders the pyramid AS a pyramid. The levels overlap by construction —
+ * Arc 1 and its Sections describe the same 150 messages at different zoom levels — and the
+ * old flat rendering (`📖 Story Arc:` then `📝 Recent Events:`, no ranges, no nesting) gave
+ * the model no way to know that. It could read an Arc and its own Sections as two separate
+ * runs of events.
  */
 
 import type { MemorySummary, SummaryLevel } from '@/types/rag';
 import type { Message } from '@/types/chat';
 import { saveSummary, getSummariesByConversation } from '@/lib/db';
 import { countTokens } from '@/lib/tokenizer';
+import { fitRankedBlock } from './rag-budget';
 
 // Configuration
 export const DEFAULT_CHUNK_SIZE = 10; // Messages per L0 summary (default)
@@ -20,6 +25,8 @@ const L1_THRESHOLD = 5; // L0 summaries per L1 summary
 const L2_THRESHOLD = 3; // L1 summaries per L2 summary
 
 export const SUMMARIZATION_PROMPT_L0 = `You are a RPG session chronicler. Summarize this chunk of roleplay messages into a concise narrative paragraph.
+
+CRITICAL — LANGUAGE: Write in the SAME LANGUAGE as the source material. If the roleplay is in French, write in French. Never translate.
 
 RULES:
 - Write EXCLUSIVELY in past tense, third person (e.g. "Character walked..." NOT "Character walks...")
@@ -37,38 +44,61 @@ RULES:
   "keyFacts": ["fact 1", "fact 2", "fact 3"]
 }`;
 
-export const SUMMARIZATION_PROMPT_L1 = `You are a RPG story arc compiler. Combine these chapter summaries into a broader section summary.
+// L1/L2 are the DURABLE memory: once the raw messages fall out of the context window this
+// text is all that survives of them. They used to be capped at "Max 2-3 sentences", which is
+// why long roleplays felt amnesiac — 50 messages compressed into two lines. They are now
+// asked for real substance, and told why.
+
+export const SUMMARIZATION_PROMPT_L1 = `You are the chronicler of an ongoing roleplay. Write the SECTION summary covering this stretch of the story.
+
+CRITICAL — LANGUAGE: Write in the SAME LANGUAGE as the source material. If the roleplay is in French, write in French. Never translate.
+
+WHY THIS MATTERS: Once the raw messages scroll out of the model's context window, THIS TEXT IS ALL THAT REMAINS of them. Anything you leave out is forgotten forever. Be specific and concrete, never vague.
 
 RULES:
-- Write EXCLUSIVELY in past tense, third person
-- Focus on overarching plot progression, character development, and consequences
-- Preserve critical names, items, and locations
-- Max 2-3 sentences
-- Do NOT repeat the same events across sentences; merge overlapping information
-- Omit details that became irrelevant (resolved subplots, outdated information)
-- Extract 2-3 CRITICAL facts that define this section (in past tense)
+- Past tense, third person.
+- 150 to 250 words, in 2 or 3 dense paragraphs. Do not pad, but do not compress into a couple of lines either.
+- Cover, in narrative order:
+  * what happened — actions and their consequences
+  * decisions made, and by whom
+  * named people, places and objects introduced, changed, gained or lost
+  * how the relationships between characters shifted
+  * anything left UNRESOLVED at the end of this stretch: a promise, a threat, a debt, an injury, a secret, a question asked but not answered
+- Preserve exact proper nouns and numbers. NEVER invent anything that is not in the source.
+- Merge overlapping information from the fragments; do not narrate the same event twice.
+- Skip scenery and internal monologue unless they changed the plot.
+- End with one line: the state at the close of this section — where everyone is, and what is pending.
+- Also extract 3 to 5 key facts: atomic, self-contained statements, same language, past tense.
 - Output JSON:
 
 {
-  "summary": "section summary...",
-  "keyFacts": ["critical fact 1", "critical fact 2"]
+  "summary": "section summary, 150-250 words...",
+  "keyFacts": ["fact 1", "fact 2", "fact 3"]
 }`;
 
-export const SUMMARIZATION_PROMPT_L2 = `You are a RPG epic chronicler. Combine these section summaries into a grand arc summary.
+export const SUMMARIZATION_PROMPT_L2 = `You are the chronicler of an ongoing roleplay. Write the ARC summary: the high-level account of a long stretch of the story, built from its section summaries.
+
+CRITICAL — LANGUAGE: Write in the SAME LANGUAGE as the source material. If the roleplay is in French, write in French. Never translate.
+
+WHY THIS MATTERS: This is the OLDEST layer of memory. When the story grows long, this summary may be the only trace left of everything that happened in this arc. Someone reading it alone must understand what this stretch of the story was.
 
 RULES:
-- Write EXCLUSIVELY in past tense, third person
-- Capture the overarching narrative arc, major turning points
-- This is the highest-level summary — it should give someone a complete overview
-- Max 2-3 sentences
-- Eliminate ALL redundancy — each piece of information should appear only once
-- Remove references to events that have been superseded or are no longer relevant
-- Extract 1-2 defining facts of the entire arc (in past tense)
+- Past tense, third person.
+- 250 to 350 words, in 2 or 3 paragraphs.
+- Cover:
+  * the through-line — what this arc was actually about
+  * the major turning points, in order
+  * how the situation at the END of the arc differs from its beginning: who changed, what was gained or lost, which relationships were transformed
+  * what remains OPEN going into what follows
+- Preserve exact proper nouns and numbers. NEVER invent anything that is not in the sections.
+- Eliminate redundancy: each piece of information appears once. Drop what was superseded, keep what still shapes the present.
+- End with one line: the state at the close of this arc.
+- Also extract 2 to 4 defining facts of the whole arc, same language, past tense.
 - Output JSON:
 
 {
-  "summary": "arc summary...",
-  "keyFacts": ["defining fact 1"]
+  "summary": "arc summary, 250-350 words...",
+  "keyFacts": ["defining fact 1", "defining fact 2"]
 }`;
 
 /**
@@ -92,20 +122,17 @@ export function shouldCreateL0Summary(
  * Check if L1 summary is needed.
  */
 export function shouldCreateL1Summary(existingSummaries: MemorySummary[]): boolean {
-    const l0Summaries = existingSummaries.filter((s) => s.level === 0);
-    const l1Summaries = existingSummaries.filter((s) => s.level === 1);
-    const uncoveredL0 = l0Summaries.length - l1Summaries.length * L1_THRESHOLD;
-    return uncoveredL0 >= L1_THRESHOLD;
+    // Delegates rather than counting: `getL0SummariesForL1` decides coverage from `childIds`,
+    // and a second, count-based opinion here drifted from it the moment a summary was deleted
+    // by hand — which the memory panel now encourages.
+    return getL0SummariesForL1(existingSummaries) !== null;
 }
 
 /**
  * Check if L2 summary is needed.
  */
 export function shouldCreateL2Summary(existingSummaries: MemorySummary[]): boolean {
-    const l1Summaries = existingSummaries.filter((s) => s.level === 1);
-    const l2Summaries = existingSummaries.filter((s) => s.level === 2);
-    const uncoveredL1 = l1Summaries.length - l2Summaries.length * L2_THRESHOLD;
-    return uncoveredL1 >= L2_THRESHOLD;
+    return getL1SummariesForL2(existingSummaries) !== null;
 }
 
 /**
@@ -267,8 +294,7 @@ export async function createSummary(
     keyFacts: string[],
     messageRange: [number, number],
     childIds: string[] = [],
-    embedding?: number[],
-    /** Active-branch message IDs at creation time (branch-aware filtering, like facts). */
+    /** Active-branch message IDs at creation time (branch-aware filtering). */
     branchPath?: string[]
 ): Promise<MemorySummary> {
     const summary: MemorySummary = {
@@ -278,7 +304,6 @@ export async function createSummary(
         messageRange,
         content,
         keyFacts,
-        embedding,
         childIds,
         createdAt: Date.now(),
         branchPath,
@@ -288,40 +313,108 @@ export async function createSummary(
     return summary;
 }
 
-/**
- * Get the best available summary for context injection.
- * Returns the highest-level summary available, or combines lower levels.
- */
-/**
- * Remove near-duplicate summaries (>60% word overlap).
- * Keeps the first (most recent) of each similar group.
- */
-function deduplicateSummaries(summaries: MemorySummary[]): MemorySummary[] {
-    const result: MemorySummary[] = [];
-    for (const s of summaries) {
-        const isDup = result.some(
-            (existing) => computeWordOverlap(existing.content, s.content) > 0.6
-        );
-        if (!isDup) result.push(s);
-    }
-    return result;
+// ============================================
+// The Chronicle — rendering memory for injection
+// ============================================
+
+export interface ChronicleStats {
+    /** Arcs actually rendered with their text. */
+    arcs: number;
+    /** Sections actually rendered with their text. */
+    sections: number;
+    /** Uncovered Fragments rendered to bridge the gap before the verbatim window. */
+    fragments: number;
+    /** Arcs listed but not rendered (budget). */
+    omittedArcs: number;
+    /** Sections shown as a placeholder under their Arc (budget). */
+    omittedSections: number;
+    /**
+     * Messages that left the verbatim window WITHOUT ever being summarized. These are gone
+     * from the model's memory entirely — nothing else covers them now that facts and vector
+     * chunks are gone. Non-zero means the summary pipeline is behind, or was off.
+     */
+    uncoveredEvictedMessages: number;
 }
 
-export async function getBestContextSummary(
+export interface ChronicleResult {
+    text: string;
+    stats: ChronicleStats;
+}
+
+const EMPTY_STATS: ChronicleStats = {
+    arcs: 0,
+    sections: 0,
+    fragments: 0,
+    omittedArcs: 0,
+    omittedSections: 0,
+    uncoveredEvictedMessages: 0,
+};
+
+/** A Chronicle that says nothing — for callers that need a value before retrieval runs. */
+export const EMPTY_CHRONICLE: ChronicleResult = { text: '', stats: EMPTY_STATS };
+
+/**
+ * English, like the rest of the assembled prompt (`[CURRENT CONTEXT]`, `[ARC]`,
+ * `[IN THIS RP]`). The summaries nested inside are written in the roleplay's own language.
+ */
+const CHRONICLE_PREAMBLE = `[CHRONICLE — what has already happened in this story, oldest first.
+The levels OVERLAP: an Arc summarizes the SAME period as the Sections nested under it, only
+more compressed; a Section summarizes the SAME period as its Fragments. NEVER treat an Arc and
+its Sections as two different sequences of events — they are one sequence at two zoom levels.
+The most recent messages appear in full in the conversation above.]`;
+
+const OMITTED_SECTION_LINE = '(this period is covered by the Arc above)';
+const STILL_LIVE_MARKER = ' (the end of this period also appears in full above)';
+
+/** `[0, 50]` → `messages 1-50`. Stored ranges are 0-based with an EXCLUSIVE end. */
+function rangeLabel(range: [number, number]): string {
+    return `messages ${range[0] + 1}-${range[1]}`;
+}
+
+/**
+ * Does `outer` fully contain `inner`? Coverage is decided on ranges, not by walking
+ * `childIds`: the old two-hop lookup (Arc → Section → Fragment) silently reported "not
+ * covered" whenever the intermediate Section had been filtered out, and re-injected an Arc
+ * together with its own Fragments.
+ */
+function covers(outer: [number, number], inner: [number, number]): boolean {
+    return inner[0] >= outer[0] && inner[1] <= outer[1];
+}
+
+function indent(text: string, pad: string): string {
+    return text
+        .split('\n')
+        .map((line) => (line.trim() ? pad + line : line))
+        .join('\n');
+}
+
+/**
+ * Build the Chronicle block for injection.
+ *
+ * Budget policy, most to least essential — what is dropped first is what the Arc above it
+ * already covers:
+ *  1. bridging Fragments — the stretch between the last Section and the verbatim window. A
+ *     hole here is the worst possible one: it sits immediately before what the model can see.
+ *  2. every Arc — the spine, few and compressed.
+ *  3. Sections, newest first, with whatever is left.
+ *
+ * @param budget Hard ceiling. The returned text is guaranteed to cost at most this.
+ * @param evictedMessageCount Messages pushed out of the verbatim window. Zero means nothing
+ *   was evicted yet, so the raw history already says everything → empty result.
+ */
+export async function buildChronicle(
     conversationId: string,
-    maxTokens: number = 300,
-    /**
-     * Number of branch messages EVICTED from the verbatim history window (index of the
-     * hysteresis cut). Summaries covering messages still inside the window are skipped —
-     * they'd restate verbatim text (paid twice, paraphrase drift). 0 = nothing evicted →
-     * no summary at all. Omit for legacy behaviour (display/tools).
-     */
+    budget: number,
     evictedMessageCount?: number,
-    /** Active-branch message IDs — summaries from abandoned branches are dropped. */
     activeBranchMessageIds?: string[]
-): Promise<string> {
-    if (evictedMessageCount !== undefined && evictedMessageCount <= 0) return '';
+): Promise<ChronicleResult> {
+    if (budget <= 0) return { text: '', stats: { ...EMPTY_STATS } };
+    if (evictedMessageCount !== undefined && evictedMessageCount <= 0) {
+        return { text: '', stats: { ...EMPTY_STATS } };
+    }
+
     let summaries = await getSummariesByConversation(conversationId);
+
     if (activeBranchMessageIds && activeBranchMessageIds.length > 0) {
         const branchSet = new Set(activeBranchMessageIds);
         summaries = summaries.filter((s) =>
@@ -331,114 +424,199 @@ export async function getBestContextSummary(
                 : true
         );
     }
+
+    // Coverage is measured BEFORE the eviction filter: it is what the pipeline has summarized
+    // so far, independent of what we are about to inject.
+    const allL0 = summaries.filter((s) => s.level === 0);
+    const coveredCount = allL0.length > 0 ? Math.max(...allL0.map((s) => s.messageRange[1])) : 0;
+    const uncoveredEvictedMessages =
+        evictedMessageCount !== undefined ? Math.max(0, evictedMessageCount - coveredCount) : 0;
+
     if (evictedMessageCount !== undefined) {
         summaries = summaries.filter((s) =>
             s.level === 0
-                ? // Fine-grained L0: only when its whole range fell out of the window.
+                ? // A Fragment earns its place only once its whole range is out of the window.
                   s.messageRange[1] <= evictedMessageCount
-                : // Coarse L1/L2: keep if they START in evicted territory (mostly history).
+                : // Arcs/Sections may straddle the boundary — harmless now that every entry
+                  // carries its range and the preamble spells out the overlap.
                   s.messageRange[0] < evictedMessageCount
         );
     }
-    if (summaries.length === 0) return '';
 
-    // Try L2 first (most compressed)
-    const l2s = summaries.filter((s) => s.level === 2).sort((a, b) => b.createdAt - a.createdAt);
+    const stats: ChronicleStats = { ...EMPTY_STATS, uncoveredEvictedMessages };
+    if (summaries.length === 0) return { text: '', stats };
 
-    if (l2s.length > 0) {
-        let result = '📖 Story Arc:\n' + l2s.map((s) => s.content).join('\n');
+    const byRange = (a: MemorySummary, b: MemorySummary) => a.messageRange[0] - b.messageRange[0];
+    const arcs = summaries.filter((s) => s.level === 2).sort(byRange);
+    const sections = summaries.filter((s) => s.level === 1).sort(byRange);
+    const fragments = summaries.filter((s) => s.level === 0).sort(byRange);
 
-        // If budget allows, add recent L0 not covered by L2
-        const coveredByL2 = new Set<string>();
-        for (const l2 of l2s) {
-            for (const l1Id of l2.childIds) {
-                const l1 = summaries.find((s) => s.id === l1Id);
-                if (l1) l1.childIds.forEach((id) => coveredByL2.add(id));
-            }
+    // Numbering follows chronology, not creation time: a regenerated Arc keeps its number.
+    const arcNumber = new Map(arcs.map((a, i) => [a.id, i + 1]));
+    const sectionNumber = new Map(sections.map((s, i) => [s.id, i + 1]));
+
+    const liveMarker = (s: MemorySummary) =>
+        evictedMessageCount !== undefined && s.messageRange[1] > evictedMessageCount
+            ? STILL_LIVE_MARKER
+            : '';
+
+    const renderArc = (a: MemorySummary) =>
+        `■ ARC ${arcNumber.get(a.id)} — ${rangeLabel(a.messageRange)}${liveMarker(a)}\n${a.content}`;
+    const renderSection = (s: MemorySummary) =>
+        indent(
+            `▸ Section ${sectionNumber.get(s.id)} — ${rangeLabel(s.messageRange)}${liveMarker(s)}\n${s.content}`,
+            '  '
+        );
+    const renderOmittedSection = (s: MemorySummary) =>
+        indent(
+            `▸ Section ${sectionNumber.get(s.id)} — ${rangeLabel(s.messageRange)}\n${OMITTED_SECTION_LINE}`,
+            '  '
+        );
+
+    // A Fragment whose period a Section already covers is redundant — even if that Section is
+    // later dropped for budget, its Arc still covers the period.
+    const bridging = fragments.filter(
+        (f) => !sections.some((s) => covers(s.messageRange, f.messageRange))
+    );
+
+    let remaining = budget - countTokens(CHRONICLE_PREAMBLE);
+    if (remaining <= 0) return { text: '', stats };
+
+    // 1. Bridging fragments, newest first, then back into chronological order.
+    let keptFragments: MemorySummary[] = [];
+    if (bridging.length > 0) {
+        const fitted = fitRankedBlock(
+            [...bridging].reverse(),
+            (f) => f.content,
+            '',
+            Math.min(remaining, Math.floor(budget * 0.4)),
+            { separator: '\n\n' }
+        );
+        if (fitted) {
+            keptFragments = [...fitted.kept].sort(byRange);
+            remaining -= fitted.tokens;
         }
-
-        const recentUncovered = summaries
-            .filter((s) => s.level === 0 && !coveredByL2.has(s.id))
-            .sort((a, b) => b.createdAt - a.createdAt);
-
-        if (recentUncovered.length > 0 && countTokens(result) < maxTokens - 100) {
-            const dedupedRecent = deduplicateSummaries(recentUncovered);
-            result += '\n\n📝 Recent Events:\n' + dedupedRecent.map((s) => s.content).join('\n');
-        }
-
-        return result;
     }
 
-    // Try L1
-    const l1s = summaries.filter((s) => s.level === 1).sort((a, b) => b.createdAt - a.createdAt);
-
-    if (l1s.length > 0) {
-        let result = '📖 Story So Far:\n' + l1s.map((s) => s.content).join('\n');
-
-        // Add uncovered L0s
-        const coveredByL1 = new Set(l1s.flatMap((l1) => l1.childIds));
-        const recentUncovered = summaries
-            .filter((s) => s.level === 0 && !coveredByL1.has(s.id))
-            .sort((a, b) => b.createdAt - a.createdAt)
-            .slice(0, 3);
-
-        if (recentUncovered.length > 0 && countTokens(result) < maxTokens - 100) {
-            const dedupedRecent = deduplicateSummaries(recentUncovered);
-            result += '\n\n📝 Recent:\n' + dedupedRecent.map((s) => s.content).join('\n');
-        }
-
-        return result;
-    }
-
-    // Only L0 available — take most recent ones within budget, deduplicating similar content
-    const l0s = summaries.filter((s) => s.level === 0).sort((a, b) => b.createdAt - a.createdAt);
-
-    let result = '📝 Recent Events:\n';
-    let currentTokens = countTokens(result);
-    const includedTexts: string[] = [];
-
-    for (const s of l0s) {
-        const sTokens = countTokens(s.content);
-        if (currentTokens + sTokens > maxTokens) break;
-
-        // Basic dedup: skip if too similar to an already-included summary
-        const isDuplicate = includedTexts.some((existing) => {
-            const overlap = computeWordOverlap(existing, s.content);
-            return overlap > 0.6; // >60% word overlap means near-duplicate
+    // 2. Arcs — newest first, so a tight budget keeps the recent spine.
+    let keptArcs: MemorySummary[] = [];
+    if (arcs.length > 0 && remaining > 0) {
+        const fitted = fitRankedBlock([...arcs].reverse(), renderArc, '', remaining, {
+            separator: '\n\n',
         });
-        if (isDuplicate) continue;
-
-        result += s.content + '\n';
-        currentTokens += sTokens;
-        includedTexts.push(s.content);
+        if (fitted) {
+            keptArcs = [...fitted.kept].sort(byRange);
+            remaining -= fitted.tokens;
+        }
     }
 
-    return result;
+    // 3. Sections with what is left, newest first.
+    let keptSections: MemorySummary[] = [];
+    if (sections.length > 0 && remaining > 0) {
+        const fitted = fitRankedBlock([...sections].reverse(), renderSection, '', remaining, {
+            separator: '\n\n',
+        });
+        if (fitted) keptSections = [...fitted.kept].sort(byRange);
+    }
+
+    const keptArcIds = new Set(keptArcs.map((a) => a.id));
+    let keptSectionIds = new Set(keptSections.map((s) => s.id));
+
+    const assemble = (sectionIds: Set<string>, frags: MemorySummary[]) =>
+        renderChronicle({
+            arcs,
+            sections,
+            fragments: frags,
+            keptArcIds,
+            keptSectionIds: sectionIds,
+            arcNumber,
+            renderArc,
+            renderSection,
+            renderOmittedSection,
+        });
+
+    // Verify against the REAL token count and shed the oldest Section until it fits: the
+    // per-entry estimate can undershoot once everything is joined together.
+    let text = assemble(keptSectionIds, keptFragments);
+    while (countTokens(text) > budget && keptSectionIds.size > 0) {
+        const oldest = sections.find((s) => keptSectionIds.has(s.id))!;
+        keptSectionIds = new Set([...keptSectionIds].filter((id) => id !== oldest.id));
+        text = assemble(keptSectionIds, keptFragments);
+    }
+    // Last resort: the Arcs alone still overflow. Give up the bridging fragments too.
+    if (countTokens(text) > budget && keptFragments.length > 0) {
+        keptFragments = [];
+        text = assemble(keptSectionIds, keptFragments);
+    }
+    if (countTokens(text) > budget) return { text: '', stats };
+
+    stats.arcs = keptArcIds.size;
+    stats.sections = keptSectionIds.size;
+    stats.fragments = keptFragments.length;
+    stats.omittedArcs = arcs.length - keptArcIds.size;
+    stats.omittedSections = sections.length - keptSectionIds.size;
+    return { text, stats };
 }
 
-/**
- * Compute word-level Jaccard overlap between two texts.
- * Returns 0-1 where 1 = identical words.
- */
-function computeWordOverlap(a: string, b: string): number {
-    const wordsA = new Set(
-        a
-            .toLowerCase()
-            .split(/\s+/)
-            .filter((w) => w.length > 3)
-    );
-    const wordsB = new Set(
-        b
-            .toLowerCase()
-            .split(/\s+/)
-            .filter((w) => w.length > 3)
-    );
-    if (wordsA.size === 0 || wordsB.size === 0) return 0;
-    let intersection = 0;
-    for (const w of wordsA) {
-        if (wordsB.has(w)) intersection++;
+/** Nest the kept entries under their Arcs. Pure: same inputs → same string. */
+function renderChronicle(input: {
+    arcs: MemorySummary[];
+    sections: MemorySummary[];
+    fragments: MemorySummary[];
+    keptArcIds: Set<string>;
+    keptSectionIds: Set<string>;
+    arcNumber: Map<string, number>;
+    renderArc: (s: MemorySummary) => string;
+    renderSection: (s: MemorySummary) => string;
+    renderOmittedSection: (s: MemorySummary) => string;
+}): string {
+    const { arcs, sections, fragments, keptArcIds, keptSectionIds, arcNumber } = input;
+    const parts: string[] = [CHRONICLE_PREAMBLE];
+
+    const droppedArcs = arcs.filter((a) => !keptArcIds.has(a.id));
+    if (droppedArcs.length > 0) {
+        const from = droppedArcs[0];
+        const to = droppedArcs[droppedArcs.length - 1];
+        // Say it out loud rather than leaving a silent hole in the numbering.
+        parts.push(
+            `[Arcs ${arcNumber.get(from.id)}-${arcNumber.get(to.id)} — messages ${
+                from.messageRange[0] + 1
+            }-${to.messageRange[1]}: omitted for space]`
+        );
     }
-    const union = wordsA.size + wordsB.size - intersection;
-    return union > 0 ? intersection / union : 0;
+
+    const claimed = new Set<string>();
+    for (const arc of arcs) {
+        if (!keptArcIds.has(arc.id)) continue;
+        const block: string[] = [input.renderArc(arc)];
+        for (const section of sections) {
+            if (!covers(arc.messageRange, section.messageRange)) continue;
+            claimed.add(section.id);
+            block.push(
+                keptSectionIds.has(section.id)
+                    ? input.renderSection(section)
+                    : input.renderOmittedSection(section)
+            );
+        }
+        parts.push(block.join('\n\n'));
+    }
+
+    // Sections under no rendered Arc: the tail of the story, or Arcs dropped for space.
+    for (const section of sections) {
+        if (claimed.has(section.id) || !keptSectionIds.has(section.id)) continue;
+        parts.push(input.renderSection(section));
+    }
+
+    if (fragments.length > 0) {
+        const from = fragments[0].messageRange[0] + 1;
+        const to = fragments[fragments.length - 1].messageRange[1];
+        parts.push(
+            `▸ Recent fragments — messages ${from}-${to}\n${fragments
+                .map((f) => f.content)
+                .join('\n')}`
+        );
+    }
+
+    return parts.join('\n\n');
 }
 

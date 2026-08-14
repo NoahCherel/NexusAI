@@ -8,8 +8,35 @@
 
 import type { CharacterCard } from '@/types/character';
 import type { DirectedRelationship } from '@/types/chat';
+import type { MemorySummary } from '@/types/rag';
 import { useChatStore, useCharacterStore } from '@/stores';
+import { getSummariesByConversation, saveSummary } from '@/lib/db';
 import { useNotificationStore } from '@/components/ui/api-notification';
+
+/**
+ * Re-key an imported Chronicle onto the freshly created conversation.
+ *
+ * Every summary gets a new id, so `childIds` has to travel through the same old→new table:
+ * left as-is it would point at ids that do not exist here, and an Arc would render as though
+ * it covered no Sections at all. Children that did not make it into the export are dropped
+ * rather than left dangling.
+ */
+export function remapSummariesForImport(
+    summaries: MemorySummary[],
+    conversationId: string,
+    branchPath: string[]
+): MemorySummary[] {
+    const idMap = new Map(summaries.map((s) => [s.id, crypto.randomUUID()]));
+    return summaries.map((s) => ({
+        ...s,
+        id: idMap.get(s.id)!,
+        conversationId,
+        childIds: (s.childIds ?? [])
+            .map((childId) => idMap.get(childId))
+            .filter((x): x is string => !!x),
+        branchPath,
+    }));
+}
 
 /** In-app toast replacing the old blocking window.alert(). */
 function notify(message: string, status: 'success' | 'error' = 'error'): void {
@@ -51,6 +78,10 @@ export async function exportConversationForCharacter(character: CharacterCard): 
             // Hand-authored data now: bonds are created in the Relations panel, not
             // regenerated from the cast each beat. Dropping them here loses real user work.
             relationships: latestConv.relationships,
+            // Same reasoning for the Chronicle: it IS the long-term memory (nothing else
+            // remembers what left the context window), it can be edited by hand, and
+            // rebuilding it costs dozens of background calls.
+            summaries: await getSummariesByConversation(latestConv.id),
         },
         messages: messages.map((m) => ({
             role: m.role,
@@ -145,9 +176,11 @@ export function importConversationFromFile(): void {
             // addMessage deactivates prior sibling branches, leaving only the last message
             // visible (and root messages are swipable greeting alternates).
             let prevId: string | null = null;
+            const messageIds: string[] = [];
             for (let i = 0; i < data.messages.length; i++) {
                 const msg = data.messages[i];
                 const msgId = crypto.randomUUID();
+                messageIds.push(msgId);
                 useChatStore.getState().addMessage({
                     id: msgId,
                     conversationId: convId,
@@ -165,6 +198,26 @@ export function importConversationFromFile(): void {
                 prevId = msgId;
             }
 
+            // Restore the Chronicle. Every id is minted fresh, so `childIds` must be remapped
+            // through the same old→new table or the nesting breaks: an Arc would point at
+            // summary ids that no longer exist and render as if it covered nothing.
+            const importedSummaries = Array.isArray(data.conversation.summaries)
+                ? (data.conversation.summaries as MemorySummary[])
+                : [];
+            if (importedSummaries.length > 0) {
+                // The import rebuilds a single straight branch, so every summary belongs to it.
+                let restored = 0;
+                for (const s of remapSummariesForImport(importedSummaries, convId, messageIds)) {
+                    try {
+                        await saveSummary(s);
+                        restored++;
+                    } catch (err) {
+                        console.error('[Import] Failed to restore a summary:', err);
+                    }
+                }
+                console.log(`[Import] Restored ${restored} Chronicle entries`);
+            }
+
             // NOTE: legacy exports may carry a conversation.worldState — deliberately ignored
             // (the scalar world-state system is removed).
 
@@ -172,7 +225,11 @@ export function importConversationFromFile(): void {
             useChatStore.getState().setActiveConversation(convId);
 
             notify(
-                `Conversation « ${data.conversation.title} » importée (${data.messages.length} messages).`,
+                `Conversation « ${data.conversation.title} » importée (${data.messages.length} messages` +
+                    (importedSummaries.length > 0
+                        ? `, ${importedSummaries.length} résumés`
+                        : '') +
+                    ').',
                 'success'
             );
         } catch (error) {

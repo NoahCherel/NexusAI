@@ -5,7 +5,6 @@ import { countTokens } from '@/lib/tokenizer';
 import type { CharacterCard } from '@/types/character';
 import type { Message } from '@/types/chat';
 import type { APIPreset } from '@/types/preset';
-import type { ContextSection } from '@/types/rag';
 
 const card: CharacterCard = {
     id: 'c1',
@@ -197,8 +196,8 @@ describe('card post_history_instructions (V2)', () => {
     });
 });
 
-describe('RAG budget vs history starvation', () => {
-    it('small context + big system: history keeps messages, RAG is capped by real room', async () => {
+describe('Chronicle budget vs history starvation', () => {
+    it('small context + big system: history keeps messages, memory is capped by real room', async () => {
         // A system prompt heavy enough that the old 15%-of-total floor (614 tokens here)
         // exceeded the actual remaining room and evicted the entire history.
         const bigCard: CharacterCard = {
@@ -218,23 +217,56 @@ describe('RAG budget vs history starvation', () => {
             activeEngine: null,
             maxContextTokens: 4096,
             maxOutputTokens: 1024,
-            retrieveRag: async (budget): Promise<ContextSection[]> => {
+            retrieveChronicle: async (budget) => {
                 grantedBudget = budget;
-                return [
-                    {
-                        priority: 1,
-                        content: Array(budget).fill('mem').join(' '),
-                        tokens: budget,
-                        label: 'RAG',
-                        type: 'summary',
+                return {
+                    text: Array(budget).fill('mem').join(' '),
+                    stats: {
+                        arcs: 1,
+                        sections: 0,
+                        fragments: 0,
+                        omittedArcs: 0,
+                        omittedSections: 0,
+                        uncoveredEvictedMessages: 0,
                     },
-                ];
+                };
             },
         });
         const available = 4096 - tokenBreakdown.system - 1024;
-        // The floor no longer overrides the real room: RAG ≤ 50% of what's left…
+        // The floor no longer overrides the real room: memory ≤ 50% of what's left…
         expect(grantedBudget).toBeLessThanOrEqual(Math.floor(available * 0.5));
         // …and the verbatim history is never starved to zero.
         expect(includedMessageCount).toBeGreaterThan(0);
+    });
+
+    it('grants the Chronicle a flat share, leaving the bulk of the room to history', async () => {
+        const history = Array.from({ length: 8 }, (_, i) => userMsg(`beat ${i}`, `m${i}`));
+        let grantedBudget = 0;
+        const { tokenBreakdown } = await buildConversationPayload({
+            mode: 'generate',
+            character: card,
+            activeEntries: [],
+            history,
+            activePreset: preset(),
+            activeEngine: null,
+            maxContextTokens: 16384,
+            maxOutputTokens: 2048,
+            retrieveChronicle: async (budget) => {
+                grantedBudget = budget;
+                return {
+                    text: '',
+                    stats: {
+                        arcs: 0,
+                        sections: 0,
+                        fragments: 0,
+                        omittedArcs: 0,
+                        omittedSections: 0,
+                        uncoveredEvictedMessages: 0,
+                    },
+                };
+            },
+        });
+        const available = 16384 - tokenBreakdown.system - 2048;
+        expect(grantedBudget).toBe(Math.floor(available * 0.3));
     });
 });

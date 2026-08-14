@@ -1,28 +1,27 @@
-import { getFactsByConversation, getSummariesByConversation } from './db';
-import type { WorldFact, MemorySummary } from '@/types/rag';
+import { getSummariesByConversation } from './db';
+import type { MemorySummary } from '@/types/rag';
 
 export interface RAGDataLoadResult {
-    facts: WorldFact[];
     summaries: MemorySummary[];
     errors: {
-        facts?: unknown;
         summaries?: unknown;
     };
 }
 
+/**
+ * Load a conversation's Chronicle. Kept as a `allSettled` wrapper (rather than a bare await)
+ * so a corrupt store degrades the memory panel to empty instead of throwing at render.
+ */
 export async function loadRagDataByConversation(
     conversationId: string
 ): Promise<RAGDataLoadResult> {
-    const [factsResult, summariesResult] = await Promise.allSettled([
-        getFactsByConversation(conversationId),
+    const [summariesResult] = await Promise.allSettled([
         getSummariesByConversation(conversationId),
     ]);
 
     return {
-        facts: factsResult.status === 'fulfilled' ? factsResult.value : [],
         summaries: summariesResult.status === 'fulfilled' ? summariesResult.value : [],
         errors: {
-            facts: factsResult.status === 'rejected' ? factsResult.reason : undefined,
             summaries: summariesResult.status === 'rejected' ? summariesResult.reason : undefined,
         },
     };

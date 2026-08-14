@@ -54,6 +54,11 @@ interface ChatState {
     setRpJournalForCharacter: (conversationId: string, character: string, notes: string[]) => void;
     setMomentumNudge: (conversationId: string, nudge: string | undefined) => void;
     setHistoryCut: (conversationId: string, messageId: string | undefined) => void;
+    /** Single write for both history-window fields. Pass only the ones that changed. */
+    setHistoryWindowState: (
+        conversationId: string,
+        state: { cutMessageId?: string; dynamicReserveTokens?: number }
+    ) => void;
     setStickyCast: (conversationId: string, stickyCast: Record<string, number>) => void;
     setSceneMode: (conversationId: string, sceneMode: boolean) => void;
     setSceneRoster: (conversationId: string, roster: string[]) => void;
@@ -550,20 +555,32 @@ export const useChatStore = create<ChatState>()((set, get) => ({
         if (conversationToUpdate) saveConversation(conversationToUpdate).catch(console.error);
     },
 
-    // Prompt-cache hysteresis: persist the history-window anchor chosen by the payload
-    // builder. NOTE: deliberately does NOT bump updatedAt — this is plumbing, not content.
-    setHistoryCut: (conversationId, messageId) => {
+    // Prompt-cache hysteresis: persist the history-window state chosen by the payload builder
+    // (anchor and/or smoothed dynamic reserve) in ONE write — they change on the same turn,
+    // and two setters meant two IndexedDB writes per message.
+    // NOTE: deliberately does NOT bump updatedAt — this is plumbing, not content.
+    setHistoryWindowState: (conversationId, state) => {
         let conversationToUpdate: Conversation | undefined;
-        set((state) => ({
-            conversations: state.conversations.map((c) => {
-                if (c.id === conversationId) {
-                    conversationToUpdate = { ...c, historyCutMessageId: messageId };
-                    return conversationToUpdate;
-                }
-                return c;
+        set((s) => ({
+            conversations: s.conversations.map((c) => {
+                if (c.id !== conversationId) return c;
+                conversationToUpdate = {
+                    ...c,
+                    ...('cutMessageId' in state
+                        ? { historyCutMessageId: state.cutMessageId }
+                        : {}),
+                    ...('dynamicReserveTokens' in state
+                        ? { dynamicReserveTokens: state.dynamicReserveTokens }
+                        : {}),
+                };
+                return conversationToUpdate;
             }),
         }));
         if (conversationToUpdate) saveConversation(conversationToUpdate).catch(console.error);
+    },
+
+    setHistoryCut: (conversationId, messageId) => {
+        get().setHistoryWindowState(conversationId, { cutMessageId: messageId });
     },
 
     setSceneMode: (conversationId, sceneMode) => {

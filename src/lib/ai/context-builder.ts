@@ -525,6 +525,62 @@ export function buildDynamicContextBlock(options: DynamicContextOptions): string
  * accounting. The history window uses hysteresis: it only moves when the budget overflows,
  * and then cuts a whole block (25% headroom) so the prefix stays stable for many turns.
  */
+/**
+ * History-window tuning, exported so tests can assert against the same numbers.
+ *
+ * Profile: MAXIMUM FILL. The growth headroom is deliberately small (two exchanges), so the
+ * window sits close to its budget and is recut every ~2 turns. That trades prompt-cache hits
+ * for verbatim history. For a cache-friendlier profile, raise HEADROOM_MESSAGES to 8 and the
+ * ratios to 0.08 / 0.25 — ~88% fill, recut every ~4 turns.
+ */
+export const HISTORY_WINDOW_TUNING = {
+    /** The smoothed reserve never eats more than this, so history always keeps ≥55% of room. */
+    RESERVE_MAX_RATIO: 0.45,
+    /**
+     * How fast the reserve tracks the dynamic zone's real size (exponential moving average).
+     *
+     * Deliberately NOT a high-water mark. Jumping straight to a spike's size would let one fat
+     * turn shrink the window for the ~30 turns it takes to decay back — a slower version of the
+     * very ratchet this replaces. Tracking the average instead keeps the window wide and lets
+     * the rare spike be absorbed by a transient trim, which costs nothing permanent.
+     */
+    RESERVE_ADAPT_RATE: 0.35,
+    /** Headroom in messages — roughly two exchanges. */
+    HEADROOM_MESSAGES: 4,
+    HEADROOM_MIN_RATIO: 0.04,
+    HEADROOM_MAX_RATIO: 0.12,
+    EXPAND_TRIGGER_RATIO: 0.1,
+    /** Below this, an expansion isn't worth the cache miss it costs. */
+    MIN_EXPAND_MESSAGES: 2,
+} as const;
+
+export type HistoryWindowAction = 'unchanged' | 'cut' | 'expanded' | 'transient-trim';
+
+const clamp = (v: number, lo: number, hi: number) => Math.min(Math.max(v, lo), hi);
+
+/**
+ * Fill newest-first up to `ceiling`, keeping the messages contiguous.
+ *
+ * Always returns at least one message: the old loop could exit empty when the newest message
+ * alone overflowed, and since it then recorded no anchor, the next turn recomputed from
+ * scratch — a silent thrash with no history at all in the request.
+ */
+function fillNewestFirst(
+    workingHistory: Message[],
+    perMessageTokens: number[],
+    ceiling: number
+): { included: Message[]; historyTokens: number } {
+    const included: Message[] = [];
+    let historyTokens = 0;
+    for (let i = workingHistory.length - 1; i >= 0; i--) {
+        const t = perMessageTokens[i];
+        if (included.length > 0 && historyTokens + t > ceiling) break;
+        included.unshift(workingHistory[i]);
+        historyTokens += t;
+    }
+    return { included, historyTokens };
+}
+
 export function buildRAGEnhancedPayload(
     systemPrompt: string,
     ragSections: ContextSection[],
@@ -540,6 +596,12 @@ export function buildRAGEnhancedPayload(
         activeProvider?: string;
         /** Sticky window anchor: id of the oldest message currently in the API window. */
         historyCutMessageId?: string;
+        /**
+         * Smoothed size of the dynamic zone from the PREVIOUS turn
+         * (`Conversation.dynamicReserveTokens`). Absent = size against this turn's own
+         * post-history, which is also what makes an old ratcheted anchor spring back open.
+         */
+        dynamicReserveTokens?: number;
     }
 ): {
     messagesPayload: { role: string; content: string }[];
@@ -549,12 +611,29 @@ export function buildRAGEnhancedPayload(
     stablePrefixLength: number;
     /** Set when the window moved this turn; the caller persists it on the conversation. */
     suggestedCutMessageId?: string;
+    /** Reserve to persist for next turn. Not written on impersonation or preview. */
+    nextDynamicReserve: number;
+    historyWindow: {
+        action: HistoryWindowAction;
+        /** French, ready to show in the context preview. */
+        reason: string;
+        /** Messages still available before the anchor — what an expansion could reclaim. */
+        recoverableMessageCount: number;
+    };
     tokenBreakdown: {
         system: number;
         rag: number;
         history: number;
         postHistory: number;
         total: number;
+        /** Reserve used to SIZE the window this turn. */
+        dynamicReserve: number;
+        /** Budget the window was sized against (room − reserve). */
+        historyBudget: number;
+        /** Refit target (budget − growth headroom). */
+        historyTarget: number;
+        /** Free tokens left inside `historyBudget`. */
+        historyHeadroom: number;
     };
 } {
     const {
@@ -565,50 +644,148 @@ export function buildRAGEnhancedPayload(
         assistantPrefill,
         activeProvider,
         historyCutMessageId,
+        dynamicReserveTokens,
     } = options;
 
-    // 1. Fixed costs. RAG lives inside postHistoryInstructions; count it separately only
-    // for the breakdown display.
+    const T = HISTORY_WINDOW_TUNING;
+
+    // 1. Fixed costs. The Chronicle lives inside postHistoryInstructions; it is counted
+    // separately only for the breakdown display.
     const systemTokens = countTokens(systemPrompt);
     const postHistoryTokens = postHistoryInstructions ? countTokens(postHistoryInstructions) : 0;
     const ragTokens = ragSections.reduce((sum, s) => sum + s.tokens, 0);
 
-    // 2. Budget for history
-    const availableForHistory =
-        maxContextTokens - systemTokens - maxOutputTokens - postHistoryTokens;
+    // 2. Two different budgets, and the difference is the whole point.
+    //
+    // `availableActual` is the hard constraint: the request must fit. `availableSized` is what
+    // the window is CHOSEN against, using a smoothed reserve for the dynamic zone rather than
+    // this turn's rendered size.
+    //
+    // Sizing against the live post-history is what used to make the window ratchet shut. That
+    // block swings wildly turn to turn — Chronicle, lorebook, RP journal, relationships, arc,
+    // a one-shot momentum nudge, a regenerated scratchpad, Scene Mode contracts — and the
+    // anchor could only ever move forward. So the single fattest turn in a conversation set
+    // the window size for every turn after it, and a nudge injected once cost history
+    // permanently.
+    const room = Math.max(0, maxContextTokens - systemTokens - maxOutputTokens);
+    const reserveCap = Math.max(0, Math.floor(room * T.RESERVE_MAX_RATIO));
+    // No stored reserve yet (fresh conversation, or one from before this existed) → start
+    // from what this turn actually rendered. Measured, never predicted: a predicted reserve
+    // (granted budgets summed) over-reserves massively, because the dynamic zone almost never
+    // spends what it is allowed.
+    const reserveForSizing = Math.min(dynamicReserveTokens ?? postHistoryTokens, reserveCap);
+    const availableSized = Math.max(0, room - reserveForSizing);
+    const availableActual = Math.max(0, room - postHistoryTokens);
+
+    // Moving average of the dynamic zone's real size, converging over a handful of turns.
+    const nextDynamicReserve = clamp(
+        Math.round(
+            reserveForSizing + (postHistoryTokens - reserveForSizing) * T.RESERVE_ADAPT_RATE
+        ),
+        0,
+        reserveCap
+    );
 
     // 3. Apply the sticky cut (hysteresis): reuse the previous window start if it still
     // exists on this branch.
     let workingHistory = history;
+    let anchorIdx = 0;
     if (historyCutMessageId) {
         const cutIdx = history.findIndex((m) => m.id === historyCutMessageId);
-        if (cutIdx > 0) workingHistory = history.slice(cutIdx);
+        if (cutIdx > 0) {
+            workingHistory = history.slice(cutIdx);
+            anchorIdx = cutIdx;
+        }
     }
 
     const perMessageTokens = workingHistory.map((m) => countMessageTokens(m.id, m.content));
     const totalHistoryTokens = perMessageTokens.reduce((a, b) => a + b, 0);
 
+    // Growth headroom, expressed in MESSAGES rather than as a share of the budget. Its only
+    // job is to absorb the ~2 messages added per turn, which is not a quantity proportional
+    // to the context size: as a flat 25% it left 10k tokens empty on a 40k context to absorb
+    // ~600 tokens of growth.
+    const recent = perMessageTokens.slice(-10);
+    const avgMsg = recent.length
+        ? Math.max(1, Math.ceil(recent.reduce((a, b) => a + b, 0) / recent.length))
+        : 1;
+    const growthHeadroom = clamp(
+        Math.max(Math.floor(availableSized * T.HEADROOM_MIN_RATIO), avgMsg * T.HEADROOM_MESSAGES),
+        0,
+        Math.floor(availableSized * T.HEADROOM_MAX_RATIO)
+    );
+    const historyTarget = Math.max(0, availableSized - growthHeadroom);
+
+    // ANTI-PING-PONG INVARIANT: right after a cut the free space equals `growthHeadroom`
+    // exactly, so any trigger at or below it would re-expand on the very next turn and thrash
+    // the cache prefix. Taking the max with `growthHeadroom + a couple of messages` makes that
+    // impossible by construction, whatever the ratio says.
+    const expandTrigger = Math.max(
+        Math.floor(availableSized * T.EXPAND_TRIGGER_RATIO),
+        growthHeadroom + avgMsg * T.MIN_EXPAND_MESSAGES
+    );
+
     let included: Message[];
     let historyTokens: number;
     let suggestedCutMessageId: string | undefined;
+    let action: HistoryWindowAction;
+    let reason: string;
 
-    if (totalHistoryTokens <= availableForHistory) {
-        // Fits — window unchanged, prefix stable, cache can hit.
+    const fitsSized = totalHistoryTokens <= availableSized;
+    const fitsActual = totalHistoryTokens <= availableActual;
+
+    if (!fitsSized || !fitsActual) {
+        const structural = !fitsSized;
+        const ceiling = structural ? historyTarget : availableActual;
+        ({ included, historyTokens } = fillNewestFirst(workingHistory, perMessageTokens, ceiling));
+        if (structural) {
+            if (included.length > 0) suggestedCutMessageId = included[0].id;
+            action = 'cut';
+            reason = `Historique ${totalHistoryTokens} tk > budget ${availableSized} tk — recoupé à ${historyTarget} tk.`;
+        } else {
+            // A one-off spike in the dynamic zone. Trim just enough for THIS request, but do
+            // NOT persist an anchor: next turn the window comes back untouched. This is what
+            // stops a single fat turn from anchoring the window low forever.
+            action = 'transient-trim';
+            reason = `Zone dynamique exceptionnelle (${postHistoryTokens} tk > réserve ${reserveForSizing} tk) — rognage temporaire, ancre conservée.`;
+        }
+    } else if (
+        anchorIdx > 0 &&
+        // Never expand on a spike turn: the extra room is not really there.
+        postHistoryTokens <= reserveForSizing &&
+        availableSized - totalHistoryTokens > expandTrigger
+    ) {
+        // Room opened up durably (the dynamic zone shrank, the preset grew, or this
+        // conversation carries an anchor cut under the old ratcheting rule). Reach back into
+        // the past by a BLOCK — never message by message, which would break the cache prefix
+        // every single turn.
+        const grown = [...workingHistory];
+        let tokens = totalHistoryTokens;
+        let added = 0;
+        for (let i = anchorIdx - 1; i >= 0; i--) {
+            const cost = countMessageTokens(history[i].id, history[i].content);
+            if (tokens + cost > historyTarget) break;
+            grown.unshift(history[i]);
+            tokens += cost;
+            added++;
+        }
+        if (added >= T.MIN_EXPAND_MESSAGES) {
+            included = grown;
+            historyTokens = tokens;
+            suggestedCutMessageId = grown[0].id;
+            action = 'expanded';
+            reason = `${added} message(s) récupérés — la zone dynamique s'est allégée (réserve ${reserveForSizing} tk).`;
+        } else {
+            included = workingHistory;
+            historyTokens = totalHistoryTokens;
+            action = 'unchanged';
+            reason = 'Fenêtre stable — extension trop petite pour valoir une rupture de cache.';
+        }
+    } else {
         included = workingHistory;
         historyTokens = totalHistoryTokens;
-    } else {
-        // Overflow — refit newest-first against 75% of the budget, leaving headroom so the
-        // window then stays put for many turns (block cut instead of per-message slide).
-        const target = Math.max(0, Math.floor(availableForHistory * 0.75));
-        included = [];
-        historyTokens = 0;
-        for (let i = workingHistory.length - 1; i >= 0; i--) {
-            const t = perMessageTokens[i];
-            if (historyTokens + t > target) break;
-            included.unshift(workingHistory[i]);
-            historyTokens += t;
-        }
-        if (included.length > 0) suggestedCutMessageId = included[0].id;
+        action = 'unchanged';
+        reason = 'Fenêtre stable — préfixe en cache.';
     }
 
     const messagesPayload: { role: string; content: string }[] = included.map((m) => ({
@@ -641,12 +818,22 @@ export function buildRAGEnhancedPayload(
         droppedMessageCount,
         stablePrefixLength,
         suggestedCutMessageId,
+        nextDynamicReserve,
+        historyWindow: {
+            action,
+            reason,
+            recoverableMessageCount: Math.max(0, history.length - included.length),
+        },
         tokenBreakdown: {
             system: systemTokens,
             rag: ragTokens,
             history: historyTokens,
             postHistory: postHistoryTokens,
             total: systemTokens + historyTokens + postHistoryTokens + maxOutputTokens,
+            dynamicReserve: reserveForSizing,
+            historyBudget: availableSized,
+            historyTarget,
+            historyHeadroom: Math.max(0, availableSized - historyTokens),
         },
     };
 }

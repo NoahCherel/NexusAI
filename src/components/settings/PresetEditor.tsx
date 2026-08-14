@@ -57,12 +57,8 @@ export function PresetEditor() {
         initializeDefaultPresets,
         lorebookAutoExtract,
         setLorebookAutoExtract,
-        enableFactExtraction,
-        setEnableFactExtraction,
         enableHierarchicalSummaries,
         setEnableHierarchicalSummaries,
-        enableRAGRetrieval,
-        setEnableRAGRetrieval,
     } = useSettingsStore();
 
     // Ensure defaults exist
@@ -810,50 +806,16 @@ export function PresetEditor() {
 
                             {/* RAG / Memory System */}
                             <div className="space-y-4">
-                                <Label>Système de mémoire (RAG)</Label>
-
-                                <div className="flex items-center justify-between p-2 border rounded">
-                                    <div>
-                                        <p className="text-sm font-medium">Rappel RAG</p>
-                                        <p className="text-xs text-muted-foreground">
-                                            Récupère le contexte passé pertinent à chaque message
-                                        </p>
-                                    </div>
-                                    <Button
-                                        size="sm"
-                                        variant={enableRAGRetrieval ? 'default' : 'secondary'}
-                                        onClick={() => setEnableRAGRetrieval(!enableRAGRetrieval)}
-                                    >
-                                        {enableRAGRetrieval ? 'On' : 'Off'}
-                                    </Button>
-                                </div>
-
-                                <div className="flex items-center justify-between p-2 border rounded">
-                                    <div>
-                                        <p className="text-sm font-medium">Extraction de facts</p>
-                                        <p className="text-xs text-muted-foreground">
-                                            Extrait les faits clés des réponses de l&apos;IA
-                                        </p>
-                                    </div>
-                                    <Button
-                                        size="sm"
-                                        variant={enableFactExtraction ? 'default' : 'secondary'}
-                                        onClick={() =>
-                                            setEnableFactExtraction(!enableFactExtraction)
-                                        }
-                                    >
-                                        {enableFactExtraction ? 'On' : 'Off'}
-                                    </Button>
-                                </div>
+                                <Label>Mémoire longue</Label>
 
                                 <div className="flex items-center justify-between p-2 border rounded">
                                     <div>
                                         <p className="text-sm font-medium">
-                                            Résumés hiérarchiques
+                                            Chronique (Arcs et Sections)
                                         </p>
                                         <p className="text-xs text-muted-foreground">
-                                            Crée automatiquement des résumés d&apos;histoire
-                                            L0/L1/L2
+                                            Résume l&apos;histoire en Fragments, Sections et Arcs,
+                                            et l&apos;injecte dans le contexte
                                         </p>
                                     </div>
                                     <Button

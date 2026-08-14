@@ -129,14 +129,8 @@ export function SettingsPanel({ open, onOpenChange }: SettingsPanelProps) {
         setEnableRelationshipAnalyst,
         enableMomentum,
         setEnableMomentum,
-        enableFactExtraction,
-        setEnableFactExtraction,
         enableHierarchicalSummaries,
         setEnableHierarchicalSummaries,
-        enableRAGRetrieval,
-        setEnableRAGRetrieval,
-        minRAGConfidence,
-        setMinRAGConfidence,
     } = useSettingsStore();
 
     const allModels = [...DEFAULT_MODELS, ...customModels];
@@ -855,56 +849,19 @@ export function SettingsPanel({ open, onOpenChange }: SettingsPanelProps) {
 
                                 <Separator />
 
-                                {/* Mémoire & RAG */}
+                                {/* Mémoire longue */}
                                 <div className="space-y-3">
-                                    <label className="text-sm font-medium">Mémoire & RAG</label>
+                                    <label className="text-sm font-medium">Mémoire longue</label>
+                                    {/* Un seul interrupteur : sans résumés la Chronique est
+                                        vide, et sans injection elle ne sert à rien. Les deux
+                                        réglages séparés d'avant ne pouvaient rien faire l'un
+                                        sans l'autre. */}
                                     <FeatureToggle
-                                        title="Extraction de facts"
-                                        description="1 appel de fond par réponse notable : mémorise les événements atomiques pour le rappel sémantique."
-                                        value={enableFactExtraction}
-                                        onChange={setEnableFactExtraction}
-                                    />
-                                    <FeatureToggle
-                                        title="Résumés hiérarchiques"
-                                        description="Résume l'histoire par paliers (~10 messages) pour la mémoire longue. Quelques appels de fond par session."
+                                        title="Chronique (Arcs et Sections)"
+                                        description="Résume l'histoire par paliers — Fragments (~10 messages), Sections (~50), Arcs (~150) — et l'injecte dans le contexte. Quelques appels de fond par session. Éteindre rend le modèle amnésique dès qu'un message sort de la fenêtre."
                                         value={enableHierarchicalSummaries}
                                         onChange={setEnableHierarchicalSummaries}
                                     />
-                                    <FeatureToggle
-                                        title="Rappel RAG"
-                                        description="Injecte résumés, facts et scènes passées pertinents dans le contexte (recherche locale, gratuit)."
-                                        value={enableRAGRetrieval}
-                                        onChange={setEnableRAGRetrieval}
-                                    />
-                                    {enableRAGRetrieval && (
-                                        <div className="flex items-center justify-between gap-3 pl-1">
-                                            <div className="min-w-0">
-                                                <p className="text-sm">Seuil de confiance RAG</p>
-                                                <p className="text-xs text-muted-foreground">
-                                                    0 = tout injecter ; plus haut = ne garder
-                                                    que les souvenirs vraiment pertinents.
-                                                </p>
-                                            </div>
-                                            <div className="flex items-center gap-2 shrink-0">
-                                                <input
-                                                    type="range"
-                                                    min={0}
-                                                    max={0.9}
-                                                    step={0.05}
-                                                    value={minRAGConfidence}
-                                                    onChange={(e) =>
-                                                        setMinRAGConfidence(
-                                                            parseFloat(e.target.value)
-                                                        )
-                                                    }
-                                                    className="w-28 accent-primary"
-                                                />
-                                                <span className="text-xs tabular-nums w-8 text-right">
-                                                    {minRAGConfidence.toFixed(2)}
-                                                </span>
-                                            </div>
-                                        </div>
-                                    )}
                                     <FeatureToggle
                                         title="Auto-extraction lorebook / journal RP"
                                         description="1 appel de fond par message : suggère des entrées de lorebook (ou alimente le journal RP des cartes canon)."

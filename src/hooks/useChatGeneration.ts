@@ -19,10 +19,12 @@ import { decryptApiKey } from '@/lib/crypto';
 import { parseStreamingChunk, normalizeCoT } from '@/lib/ai/cot-middleware';
 import { buildConversationPayload } from '@/lib/ai/payload-builder';
 import { buildCanonOptions } from '@/lib/ai/canon-context';
+import { resolveActiveLorebookEntries } from '@/lib/ai/rag-service';
 import {
-    retrieveRelevantContext,
-    resolveActiveLorebookEntries,
-} from '@/lib/ai/rag-service';
+    buildChronicle,
+    EMPTY_CHRONICLE,
+    type ChronicleResult,
+} from '@/lib/ai/hierarchical-summarizer';
 import { extractLorebookEntries, extractRpDevelopments } from '@/lib/lorebook-extractor';
 import { directorDecide, applySceneChange } from '@/lib/ai/scene-orchestrator';
 import { NANOGPT_USAGE_REFRESH_EVENT } from '@/lib/ai/nanogpt-usage';
@@ -80,14 +82,14 @@ export function useChatGeneration({
     // a new user message).
     const stopRequestedRef = useRef(false);
     const [isSceneRunning, setIsSceneRunning] = useState(false);
-    // Scene Mode 'turns': the full retrieval stack (canon, hybrid lorebook, RAG) barely
+    // Scene Mode 'turns': the full retrieval stack (canon, hybrid lorebook, Chronicle) barely
     // changes between the speakers of ONE beat — compute it once on the first turn and
     // reuse it for the rest of the beat (keyed by beat id).
     const sceneRetrievalCacheRef = useRef<{
         key: string;
         canonOptions: Awaited<ReturnType<typeof buildCanonOptions>>;
         activeEntries: Awaited<ReturnType<typeof resolveActiveLorebookEntries>>;
-        ragSections: import('@/types/rag').ContextSection[];
+        chronicle: ChronicleResult;
     } | null>(null);
 
     const {
@@ -210,10 +212,13 @@ export function useChatGeneration({
                 extraScanText: canonScanText || undefined,
             }));
 
-        const { enableRAGRetrieval, minRAGConfidence, enableScratchpad } =
-            useSettingsStore.getState();
+        const { enableHierarchicalSummaries, enableScratchpad } = useSettingsStore.getState();
         const maxContextTokens = activePreset?.maxContextTokens ?? 16384;
         const maxOutputTokens = activePreset?.maxOutputTokens ?? 2048;
+
+        // Captured from inside the retrieval callback so a Troupe beat can reuse the exact
+        // same Chronicle across its speakers instead of rebuilding it per turn.
+        let capturedChronicle: ChronicleResult | undefined;
 
         const {
             messagesPayload,
@@ -221,8 +226,9 @@ export function useChatGeneration({
             droppedMessageCount,
             stablePrefixLength,
             suggestedCutMessageId,
+            nextDynamicReserve,
+            historyWindow,
             tokenBreakdown,
-            ragSections,
         } = await buildConversationPayload({
                 mode: options.isImpersonation ? 'impersonate' : 'generate',
                 character,
@@ -245,6 +251,7 @@ export function useChatGeneration({
                 maxContextTokens,
                 maxOutputTokens,
                 historyCutMessageId: currentConv?.historyCutMessageId,
+                dynamicReserveTokens: currentConv?.dynamicReserveTokens,
                 continueFromAssistant: !!options.continueTargetId,
                 // A unified ensemble beat carries a speaker for attribution ('Scène'), but
                 // its contract is the ENSEMBLE block — never the single-speaker/narrator ones.
@@ -256,41 +263,29 @@ export function useChatGeneration({
                 sceneDirection: options.sceneDirection,
                 sceneGoal: options.sceneGoal,
                 sceneEnsemble: options.sceneEnsemble,
-                retrieveRag: retrievalCache
-                    ? async () => retrievalCache.ragSections
-                    : enableRAGRetrieval && activeConversationId
-                        ? (ragBudget) =>
-                              retrieveRelevantContext(
-                                  lastUserMsg,
+                retrieveChronicle: retrievalCache
+                    ? async () => retrievalCache.chronicle
+                    : enableHierarchicalSummaries && activeConversationId
+                        ? async (budget) => {
+                              const chronicle = await buildChronicle(
                                   activeConversationId,
-                                  ragBudget,
-                                  {
-                                                                    recentMessages: history,
-                                      activeBranchMessageIds: messages.map((m) => m.id),
-                                      minConfidence: minRAGConfidence,
-                                      // Summaries only cover messages EVICTED from the
-                                      // verbatim window (hysteresis cut position).
-                                      evictedMessageCount: currentConv?.historyCutMessageId
-                                          ? Math.max(
-                                                0,
-                                                history.findIndex(
-                                                    (m) =>
-                                                        m.id ===
-                                                        currentConv.historyCutMessageId
-                                                )
+                                  budget,
+                                  // The Chronicle only covers what has been EVICTED from the
+                                  // verbatim window (the hysteresis cut position) — anything
+                                  // still in the window would be paid for twice.
+                                  currentConv?.historyCutMessageId
+                                      ? Math.max(
+                                            0,
+                                            history.findIndex(
+                                                (m) => m.id === currentConv.historyCutMessageId
                                             )
-                                          : 0,
-                                      // Priority of truth: facts restating canon/lorebook
-                                      // content injected this turn are dropped.
-                                      dedupAgainstTexts: [
-                                          ...(canonOptions.canonDossiers ?? []).map(
-                                              (d) =>
-                                                  `${d.identity}\n${d.backstory ?? ''}\n${d.abilities ?? ''}`
-                                          ),
-                                          ...activeEntries.map((e) => e.content),
-                                      ],
-                                  }
-                              )
+                                        )
+                                      : 0,
+                                  messages.map((m) => m.id)
+                              );
+                              capturedChronicle = chronicle;
+                              return chronicle;
+                          }
                         : undefined,
             });
 
@@ -300,7 +295,7 @@ export function useChatGeneration({
                 key: options.retrievalCacheKey,
                 canonOptions,
                 activeEntries,
-                ragSections,
+                chronicle: capturedChronicle ?? EMPTY_CHRONICLE,
             };
         }
 
@@ -309,15 +304,33 @@ export function useChatGeneration({
             useChatStore.getState().setMomentumNudge(activeConversationId, undefined);
         }
 
-        // History window moved (hysteresis overflow): persist the new anchor so following
-        // turns reuse the exact same prefix — that's what lets the provider cache hit.
-        if (suggestedCutMessageId && activeConversationId && !options.isImpersonation) {
-            useChatStore.getState().setHistoryCut(activeConversationId, suggestedCutMessageId);
+        // Persist the history-window state. Impersonation is excluded from BOTH fields: it
+        // builds a different payload (no card system prompt, no Chronicle), so letting it
+        // write the anchor or the reserve would corrupt the real conversation's window.
+        if (activeConversationId && !options.isImpersonation) {
+            const reserveDrift = Math.abs(
+                nextDynamicReserve - (currentConv?.dynamicReserveTokens ?? 0)
+            );
+            // The reserve nudges a little every turn; writing it each time would mean an
+            // IndexedDB write per message for a value nothing reads until it moves.
+            const reserveWorthWriting =
+                reserveDrift >= Math.max(64, (currentConv?.dynamicReserveTokens ?? 0) * 0.05);
+
+            if (suggestedCutMessageId || reserveWorthWriting) {
+                useChatStore.getState().setHistoryWindowState(activeConversationId, {
+                    ...(suggestedCutMessageId ? { cutMessageId: suggestedCutMessageId } : {}),
+                    ...(reserveWorthWriting ? { dynamicReserveTokens: nextDynamicReserve } : {}),
+                });
+            }
         }
 
-        if (droppedMessageCount > 0) {
+        if (droppedMessageCount > 0 || historyWindow.action !== 'unchanged') {
             console.log(
-                `[RAG] Context: ${includedMessageCount} msgs included, ${droppedMessageCount} truncated. Tokens: sys=${tokenBreakdown.system} rag=${tokenBreakdown.rag} hist=${tokenBreakdown.history} total=${tokenBreakdown.total}`
+                `[CTX] window=${historyWindow.action} | hist ${tokenBreakdown.history}/${tokenBreakdown.historyBudget} tk ` +
+                    `(${Math.round((tokenBreakdown.history / Math.max(1, tokenBreakdown.historyBudget)) * 100)}%) ` +
+                    `target ${tokenBreakdown.historyTarget} | reserve ${tokenBreakdown.dynamicReserve}→${nextDynamicReserve} | ` +
+                    `sys ${tokenBreakdown.system} ph ${tokenBreakdown.postHistory} chronicle ${tokenBreakdown.rag} | ` +
+                    `${includedMessageCount} in / ${droppedMessageCount} out`
             );
         }
 
@@ -505,23 +518,14 @@ export function useChatGeneration({
             });
 
             // Post-beat pipeline: arc capture + canon dossier fetch, momentum, relationship
-            // analysis, and fact extraction — single background entry point.
+            // analysis — single background entry point.
             if (character && activeConversationId) {
                 runPostBeat({
                     character,
                     conversationId: activeConversationId,
                     finalContent,
-                    fullContent,
                     targetId,
                     history,
-                    branchMessageIds: messages.map((m) => m.id),
-                    // Persona-at-send-time: facts must credit the persona that actually
-                    // sent the beat, not whichever persona is active right now.
-                    personaName:
-                        [...history]
-                            .reverse()
-                            .find((m) => m.role === 'user' && m.speaker?.name)?.speaker
-                            ?.name ?? activePersona?.name,
                     isImpersonation: !!options.isImpersonation,
                     skipBeatAnalyses: !!options.skipBeatAnalyses,
                     // Troupe final turn: stitch this reply onto the earlier speakers' lines so

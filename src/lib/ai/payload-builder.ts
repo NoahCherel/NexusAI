@@ -23,6 +23,7 @@ import {
     buildEnginePostHistory,
     buildLearnedBanBlock,
 } from '@/lib/ai/rp-engine';
+import type { ChronicleResult, ChronicleStats } from '@/lib/ai/hierarchical-summarizer';
 import { countTokens } from '@/lib/tokenizer';
 
 /** Canon Codex material, split by the builder into stable (dossiers, arc map) and dynamic
@@ -72,6 +73,8 @@ export interface BuildConversationPayloadParams {
     maxOutputTokens: number;
     /** Sticky history-window anchor (prompt-cache hysteresis), from the conversation. */
     historyCutMessageId?: string;
+    /** Smoothed dynamic-zone size from the previous turn (`Conversation.dynamicReserveTokens`). */
+    dynamicReserveTokens?: number;
     /**
      * Continue-in-place mode (providers without assistant prefill): history ends with the
      * incomplete assistant message; a final instruction demands the continuation only.
@@ -103,10 +106,10 @@ export interface BuildConversationPayloadParams {
         userName?: string;
     };
     /**
-     * Optional RAG retrieval. Invoked with a budget once the system prompt size is known.
-     * Omit (e.g. impersonation) to skip RAG entirely.
+     * Optional Chronicle retrieval (long-term memory). Invoked with a budget once the system
+     * prompt size is known. Omit — as impersonation does — to skip memory entirely.
      */
-    retrieveRag?: (ragBudget: number) => Promise<ContextSection[]>;
+    retrieveChronicle?: (budget: number) => Promise<ChronicleResult>;
 }
 
 export interface BuildConversationPayloadResult {
@@ -114,7 +117,15 @@ export interface BuildConversationPayloadResult {
     systemPrompt: string;
     /** The merged dynamic zone: per-turn context + engine contract + preset post-history. */
     effectivePostHistory?: string;
+    /** The Chronicle, as a section, for the preview. Already inside `effectivePostHistory`. */
     ragSections: ContextSection[];
+    /** What the Chronicle managed to include, and what it could not. */
+    chronicleStats?: ChronicleStats;
+    /**
+     * Whether the preset's template renders the lorebook inside the system prompt (vs the
+     * dynamic zone). The preview needs it to know where those tokens are already counted.
+     */
+    templatePlacesLorebook: boolean;
     messagesPayload: { role: string; content: string }[];
     includedMessageCount: number;
     droppedMessageCount: number;
@@ -122,12 +133,24 @@ export interface BuildConversationPayloadResult {
     stablePrefixLength: number;
     /** Set when the history window moved; caller persists it on the conversation. */
     suggestedCutMessageId?: string;
+    /** Smoothed dynamic-zone size to persist for next turn (generation only). */
+    nextDynamicReserve: number;
+    /** What the window did this turn, and why — surfaced in the context preview. */
+    historyWindow: {
+        action: 'unchanged' | 'cut' | 'expanded' | 'transient-trim';
+        reason: string;
+        recoverableMessageCount: number;
+    };
     tokenBreakdown: {
         system: number;
         rag: number;
         history: number;
         postHistory: number;
         total: number;
+        dynamicReserve: number;
+        historyBudget: number;
+        historyTarget: number;
+        historyHeadroom: number;
     };
 }
 
@@ -149,7 +172,7 @@ export async function buildConversationPayload(
         activeProvider,
         maxContextTokens,
         maxOutputTokens,
-        retrieveRag,
+        retrieveChronicle,
     } = params;
 
     const recentMessages = params.recentMessages ?? history;
@@ -254,23 +277,34 @@ export async function buildConversationPayload(
         contractBlock = buildEnginePostHistory(activeEngine, 'generate', { userName });
     }
 
-    // RAG retrieval (optional), budgeted from the now-known system prompt size. The floor
-    // is capped by the room ACTUALLY left after system+output: without that cap, a small
-    // context + big card lets the 15% floor (plus the rest of the dynamic block) starve
-    // the verbatim history down to zero messages. History always keeps >= 50% of the
-    // remaining room.
+    // Chronicle retrieval (optional), budgeted from the now-known system prompt size.
+    // A flat share of the room actually left, so the verbatim history always keeps ~70% of
+    // it. The old formula had a floor expressed against the TOTAL context (15%), which
+    // ignored how much room was really left: a small context plus a big card could starve
+    // the history down to zero messages.
     let ragSections: ContextSection[] = [];
-    if (retrieveRag) {
+    let chronicleStats: ChronicleStats | undefined;
+    if (retrieveChronicle) {
         const systemTokens = countTokens(systemPrompt);
         const available = maxContextTokens - systemTokens - maxOutputTokens;
-        const proportional = Math.floor(available * 0.25);
-        const minimum = Math.floor(maxContextTokens * 0.15);
-        const ragBudget = Math.min(Math.max(proportional, minimum), Math.floor(available * 0.5));
-        if (ragBudget > 50) {
+        const chronicleBudget = Math.max(0, Math.floor(available * 0.3));
+        if (chronicleBudget > 50) {
             try {
-                ragSections = await retrieveRag(ragBudget);
+                const chronicle = await retrieveChronicle(chronicleBudget);
+                chronicleStats = chronicle.stats;
+                if (chronicle.text) {
+                    ragSections = [
+                        {
+                            priority: 1,
+                            content: chronicle.text,
+                            tokens: countTokens(chronicle.text),
+                            label: 'Chronique',
+                            type: 'summary',
+                        },
+                    ];
+                }
             } catch (err) {
-                console.warn('[RAG] Context retrieval failed:', err);
+                console.warn('[Chronicle] Retrieval failed:', err);
             }
         }
     }
@@ -377,6 +411,8 @@ export async function buildConversationPayload(
         droppedMessageCount,
         stablePrefixLength,
         suggestedCutMessageId,
+        nextDynamicReserve,
+        historyWindow,
         tokenBreakdown,
     } = buildRAGEnhancedPayload(systemPrompt, ragSections, history, {
         maxContextTokens,
@@ -388,17 +424,22 @@ export async function buildConversationPayload(
         assistantPrefill,
         activeProvider,
         historyCutMessageId: params.historyCutMessageId,
+        dynamicReserveTokens: params.dynamicReserveTokens,
     });
 
     return {
         systemPrompt,
         effectivePostHistory,
         ragSections,
+        chronicleStats,
+        templatePlacesLorebook,
         messagesPayload,
         includedMessageCount,
         droppedMessageCount,
         stablePrefixLength,
         suggestedCutMessageId,
+        nextDynamicReserve,
+        historyWindow,
         tokenBreakdown,
     };
 }

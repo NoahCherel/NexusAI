@@ -187,10 +187,7 @@ interface SettingsState {
     nanogptBackgroundModel: string | null; // NanoGPT background override (null = auto-pick from subscription)
 
     // RAG / Memory Settings
-    enableFactExtraction: boolean;
     enableHierarchicalSummaries: boolean;
-    enableRAGRetrieval: boolean;
-    minRAGConfidence: number; // 0–1, minimum confidence threshold for RAG sections
 
     // Per-response <scratchpad> working memory. Costs output tokens on every reply and
     // invalidates prompt caching, so it's opt-in.
@@ -251,10 +248,7 @@ interface SettingsState {
     setMaxSceneSpeakers: (max: number) => void;
     setEnableRelationshipAnalyst: (enabled: boolean) => void;
     setEnableMomentum: (enabled: boolean) => void;
-    setEnableFactExtraction: (enabled: boolean) => void;
     setEnableHierarchicalSummaries: (enabled: boolean) => void;
-    setEnableRAGRetrieval: (enabled: boolean) => void;
-    setMinRAGConfidence: (value: number) => void;
     setUseCanonCodex: (enabled: boolean) => void;
     setUseCanonAutoFetch: (enabled: boolean) => void;
 
@@ -306,10 +300,7 @@ export const useSettingsStore = create<SettingsState>()(
             maxSceneSpeakers: 5,
             enableRelationshipAnalyst: true,
             enableMomentum: true,
-            enableFactExtraction: true,
             enableHierarchicalSummaries: true,
-            enableRAGRetrieval: true,
-            minRAGConfidence: 0,
             useCanonCodex: true,
             useCanonAutoFetch: true,
 
@@ -379,14 +370,10 @@ export const useSettingsStore = create<SettingsState>()(
             setEnableRelationshipAnalyst: (enableRelationshipAnalyst) =>
                 set({ enableRelationshipAnalyst }),
             setEnableMomentum: (enableMomentum) => set({ enableMomentum }),
-            setEnableFactExtraction: (enableFactExtraction) => set({ enableFactExtraction }),
             setEnableHierarchicalSummaries: (enableHierarchicalSummaries) =>
                 set({ enableHierarchicalSummaries }),
-            setEnableRAGRetrieval: (enableRAGRetrieval) => set({ enableRAGRetrieval }),
             setUseCanonCodex: (useCanonCodex) => set({ useCanonCodex }),
             setUseCanonAutoFetch: (useCanonAutoFetch) => set({ useCanonAutoFetch }),
-            setMinRAGConfidence: (minRAGConfidence) =>
-                set({ minRAGConfidence: Math.max(0, Math.min(1, minRAGConfidence)) }),
 
             // Preset Actions
             addPreset: (preset) =>

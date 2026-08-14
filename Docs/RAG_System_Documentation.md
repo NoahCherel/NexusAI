@@ -1,786 +1,601 @@
-# NexusAI — RAG Memory System Documentation
+# NexusAI — Memory & Context System
+
+How the app decides what the model sees on every turn: the prompt's three zones, the
+**Chronicle** (long-term memory), the **history window** (verbatim messages), and the budget
+that arbitrates between them.
+
+> **Naming note.** This file used to describe a "RAG memory system" with three competing
+> stores — atomic facts, hierarchical summaries, and vector-searched message chunks. Facts and
+> vector chunks were removed entirely (their IndexedDB stores are dropped at DB v8). Long-term
+> memory is now the Chronicle alone. Section 12 explains why.
 
 ## Table of Contents
 
 1. [Overview](#1-overview)
-2. [Architecture](#2-architecture)
-3. [Data Layer (IndexedDB)](#3-data-layer-indexeddb)
-4. [Embedding Service](#4-embedding-service)
-5. [Tokenizer](#5-tokenizer)
-6. [Hierarchical Summarization](#6-hierarchical-summarization)
-7. [Fact Extraction](#7-fact-extraction)
-8. [RAG Retrieval](#8-rag-retrieval)
-9. [Context Builder](#9-context-builder)
-10. [Lorebook System](#10-lorebook-system)
-11. [Settings & Toggles](#11-settings--toggles)
-12. [Reindex Feature](#12-reindex-feature)
-13. [Context Preview Panel](#13-context-preview-panel)
-14. [Memory Panel (UI)](#14-memory-panel-ui)
-15. [Token Budget Management](#15-token-budget-management)
-16. [Data Flow Diagrams](#16-data-flow-diagrams)
-17. [File Reference](#17-file-reference)
-18. [Improvement Proposals](#18-improvement-proposals)
+2. [The three prompt zones](#2-the-three-prompt-zones)
+3. [The Chronicle](#3-the-chronicle)
+4. [The injected format](#4-the-injected-format)
+5. [The history window](#5-the-history-window)
+6. [Budget arbitration](#6-budget-arbitration)
+7. [Data layer (IndexedDB)](#7-data-layer-indexeddb)
+8. [Embeddings, tokenizer, lorebook](#8-embeddings-tokenizer-lorebook)
+9. [Settings](#9-settings)
+10. [UI surfaces](#10-ui-surfaces)
+11. [Export / import](#11-export--import)
+12. [What was removed, and why](#12-what-was-removed-and-why)
+13. [Tests](#13-tests)
+14. [Tuning & troubleshooting](#14-tuning--troubleshooting)
+15. [File reference](#15-file-reference)
 
 ---
 
 ## 1. Overview
 
-NexusAI is a roleplay chat application built with **Next.js 16**, **Zustand**, and **IndexedDB**. It features a comprehensive **RAG (Retrieval-Augmented Generation) memory system** that gives the AI persistent long-term memory across conversations.
+A roleplay conversation outgrows any context window. Two mechanisms keep it coherent:
 
-### Core Problem Solved
+- **The history window** — the most recent messages, verbatim. Truth, but finite.
+- **The Chronicle** — a hierarchical summary of everything that fell out of that window.
+  Compressed, and the *only* thing that remembers it.
 
-LLMs have a finite context window (8k–128k tokens). For roleplay conversations that span hundreds of messages, early events are lost when the context fills up. The RAG system ensures the AI always has access to:
+Both compete for the same budget, so the arbitration between them is the heart of this
+document. The design constraint throughout is **prompt caching**: providers only cache a
+byte-identical prefix, so the front of the prompt must stay still across turns. Filling the
+context to the brim on every turn and caching well are in direct tension; §5 and §6 describe
+how that tension is resolved and where the dial sits.
 
-- **Summaries** of past events (hierarchical L0/L1/L2)
-- **Key facts** (relationships, items, locations, consequences)
-- **Semantically relevant** past message chunks
+**Key files**
 
-### Key Technologies
-
-| Component        | Technology                                      |
-| ---------------- | ----------------------------------------------- |
-| Framework        | Next.js 16.1.1 (App Router, Turbopack)          |
-| State Management | Zustand 5.0.9                                   |
-| Database         | IndexedDB via `idb` 8.0.3                       |
-| Tokenizer        | `gpt-tokenizer` (cl100k_base encoding)          |
-| Embeddings       | `@xenova/transformers` (all-MiniLM-L6-v2, 384d) |
-| AI APIs          | OpenRouter, OpenAI, Anthropic                   |
-| Tests            | Vitest 4.0.18 (56 tests)                        |
+| Concern | File |
+|---|---|
+| Prompt assembly (single entry point) | `src/lib/ai/payload-builder.ts` |
+| Zones, history window, dynamic block | `src/lib/ai/context-builder.ts` |
+| Chronicle: levels, prompts, rendering | `src/lib/ai/hierarchical-summarizer.ts` |
+| Budget fitting helper | `src/lib/ai/rag-budget.ts` |
+| Background summarization | `src/hooks/useBackgroundPipeline.ts` |
+| Lorebook + context preview | `src/lib/ai/rag-service.ts` |
+| Storage | `src/lib/db.ts` |
 
 ---
 
-## 2. Architecture
+## 2. The three prompt zones
 
-### High-Level Architecture
+`buildConversationPayload` assembles every request — generation, preview and impersonation —
+so the three call sites cannot drift apart or double-inject.
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                        CHAT PAGE                             │
-│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌────────────┐  │
-│  │ Message   │  │ Context  │  │ Memory   │  │ Settings   │  │
-│  │ Display   │  │ Preview  │  │ Panel    │  │ Panel      │  │
-│  └─────┬────┘  └────┬─────┘  └────┬─────┘  └─────┬──────┘  │
-│        │            │             │               │          │
-│  ┌─────▼────────────▼─────────────▼───────────────▼──────┐  │
-│  │              STATE MANAGEMENT (Zustand)                 │  │
-│  │   chat-store │ character-store │ settings-store │ ...  │  │
-│  └────────────────────────┬───────────────────────────────┘  │
-│                           │                                  │
-│  ┌────────────────────────▼───────────────────────────────┐  │
-│  │                   AI SERVICE LAYER                      │  │
-│  │  ┌────────────┐ ┌────────────┐ ┌──────────────────┐   │  │
-│  │  │ Context    │ │ RAG        │ │ Hierarchical     │   │  │
-│  │  │ Builder    │ │ Service    │ │ Summarizer       │   │  │
-│  │  └────────────┘ └────────────┘ └──────────────────┘   │  │
-│  │  ┌────────────┐ ┌────────────┐ ┌──────────────────┐   │  │
-│  │  │ Fact       │ │ Embedding  │ │ Lorebook         │   │  │
-│  │  │ Extractor  │ │ Service    │ │ Extractor        │   │  │
-│  │  └────────────┘ └────────────┘ └──────────────────┘   │  │
-│  └────────────────────────┬───────────────────────────────┘  │
-│                           │                                  │
-│  ┌────────────────────────▼───────────────────────────────┐  │
-│  │              DATA LAYER (IndexedDB v5)                  │  │
-│  │   messages │ vectors │ summaries │ facts │ characters  │  │
-│  └────────────────────────────────────────────────────────┘  │
+┌─ STABLE (cache prefix) ─────────────────────────────────────┐
+│ system: card, engine block, canon dossiers, arc map,        │
+│         mes_example, learned ban list                       │
+├─ HISTORY (cache prefix, moves rarely) ──────────────────────┤
+│ user/assistant … the verbatim window                        │
+├─ DYNAMIC (never cached, re-rendered every turn) ────────────┤
+│ [CURRENT CONTEXT]: Chronicle, lorebook, RP journal,         │
+│   relationships, [ARC], momentum nudge, scratchpad          │
+│ engine contract, preset + card post-history,                │
+│ Scene Mode contracts, continue instruction                  │
 └─────────────────────────────────────────────────────────────┘
 ```
 
-### Request Flow (User Sends Message)
+`stablePrefixLength` (system + included history) is the `cache_control` anchor sent to the API.
+Everything after it is expected to change every turn; everything before it must not.
+
+The dynamic block is built by `buildDynamicContextBlock` and opens with an authority line:
 
 ```
-User types message
-       │
-       ▼
-  handleSend()
-       │
-       ├──► Lorebook Extraction on PREVIOUS assistant message
-       │    (only the active branch/regeneration gets extracted)
-       │
-       ▼
-  triggerAiReponse()
-       │
-       ├──1── Hybrid Lorebook Search (keyword + semantic)
-       │
-       ├──2── Build System Prompt (template + lorebook + world state)
-       │
-       ├──3── RAG Retrieval (summaries + facts + vectors)
-       │      Budget: max(25% remaining, 15% total context)
-       │
-       ├──4── Build RAG-Enhanced Payload (system + RAG + history)
-       │      History filled newest-to-oldest until budget exhausted
-       │
-       ├──5── Stream AI Response
-       │
-       └──6── Background Post-Processing:
-              ├── World State Analysis
-              └── Fact Extraction (if enabled, not on regeneration)
+Priority of truth: CANON > IN THIS RP > Chronique > Lorebook. On conflict, the higher source wins.
 ```
 
 ---
 
-## 3. Data Layer (IndexedDB)
+## 3. The Chronicle
 
-### Database: `nexusai-db` (v5)
+Three levels, each compressing the one below.
 
-| Store             | keyPath | Indexes                                           | Purpose                                           |
-| ----------------- | ------- | ------------------------------------------------- | ------------------------------------------------- |
-| `characters`      | `id`    | `by-name`                                         | Character cards (name, personality, avatar, etc.) |
-| `conversations`   | `id`    | `by-character`                                    | Conversation metadata + world state               |
-| `messages`        | `id`    | `by-conversation`                                 | Individual messages with branching support        |
-| `lorebookHistory` | `id`    | `by-character`, `by-timestamp`                    | Lorebook snapshots                                |
-| `settings`        | `key`   | —                                                 | Persistent settings                               |
-| `vectors`         | `id`    | `by-conversation`                                 | Embedded message chunks for semantic search       |
-| `summaries`       | `id`    | `by-conversation`, `by-level`                     | Hierarchical summaries (L0/L1/L2)                 |
-| `facts`           | `id`    | `by-conversation`, `by-category`, `by-importance` | Extracted world facts                             |
+| Level | Name (UI) | Covers | Built from | Threshold |
+|---|---|---|---|---|
+| 0 | Fragment (L0) | ~10 messages (6–15, adaptive) | raw messages | `shouldCreateL0Summary` |
+| 1 | Section (L1) | 5 Fragments ≈ 50 messages | its L0s | `L1_THRESHOLD = 5` |
+| 2 | Arc (L2) | 3 Sections ≈ 150 messages | its L1s | `L2_THRESHOLD = 3` |
 
-### Schema Migrations
+### Storage shape
 
-- **v2 → v3**: Extracted embedded `messages[]` from conversations into a dedicated `messages` store.
-- **v3 → v4**: Added `messageOrder` and `regenerationIndex` fields for tree-based branching.
-- **v4 → v5**: Added RAG stores (`vectors`, `summaries`, `facts`).
-
-### Key Data Types
-
-```typescript
-// Vector Entry — embedded message chunk
-interface VectorEntry {
-    id: string;
-    conversationId: string;
-    messageIds: string[];
-    text: string;
-    embedding: number[]; // 384-d vector
-    metadata: {
-        timestamp: number;
-        characters: string[];
-        location: string;
-        importance: number; // 1–10
-        tags: string[];
-    };
-}
-
-// Memory Summary — hierarchical
+```ts
 interface MemorySummary {
     id: string;
     conversationId: string;
-    level: 0 | 1 | 2; // L0=chunk, L1=section, L2=arc
-    messageRange: [number, number];
+    level: 0 | 1 | 2;
+    messageRange: [number, number]; // 0-based, END EXCLUSIVE: [0,50] is the first 50
     content: string;
-    keyFacts: string[];
-    embedding?: number[];
-    childIds: string[]; // L1 → L0 children, L2 → L1 children
+    keyFacts: string[];             // shown in the panel, never injected
+    childIds: string[];             // L1 → its L0s, L2 → its L1s. No upward link.
     createdAt: number;
-}
-
-// World Fact — extracted knowledge
-interface WorldFact {
-    id: string;
-    conversationId: string;
-    messageId: string;
-    fact: string;
-    category: 'event' | 'relationship' | 'item' | 'location' | 'lore' | 'consequence' | 'dialogue';
-    importance: number; // 1–10
-    active: boolean;
-    timestamp: number;
-    embedding?: number[];
-    relatedEntities: string[];
-    lastAccessedAt: number;
-    accessCount: number;
+    branchPath?: string[];          // branch lineage at creation time
+    isManuallyEdited?: boolean;     // hand-rewritten in the memory panel
+    editedAt?: number;
 }
 ```
 
----
+`messageRange` is **end-exclusive**. The UI and the injected text both render it as 1-based
+inclusive (`[0,50]` → "messages 1-50"); showing the raw pair read as "msgs 0–10" for the first
+ten messages, which was simply wrong.
 
-## 4. Embedding Service
+### Production
 
-**File**: `src/lib/ai/embedding-service.ts`
+`useBackgroundPipeline` runs after each message, on the background model (never the paid RP
+model), gated by `enableHierarchicalSummaries`. One run produces at most one L0, then one L1,
+then one L2.
 
-### Model
+Chunk size is adaptive (`getAdaptiveChunkSize`): dense, high-quality messages summarize in
+groups of 6; thin ones in groups of 15.
 
-- **Primary**: `Xenova/all-MiniLM-L6-v2` (~6 MB quantized, runs entirely in-browser)
-- **Output**: 384-dimensional dense vectors
-- **Input truncation**: 512 characters
-- **Fallback**: TF-IDF/BM25 hash-based embedding (unigrams + bigrams → 384-d hashed vector, L2-normalized)
+**Catch-up.** Normally the pipeline runs far ahead of eviction. It can fall behind — memory
+switched off for a while, no API key when those messages arrived, repeated background
+failures, a long imported conversation. Messages that leave the verbatim window without ever
+being summarized are gone from the model's memory entirely; nothing else covers them now.
+So when `evictedCount > coveredCount`, the pipeline produces up to `CATCHUP_L0_PER_RUN = 3`
+Fragments per run instead of one, and `buildChronicle` reports the gap as
+`stats.uncoveredEvictedMessages` (surfaced as a warning in the context preview).
 
-### Caching
+### Prompts
 
-- In-memory `Map<string, number[]>`, keyed on first 200 chars
-- Max 500 entries (FIFO eviction)
+`SUMMARIZATION_PROMPT_L1` / `_L2` ask for real substance — 150–250 words for a Section,
+250–350 for an Arc — and say why: *once the raw messages scroll out of the context window,
+this text is all that remains of them*. They used to be capped at "Max 2-3 sentences", which
+is what made long roleplays feel amnesiac: 50 messages compressed into two lines.
 
-### Key Functions
+All three levels carry `Write in the SAME LANGUAGE as the source material`. Without it a
+French roleplay produced English summaries, injected into an otherwise French prompt.
 
-| Function                              | Description                                   |
-| ------------------------------------- | --------------------------------------------- |
-| `initEmbedder()`                      | Lazy-loads the ML pipeline, returns `boolean` |
-| `embedText(text)`                     | Single text → `number[]`                      |
-| `embedTexts(texts)`                   | Batch embedding (sequential to avoid OOM)     |
-| `cosineSimilarity(a, b)`              | Cosine similarity between two vectors         |
-| `findTopK(query, items, k, minScore)` | Top-K cosine search over any collection       |
-
-### Status: `'idle' | 'loading' | 'ready' | 'fallback'`
-
----
-
-## 5. Tokenizer
-
-**File**: `src/lib/tokenizer.ts`
-
-- **Library**: `gpt-tokenizer`
-- **Encoding**: `cl100k_base` (GPT-4 / GPT-3.5-turbo compatible)
-- **Fallback**: `Math.ceil(text.length / 4)` if encoding fails
-
-### Functions
-
-| Function                                 | Description                                     |
-| ---------------------------------------- | ----------------------------------------------- |
-| `countTokens(text)`                      | Exact token count                               |
-| `countTokensBatch(texts)`                | Sum of individual counts                        |
-| `truncateToTokenBudget(text, maxTokens)` | Binary search for longest prefix fitting budget |
+Each prompt asks for coverage of: actions and consequences · decisions and by whom · named
+people, places, objects · relationship shifts · **what is left unresolved**. Output is JSON
+(`{summary, keyFacts}`); `parseSummarizationResponse` falls back to raw text if the model
+doesn't comply.
 
 ---
 
-## 6. Hierarchical Summarization
+## 4. The injected format
 
-**File**: `src/lib/ai/hierarchical-summarizer.ts`
+This is the part that most affects output quality, and the part that was most broken.
 
-The summarization system creates a pyramid of summaries at three levels of abstraction.
+The old rendering was flat: `📖 Story Arc:` followed by `📝 Recent Events:`, no ranges, no
+nesting. An Arc and the Sections underneath it describe **the same 150 messages** at different
+zoom levels — and nothing in that format said so. The model could read them as two separate
+runs of events and narrate the same beat twice.
 
-### Summary Hierarchy
+`buildChronicle` renders the pyramid as a pyramid:
 
 ```
-              ┌──────────────┐
-              │   L2 (Arc)   │  ~150 messages
-              │  Story arcs  │
-              └──────┬───────┘
-                     │
-         ┌───────────┼───────────┐
-         ▼           ▼           ▼
-   ┌──────────┐ ┌──────────┐ ┌──────────┐
-   │ L1 (Sec) │ │ L1 (Sec) │ │ L1 (Sec) │  ~50 messages each
-   │ Sections │ │ Sections │ │ Sections │
-   └─────┬────┘ └─────┬────┘ └─────┬────┘
-         │            │            │
-    ┌────┼────┐  ┌────┼────┐  ┌────┼────┐
-    ▼    ▼    ▼  ▼    ▼    ▼  ▼    ▼    ▼
-  ┌──┐ ┌──┐ ┌──┐ ┌──┐ ┌──┐ ┌──┐ ┌──┐ ┌──┐ ...
-  │L0│ │L0│ │L0│ │L0│ │L0│ │L0│ │L0│ │L0│     10 messages each
-  └──┘ └──┘ └──┘ └──┘ └──┘ └──┘ └──┘ └──┘
+[CHRONICLE — what has already happened in this story, oldest first.
+The levels OVERLAP: an Arc summarizes the SAME period as the Sections nested under it, only
+more compressed; a Section summarizes the SAME period as its Fragments. NEVER treat an Arc and
+its Sections as two different sequences of events — they are one sequence at two zoom levels.
+The most recent messages appear in full in the conversation above.]
+
+■ ARC 1 — messages 1-150
+<arc text>
+
+  ▸ Section 1 — messages 1-50
+  <section text>
+
+  ▸ Section 2 — messages 51-100
+  (this period is covered by the Arc above)
+
+  ▸ Section 3 — messages 101-150
+  <section text>
+
+■ ARC 2 — messages 151-210
+<arc text>
+
+  ▸ Section 4 — messages 151-200
+  <section text>
+
+▸ Recent fragments — messages 201-214
+<L0 texts>
 ```
 
-### Trigger Rules
+Three things carry the meaning:
 
-| Level            | Trigger Condition        | Covers                   |
-| ---------------- | ------------------------ | ------------------------ |
-| **L0** (chunk)   | Every **10 messages**    | ~10 consecutive messages |
-| **L1** (section) | Every **5 L0** summaries | ~50 messages             |
-| **L2** (arc)     | Every **3 L1** summaries | ~150 messages            |
+- **The preamble** states the overlap explicitly.
+- **Every entry carries its message range**, so overlap is verifiable rather than implied.
+- **Nesting is visual and ordered**, so containment is unambiguous.
 
-### Processing
+Two markers handle the edges:
 
-1. **Automatic**: A `useEffect` in `page.tsx` runs after each message change. Gated by `enableHierarchicalSummaries` setting.
-2. **Model**: `deepseek/deepseek-r1-0528:free` (via OpenRouter)
-3. **Output format**: JSON `{ "summary": "...", "keyFacts": ["..."] }`
-4. **Side effects**: L0 summaries also generate vector embeddings and extract facts from key facts.
+- `(this period is covered by the Arc above)` — a Section dropped for budget. The model sees
+  there is no hole, just a coarser zoom.
+- `(the end of this period also appears in full above)` — a Section straddling the eviction
+  boundary. Harmless overlap, now stated rather than hidden.
 
-### Deduplication
+The block is in English, like the rest of the assembled prompt (`[CURRENT CONTEXT]`, `[ARC]`,
+`[IN THIS RP]`). The summaries nested inside are in the roleplay's own language.
 
-- **Jaccard word overlap**: Computes word-level overlap (words > 3 chars) between summaries.
-- **Threshold**: 60% overlap → treated as duplicate, skipped.
+**Coverage is computed from `messageRange`, not `childIds`.** The old code walked
+Arc → Section → Fragment through `childIds` on an already-filtered array: if the intermediate
+Section had been filtered out, its Fragments were reported "uncovered" and the Arc was
+re-injected together with its own Fragments. Range containment has no such failure mode.
 
 ---
 
-## 7. Fact Extraction
+## 5. The history window
 
-**File**: `src/lib/ai/fact-extractor.ts`
+`buildRAGEnhancedPayload` chooses how many recent messages fit. This is where the
+"context isn't full" bug lived.
 
-### Categories
+### The bug
 
-| Category       | Description                    | Color (UI) |
-| -------------- | ------------------------------ | ---------- |
-| `event`        | Story events, actions taken    | Blue       |
-| `relationship` | Character relationships, bonds | Pink       |
-| `item`         | Objects, inventory, artifacts  | Amber      |
-| `location`     | Places, settings, geography    | Green      |
-| `lore`         | World rules, lore, backstory   | Purple     |
-| `consequence`  | Results of actions, promises   | Red        |
-| `dialogue`     | Important spoken statements    | Cyan       |
+The window was sized against `maxContext − system − output − postHistory`, using **this
+turn's** post-history. That block swings hard from turn to turn — Chronicle, lorebook, RP
+journal, relationships, arc, a one-shot momentum nudge, a regenerated scratchpad, Scene Mode
+contracts. On overflow the window was refit to 75% of that budget and the anchor
+(`historyCutMessageId`) was persisted — and **the anchor could only ever move forward**.
 
-### Extraction Flow
+So the single fattest turn in a conversation set the window size for every turn after it. A
+momentum nudge injected once cost history permanently. Measured fill on a 16k preset: **~69%**.
 
-```
-AI Response → Fact Extraction Prompt → LLM (llama-3.3-70b-instruct:free)
-                                          │
-                                          ▼
-                                    JSON Array of facts
-                                          │
-                                          ▼
-                               Parse & Validate each fact
-                                          │
-                                          ▼
-                            Deduplicate against existing facts
-                                          │
-                                          ▼
-                               Embed facts (384-d vectors)
-                                          │
-                                          ▼
-                             Save to IndexedDB `facts` store
+### The fix: two budgets
+
+```ts
+const room             = maxContextTokens - systemTokens - maxOutputTokens;
+const reserveForSizing = min(dynamicReserveTokens ?? postHistoryTokens, room * 0.45);
+const availableSized   = room - reserveForSizing;   // CHOOSES the window
+const availableActual  = room - postHistoryTokens;  // hard constraint: must fit
 ```
 
-### Deduplication Rules
+`dynamicReserveTokens` is a **measured, smoothed** size of the dynamic zone, persisted on the
+conversation and updated as an exponential moving average (`RESERVE_ADAPT_RATE = 0.35`).
 
-1. **Exact match**: Case-insensitive string comparison on `fact` field.
-2. **Semantic similarity**: If ≥2 entity overlap AND same category → compute Jaccard word overlap → if >60%, it's a duplicate.
+Deliberately *not* a high-water mark: jumping straight to a spike's size would let one fat turn
+shrink the window for the ~30 turns it took to decay back — a slower version of the very
+ratchet this replaces. Deliberately *not* predicted either (summing granted budgets):
+the dynamic zone almost never spends what it is allowed, so a predicted reserve over-reserves
+massively.
 
-### Importance Scoring
+### Three cases
 
-Built-in `heuristicImportance()` fallback using keyword patterns:
+| Case | Condition | Action | Anchor persisted |
+|---|---|---|---|
+| Structural overflow | `total > availableSized` | refit to `historyTarget` | **yes** |
+| Transient spike | fits `availableSized`, not `availableActual` | trim just enough for this request | **no** |
+| Fits | otherwise | unchanged, or expand if the trigger is crossed | yes if expanded |
 
-- **High** (≥7): kill, die, betray, secret, wedding, pregnant, war...
-- **Medium** (≥5): attack, fight, steal, find, discover, escape...
-- **Low** (≥2): say, ask, smile, walk, look...
-- **Bonuses**: +1 for >500 chars, +2 for >1000 chars
+**The transient case is what kills the ratchet.** A one-off spike is absorbed without ever
+anchoring the window low; the next normal turn gets the full window back.
 
-### Gating
+**Expansion** reaches back into the past by a *block* when room opens up durably. It is what
+repairs conversations whose anchor was cut under the old rule — they carry no stored reserve,
+so the first turn after the upgrade sizes against a full budget and reclaims history in one
+step (one cache miss, once).
 
-- Disabled on **regeneration** and **continue** (via `skipFactExtraction` option)
-- Toggled globally via `enableFactExtraction` setting
+### The anti-ping-pong invariant
+
+Right after a cut, free space equals `growthHeadroom` exactly. Any expansion trigger at or
+below it would re-expand on the very next turn and thrash the cache prefix forever. So:
+
+```ts
+const expandTrigger = Math.max(
+    availableSized * EXPAND_TRIGGER_RATIO,
+    growthHeadroom + avgMsg * MIN_EXPAND_MESSAGES   // > growthHeadroom, always
+);
+```
+
+The max makes it impossible by construction, whatever the ratio says. This is guarded by the
+`does not thrash when the dynamic zone oscillates` test.
+
+### Growth headroom, in messages
+
+The margin's only job is to absorb the ~2 messages added per turn. That is not a quantity
+proportional to context size: as a flat 25% it left 10k tokens empty on a 40k context to
+absorb ~600 tokens of growth. It is now `avgMsg × HEADROOM_MESSAGES`, clamped by ratio bounds.
+
+### Measured result
+
+120 simulated turns, 16k context, volatile dynamic zone (900–1700 tk, periodic 2200 tk spikes):
+
+| Profile | History fill (steady) | Worst turn | Prefix breaks / 120 turns |
+|---|---|---|---|
+| **Max fill** (`HEADROOM_MESSAGES: 4`) — current | **94.4%** | 88.9% | 42 (~1 per 2.9 turns) |
+| Cache-friendly (`HEADROOM_MESSAGES: 8`) | 90.7% | 80.9% | 24 (~1 per 5 turns) |
+| Before this change | ~69% | — | rare, but permanently degraded |
+
+Total context engagement under the current profile: **95.4%** steady state, 89.9% worst turn.
+
+To switch profiles, edit `HISTORY_WINDOW_TUNING` in `context-builder.ts`: set
+`HEADROOM_MESSAGES: 8`, `HEADROOM_MIN_RATIO: 0.08`, `HEADROOM_MAX_RATIO: 0.25`.
 
 ---
 
-## 8. RAG Retrieval
+## 6. Budget arbitration
 
-**File**: `src/lib/ai/rag-service.ts`
+Order of operations in `buildConversationPayload`:
 
-### `retrieveRelevantContext(queryText, conversationId, tokenBudget, options)`
+1. Build the system prompt → `systemTokens` is now known.
+2. `available = maxContext − system − output`.
+3. **Chronicle budget = `available × 0.30`** (skipped below 50 tokens). History keeps ~70%.
+4. `buildChronicle(budget)` returns text guaranteed to cost ≤ budget.
+5. Assemble the dynamic block (Chronicle + lorebook + journal + contracts).
+6. Size and fill the history window against what's actually left (§5).
 
-The main retrieval function builds context sections in priority order:
+The old formula had a floor expressed against the **total** context (15%), which ignored how
+much room was really left: a small context plus a big card could starve history to zero
+messages. A flat share of the remaining room cannot do that.
 
-```
-Token Budget Distribution:
-┌─────────────────────────────────────────┐
-│  30%: Summaries (max 300 tokens)        │  Priority 1
-│  Remaining: Facts via vector search     │  Priority 2
-│  Remaining: Message chunks via vectors  │  Priority 3
-└─────────────────────────────────────────┘
-```
+### Chronicle degradation, most to least essential
 
-### Retrieval Pipeline
+What gets dropped first is what the Arc above it already covers.
 
-1. **Embed query** → 384-d vector
-2. **Summary retrieval**: `getBestContextSummary()` — picks highest-level available summary within 30% budget (max 300 tokens). Deduplicates by word overlap.
-3. **Fact retrieval**: Vector search over all active facts. Top 10 by cosine similarity. Updates access metadata (recency/frequency tracking).
-4. **Chunk retrieval**: Vector search over indexed message chunks. Top 5 by combined score.
+1. **Bridging Fragments** — the stretch between the last Section and the verbatim window. A
+   hole here is the worst possible one: it sits immediately before what the model can see.
+   Capped at 40% of the Chronicle budget.
+2. **Every Arc** — the spine, few and compressed. If even those don't fit, the oldest are
+   dropped and announced: `[Arcs 1-5 — messages 1-750: omitted for space]`.
+3. **Sections**, newest first, with whatever remains. Omitted ones show the placeholder line.
 
-### Combined Scoring (Chunks & Facts)
+Selection uses `fitRankedBlock` (`rag-budget.ts`), which fits a ranked list by dropping the
+tail. It replaces the old all-or-nothing test (`if (tokens <= remaining)`) that threw away
+100% of a block for a one-token overshoot. After assembly, the real token count is verified
+and the oldest Section shed until it fits — per-entry estimates can undershoot once everything
+is joined, because BPE merges across joins.
 
-```
-combinedScore = 0.5 × cosineSimilarity
-             + 0.25 × (importance / 10)
-             + 0.25 × temporalDecay
-```
+Sizing figures, Sections ≈ 280 tk and Arcs ≈ 420 tk:
 
-### Temporal Decay
-
-Exponential decay with importance-based half-life:
-
-- Importance ≥ 8 → half-life = 720 hours (30 days)
-- Importance ≥ 5 → half-life = 168 hours (7 days)
-- Otherwise → half-life = 48 hours (2 days)
-
-**Boosts**:
-
-- Recency: 1.5× if accessed within 1 hour
-- Frequency: `1 + min(accessCount × 0.1, 0.5)`
-
-### Hybrid Lorebook Search
-
-Combines keyword matching and semantic search for lorebook entries:
-
-1. **Keyword scan**: Check each entry's `keys[]` against last `scanDepth` messages + current query.
-2. **Semantic similarity**: Embed `keys + content`, compute cosine similarity.
-3. **Scoring**: Keyword match = `1.0 + semanticScore`, semantic-only = `semanticScore`.
-4. **Budget fill**: Skip entries with score < 0.25, fill until `tokenBudget` exhausted.
+| Context | `available` | Chronicle budget | Roughly |
+|---|---|---|---|
+| 8k | ~4100 | ~1240 | 2 Arcs + 1 Section |
+| 16k | ~12300 | ~3700 | 3 Arcs + 8 Sections |
+| 32k | ~28000 | ~8400 | full pyramid |
 
 ---
 
-## 9. Context Builder
+## 7. Data layer (IndexedDB)
 
-**File**: `src/lib/ai/context-builder.ts`
+Database `nexusai-db`, **version 8**.
 
-### System Prompt Template
+| Store | Key | Indexes |
+|---|---|---|
+| `characters` | `id` | `by-name` |
+| `conversations` | `id` | `by-character` |
+| `messages` | `id` | `by-conversation` |
+| `summaries` | `id` | `by-conversation`, `by-level` |
+| `lorebookHistory` | `id` | `by-character`, `by-timestamp` |
+| `settings` | `key` | — |
+| `canon` | `work::character` | `by-work` |
+| `arcOutlines` | `work` | — |
 
-Variables resolved at runtime:
+**v8 migration is destructive and intentional.** It calls `deleteObjectStore` on `facts` and
+`vectors`. Neither has a reader any more, and their embeddings (hundreds of floats per row)
+were by far the heaviest thing on disk — dropping the stores is the only way to reclaim that
+space. Existing exports are unaffected: they never contained either.
 
-| Placeholder                             | Source                               |
-| --------------------------------------- | ------------------------------------ |
-| `{{character_name}}` / `{{char}}`       | Character name                       |
-| `{{character_description}}`             | Character description                |
-| `{{character_personality}}`             | Personality traits                   |
-| `{{scenario}}`                          | Scene/scenario                       |
-| `{{world_state}}`                       | Location + relationships + inventory |
-| `{{lorebook}}`                          | Active lorebook entries              |
-| `{{memory}}` / `{{long_term_memory}}`   | User's manual notes                  |
-| `{{user}}`                              | User persona name                    |
-| `{{user_bio}}` / `{{user_description}}` | User bio                             |
+`deleteConversation` now also deletes the conversation's summaries. They used to outlive their
+conversation forever.
 
-### `buildRAGEnhancedPayload` — Token Budget Flow
+Summary API: `saveSummary` (upsert — also the update path: read, patch, write back),
+`getSummariesByConversation`, `deleteSummary`, `deleteSummariesByConversation`.
+
+---
+
+## 8. Embeddings, tokenizer, lorebook
+
+**Embeddings** (`embedding-service.ts`) are still used, but *only* by the hybrid lorebook
+search, which embeds lorebook entries and the query. It never touched the message-vector
+store, so removing that store did not affect it. Summaries no longer carry an `embedding`
+field — it was computed and persisted on every summary and never once read.
+
+**Tokenizer** (`tokenizer.ts`) is real BPE (`gpt-tokenizer`, cl100k_base), not a
+characters÷4 heuristic; the heuristic survives only as a `catch` fallback. `countMessageTokens`
+memoizes per message id + content hash (BPE over a long history costs hundreds of ms at the
+exact moment the user hits send).
+
+**Lorebook** (`resolveActiveLorebookEntries`) honours the preset's `useLorebooks`, runs a
+hybrid keyword + semantic search, and falls back to the pure keyword scan on error.
+`extraScanText` feeds it the other memory systems' injected text (canon dossiers, RP journal,
+relationships) so entries fire on names those systems bring up, not just on recent messages.
+
+Where the lorebook is rendered depends on the preset template: inside the system prompt when it
+contains `{{lorebook}}`, in the dynamic zone otherwise (`templatePlacesLorebook`). The context
+preview needs this to know where those tokens are already counted.
+
+---
+
+## 9. Settings
+
+| Setting | Default | Effect |
+|---|---|---|
+| `enableHierarchicalSummaries` | `true` | **The whole long-term memory.** Off = the model is amnesiac about anything that leaves the window. |
+| `enableScratchpad` | `false` | Per-response `<scratchpad>`; costs output tokens and invalidates caching. |
+| `maxContextTokens` / `maxOutputTokens` | per preset (8192 / 2048 for *Balanced*) | The budget. |
+| `lorebookTokenBudget` | 2000 (generation) | Lorebook share of the dynamic zone. |
+
+`enableRAGRetrieval` and `enableFactExtraction` were removed. The first was redundant — with
+no summaries the Chronicle is empty, and without injection it is useless, so two switches
+gated one thing. The second belonged to a system that no longer exists. `minRAGConfidence`
+scored facts and chunks; both are gone.
+
+---
+
+## 10. UI surfaces
+
+### Memory panel (`MemoryPanel.tsx`)
+
+Five tabs: Notes, Guidage, Scratchpad, Style, **Résumés**. The Faits tab is gone.
+
+The Résumés tab is now editable:
+
+- **Edit** (pencil) — inline textarea. Saving stamps `isManuallyEdited` + `editedAt` and shows
+  a "modifié à la main" badge.
+- **Regenerate** (sparkles, L1/L2 only) — rebuilds one summary from its `childIds` on the
+  background model. Necessary rather than decorative: improving the prompts does nothing to
+  summaries already written, and the only other route is a full re-index. Regenerating clears
+  the manual-edit flag — the text is machine-written again. L0 has no button: it is built from
+  raw messages, not from child summaries.
+- **Key facts** — collapsible list. Stored since forever, never displayed until now.
+- **Ranges** — rendered 1-based inclusive.
+- **Re-index** — destroys and rebuilds the whole Chronicle. The confirmation dialog now counts
+  the hand-edited summaries that will be lost. It also uses the adaptive chunk size, matching
+  the live pipeline (it used a fixed 10, producing a Chronicle that didn't line up).
+
+### Context preview (`ContextPreviewPanel.tsx`)
+
+Shows every section with its token cost, plus:
+
+- **Two-segment budget bar** — input actually sent, then the slice reserved for the reply.
+  One bar made a mostly-empty context look fuller than it was.
+- **History window panel** — used / budget with a fill bar, refit target, dynamic reserve,
+  recoverable messages, and a plain-French sentence for the decision taken
+  (`Inchangée — préfixe en cache`, `Recoupée`, `Élargie`, `Rognage temporaire`).
+- **Chronicle line** — arcs, sections and fragments injected, and how many were omitted.
+- **`countedIn` badges** — see below.
+
+### The preview used to over-count
+
+Three separate double-counts inflated the total:
+
+- The canon section re-counted `[CANON — …]` blocks already inside the system prompt.
+- The Chronicle was counted as its own section *and* inside the post-history block containing
+  it.
+- History was counted on a display transcript decorated with localized role labels, while the
+  payload builder counted raw content per message.
+
+Sections that merely display material counted elsewhere now carry
+`countedIn: 'system' | 'post-history'` and contribute **zero** to the total, with a badge
+saying where. Without the badge, a 900-token section that no longer adds up reads as a bug.
+
+Consequence worth knowing: **the displayed total dropped** after this fix. The real fill was
+always lower than the panel claimed.
+
+---
+
+## 11. Export / import
+
+`exportConversationForCharacter` bundles the card subset, the conversation (including
+`relationships` and `summaries`), and the messages.
+
+The Chronicle is exported because it *is* the long-term memory, it can be edited by hand, and
+rebuilding it costs dozens of background calls.
+
+On import, `remapSummariesForImport` mints a new id for every summary and rewrites `childIds`
+through the same old→new table. Left as-is they would point at ids that don't exist in the new
+conversation, and an Arc would render as though it covered no Sections. Children missing from
+the export are dropped rather than left dangling. Exports without a `summaries` field — every
+file produced before this change — import normally.
+
+---
+
+## 12. What was removed, and why
+
+### Atomic facts (`WorldFact`)
+
+A background model extracted 3–5 "atomic facts" per notable response, embedded each one, and
+injected the top-10 by cosine similarity as `🔍 Relevant Past Events`.
+
+Removed because it duplicated the Sections without being readable or editable, cost one
+background call per message, and — critically — the model could not tell that a fact, the
+Section covering the same beat, and the Arc above it were the same event three times.
+
+### Vector chunk retrieval
+
+L0 summaries were also written into a `vectors` store and retrieved by similarity as
+`📜 Related Past Scenes`. Same duplication problem, plus an embedding write per summary.
+
+### The trade-off, honestly
+
+Facts and chunks gave *similarity-targeted* recall: a precise detail from 400 messages ago
+could resurface if the current message happened to match it. The Chronicle gives *narrative
+continuity*. Substantial Sections cover the second use well and the first adequately — but a
+minor detail the chronicler chose not to keep is gone for good.
+
+What was gained: memory that is predictable, fully readable, editable by hand, exportable, and
+whose overlap is explicit to the model. And one less background call per message.
+
+This is reversible — nothing about the Chronicle prevents reintroducing a vector index later.
+
+---
+
+## 13. Tests
+
+`npx vitest run`
+
+| File | Covers |
+|---|---|
+| `prompt-cache.test.ts` | Zone layout, **the cache-prefix contract**, window refit/expand/spike/starvation |
+| `chronicle.test.ts` | Nesting, ranges, degradation, budget ceiling, branch filter, coverage gap |
+| `rag-budget.test.ts` | `fitRankedBlock`: tail-dropping, one-token overshoot, hard ceiling |
+| `conversation-transfer.test.ts` | `childIds` remapping, hand-edit flag, empty Chronicle |
+| `card-fields.test.ts` | Chronicle budget vs history starvation |
+| `post-beat-analyses.test.ts` | One relationship pass per beat (`skipBeatAnalyses`) |
+
+Two assertions matter more than the rest:
+
+**`cuts a whole block on overflow and reuses the anchor on later turns`** is the cache-prefix
+contract. It passed unmodified through this entire change and must keep doing so — it is what
+proves the window doesn't move every turn.
+
+**`does not thrash when the dynamic zone oscillates turn to turn`** (≤ 2 anchor moves over 20
+oscillating turns) is what separates this design from a naive symmetric hysteresis, which
+would produce ~10.
+
+The old fill assertion allowed anything between 35% and 75% of budget — wide enough that a
+regression filling 36% passed. It now requires the window to stop **within one message** of
+its target.
+
+---
+
+## 14. Tuning & troubleshooting
+
+**"The context still isn't full."** Open the context preview and read the *Fenêtre
+d'historique* panel: `Utilisé / budget` is the real fill. If the budget itself is small, the
+dynamic zone is eating it — check `réserve dynamique` against the 45% cap and reduce
+`lorebookTokenBudget`. If fill is low but free space is large, the panel says whether the
+window will widen next turn.
+
+**"The model forgot something that happened."** Check the Chronicle line in the preview.
+`N section(s) omises faute de place` means it was dropped for budget — the Arc still covers the
+period, more coarsely. A `⚠️ N message(s) sont sortis de la fenêtre sans avoir été résumés`
+warning means real loss: the pipeline was behind. Catch-up is automatic (3 Fragments per run).
+
+**"Summaries are too shallow."** They predate the rewritten prompts. Regenerate the Arc or
+Section from the memory panel, or re-index (which discards hand edits — the dialog counts
+them).
+
+**"My prompt cache hit rate dropped."** Expected: the max-fill profile recuts every ~3 turns.
+§5 has the numbers and the one-line switch back.
+
+**Constants worth knowing**
+
+| Constant | Value | File |
+|---|---|---|
+| `RESERVE_MAX_RATIO` | 0.45 | `context-builder.ts` |
+| `RESERVE_ADAPT_RATE` | 0.35 | `context-builder.ts` |
+| `HEADROOM_MESSAGES` | 4 | `context-builder.ts` |
+| Chronicle budget share | 0.30 of `available` | `payload-builder.ts` |
+| `L1_THRESHOLD` / `L2_THRESHOLD` | 5 / 3 | `hierarchical-summarizer.ts` |
+| `CATCHUP_L0_PER_RUN` | 3 | `useBackgroundPipeline.ts` |
+
+---
+
+## 15. File reference
 
 ```
-┌─────────────────────────────────────────────┐
-│            maxContextTokens (e.g. 16384)     │
-│                                              │
-│  ┌──────────────────────────────────────┐   │
-│  │ System Prompt    (fixed)              │   │
-│  │ + RAG Sections   (injected)           │   │
-│  ├──────────────────────────────────────┤   │
-│  │ Chat History     (newest-first fill)  │   │
-│  ├──────────────────────────────────────┤   │
-│  │ Post-History Instructions (optional)  │   │
-│  ├──────────────────────────────────────┤   │
-│  │ Max Output Tokens (reserved)          │   │
-│  └──────────────────────────────────────┘   │
-└─────────────────────────────────────────────┘
+src/lib/ai/
+  payload-builder.ts        Single assembly point; Chronicle budget
+  context-builder.ts        Zones, dynamic block, HISTORY WINDOW, tuning constants
+  hierarchical-summarizer.ts  Levels, thresholds, prompts, buildChronicle
+  rag-budget.ts             fitRankedBlock
+  rag-service.ts            Lorebook resolution, buildContextPreview
+  embedding-service.ts      Embeddings (lorebook only)
+  post-beat.ts              Arc capture, momentum, relationship analyst
+src/hooks/
+  useBackgroundPipeline.ts  Auto-summary L0→L1→L2, catch-up
+  useChatGeneration.ts      Generation flow, window-state persistence
+src/lib/
+  db.ts                     IndexedDB v8
+  tokenizer.ts              BPE counting + memoization
+  conversation-transfer.ts  Export / import incl. Chronicle
+  rag-data-loader.ts        Panel loader
+src/components/chat/
+  MemoryPanel.tsx           Chronicle editing / regeneration / re-index
+  ContextPreviewPanel.tsx   Sections, budget bar, history-window panel
+src/types/
+  rag.ts                    MemorySummary, ContextSection
+  chat.ts                   Conversation.historyCutMessageId, .dynamicReserveTokens
 ```
-
-1. Calculate fixed costs (system prompt + post-history)
-2. Inject RAG sections into system prompt (sorted by priority)
-3. Calculate remaining budget for history
-4. Fill history **newest-to-oldest** until budget exhausted
-5. Append post-history instructions and optional assistant prefill
-
----
-
-## 10. Lorebook System
-
-### Automatic Extraction
-
-**File**: `src/lib/lorebook-extractor.ts`
-
-- **When**: After the user sends a NEW message, the **previous assistant message** is analyzed (not the new AI response). This ensures only the "chosen" regeneration gets extracted.
-- **Model**: User's active model (whatever they configured)
-- **Extraction targets**: Proper nouns only — named characters, unique locations, unique artifacts
-- **Output**: Suggestions queue → user must Accept/Reject via LorebookEditor UI
-
-### Matching at Runtime
-
-**File**: `src/lib/ai/context-builder.ts` — `getActiveLorebookEntries()`
-
-- Scans last `scanDepth` messages (default 2) for keyword matches
-- Supports whole-word regex matching or substring matching
-- Recursive scanning: matched entry content is scanned for more key matches
-- Token-budgeted (default 500 tokens)
-
-### Hybrid Search (RAG-enhanced)
-
-**File**: `src/lib/ai/rag-service.ts` — `hybridLorebookSearch()`
-
-Combines keyword + semantic embedding similarity for more accurate lorebook activation.
-
----
-
-## 11. Settings & Toggles
-
-**File**: `src/stores/settings-store.ts`
-
-### RAG/Memory Settings (all default: `true`)
-
-| Setting                       | Description                                            | Location     |
-| ----------------------------- | ------------------------------------------------------ | ------------ |
-| `enableRAGRetrieval`          | Use RAG to inject summaries/facts/vectors into context | Advanced tab |
-| `enableFactExtraction`        | Extract facts from AI responses                        | Advanced tab |
-| `enableHierarchicalSummaries` | Auto-create L0/L1/L2 summaries                         | Advanced tab |
-| `lorebookAutoExtract`         | Suggest new lorebook entries from messages             | Advanced tab |
-
-### Other Relevant Settings
-
-| Setting           | Default | Description                                         |
-| ----------------- | ------- | --------------------------------------------------- |
-| `showThoughts`    | `true`  | Show CoT reasoning thoughts                         |
-| `immersiveMode`   | `false` | Fullscreen chat mode                                |
-| `enableReasoning` | `false` | Enable Chain-of-Thought for models like DeepSeek R1 |
-
----
-
-## 12. Reindex Feature
-
-**Location**: Memory Panel → Summaries tab → "Reindex Conversation" button
-
-### What It Does
-
-Retroactively processes all un-indexed messages in the current conversation:
-
-1. **Chunks messages** into groups of 10
-2. **Creates L0 summaries** for each chunk (via LLM)
-3. **Indexes vector chunks** for semantic search
-4. **Extracts facts** from summary key facts
-5. **Creates L1 summaries** if 5+ L0s exist
-6. **Creates L2 summaries** if 3+ L1s exist
-
-### When To Use
-
-- Imported an existing conversation with 400+ messages
-- Disabled RAG during a long conversation and want to retroactively analyze it
-- Lost RAG data and need to rebuild
-
-### Notes
-
-- Skips already-indexed chunks (incremental)
-- Uses `meta-llama/llama-3.3-70b-instruct:free` via OpenRouter
-- 1-second delay between chunks to avoid rate limiting
-- Shows progress indicator during processing
-
----
-
-## 13. Context Preview Panel
-
-**Component**: `ContextPreviewPanel`
-
-Shows exactly what will be sent to the AI API:
-
-- **System Prompt** (with token count)
-- **Lorebook Entries** (matched entries, token count)
-- **RAG Sections** (summaries, facts, chunks — each with token count)
-- **Chat History** (included/dropped message count)
-- **Post-History Instructions**
-- **Total Token Usage** (with visual bar + warnings at >90%)
-
-Supports **draft preview**: includes the message being typed before sending.
-
----
-
-## 14. Memory Panel (UI)
-
-**File**: `src/components/chat/MemoryPanel.tsx`
-
-### 3 Tabs
-
-| Tab           | Content                                                                                                |
-| ------------- | ------------------------------------------------------------------------------------------------------ |
-| **Notes**     | User's manual memory entries. Add, edit, delete. AI Summary generation.                                |
-| **Facts**     | Auto-extracted facts. View by category and importance. Delete individual or clear all.                 |
-| **Summaries** | Hierarchical summaries (L0/L1/L2). Sorted by level (highest first). Delete individual. Reindex button. |
-
----
-
-## 15. Token Budget Management
-
-### RAG Budget Allocation
-
-```
-proportionalBudget = floor((maxContextTokens - systemTokens - maxOutputTokens) × 0.25)
-minimumBudget      = floor(maxContextTokens × 0.15)
-ragBudget          = max(proportionalBudget, minimumBudget)
-```
-
-The 15% minimum is a **reservation**, not a forced allocation. If RAG retrieval only uses 8% of the budget, the remaining 7% automatically goes back to chat history (since `buildRAGEnhancedPayload` only deducts actual tokens used by RAG sections).
-
-### Example: 16384-token context
-
-| Scenario                      | System | RAG Budget             | Actual RAG Used | History Gets |
-| ----------------------------- | ------ | ---------------------- | --------------- | ------------ |
-| Short conversation            | 2000   | max(3084, 2457) = 3084 | 1500            | 10836        |
-| Long conversation (200+ msgs) | 5000   | max(1596, 2457) = 2457 | 800             | 8126         |
-| Very long + big system prompt | 8000   | max(334, 2457) = 2457  | 2000            | 3927         |
-
----
-
-## 16. Data Flow Diagrams
-
-### Message Lifecycle
-
-```
-User sends message
-       │
-       ├──► Lorebook extraction on previous assistant message (async, fire-and-forget)
-       │
-       ▼
-   Add user message to store
-       │
-       ▼
-   triggerAiReponse()
-       │
-       ├──► 1. Hybrid lorebook keyword+semantic search
-       ├──► 2. Build system prompt (template resolution)
-       ├──► 3. RAG retrieval (summaries → facts → chunks)
-       ├──► 4. Build payload (system+RAG+history, token-budgeted)
-       ├──► 5. Stream response from AI API
-       │
-       ▼
-   Post-stream processing
-       │
-       ├──► World state analysis (location, relationships, inventory)
-       ├──► Fact extraction (async, LLM-based)
-       │
-       ▼
-   useEffect: Hierarchical Summarizer
-       │
-       ├──► Check if L0 needed (every 10 messages)
-       ├──► Check if L1 needed (every 5 L0s)
-       └──► Check if L2 needed (every 3 L1s)
-```
-
-### Regeneration vs New Message
-
-```
-┌─────────────────────────────────────────────┐
-│              handleSend()                    │
-│  ✅ Lorebook extraction (previous msg)       │
-│  ✅ Fact extraction (new AI response)        │
-│  ✅ World state analysis                     │
-│  ✅ Hierarchical summaries                   │
-├─────────────────────────────────────────────┤
-│           handleRegenerate()                 │
-│  ❌ Lorebook extraction (skipped)            │
-│  ❌ Fact extraction (skipped)                │
-│  ✅ World state analysis                     │
-│  ✅ Hierarchical summaries                   │
-├─────────────────────────────────────────────┤
-│            handleContinue()                  │
-│  ❌ Lorebook extraction (skipped)            │
-│  ❌ Fact extraction (skipped)                │
-│  ✅ World state analysis                     │
-│  ✅ Hierarchical summaries                   │
-└─────────────────────────────────────────────┘
-```
-
----
-
-## 17. File Reference
-
-### Core AI Services
-
-| File                                    | Purpose                                                               |
-| --------------------------------------- | --------------------------------------------------------------------- |
-| `src/lib/ai/context-builder.ts`         | System prompt construction, lorebook matching, RAG payload builder    |
-| `src/lib/ai/rag-service.ts`             | RAG retrieval, hybrid lorebook search, vector search, context preview |
-| `src/lib/ai/hierarchical-summarizer.ts` | L0/L1/L2 summary pyramid, deduplication                               |
-| `src/lib/ai/fact-extractor.ts`          | Fact extraction, parsing, deduplication, importance scoring           |
-| `src/lib/ai/embedding-service.ts`       | MiniLM embeddings, caching, cosine similarity                         |
-| `src/lib/ai/providers.ts`               | AI provider configuration                                             |
-| `src/lib/tokenizer.ts`                  | Token counting (cl100k_base)                                          |
-| `src/lib/lorebook-extractor.ts`         | Automatic lorebook entry extraction                                   |
-| `src/lib/memory-summarizer.ts`          | Manual memory summary generation                                      |
-| `src/lib/db.ts`                         | IndexedDB schema, CRUD operations                                     |
-
-### Components
-
-| File                                         | Purpose                                                  |
-| -------------------------------------------- | -------------------------------------------------------- |
-| `src/app/chat/page.tsx`                      | Main chat page, integration hub for all systems          |
-| `src/components/chat/MemoryPanel.tsx`        | Memory panel UI (Notes/Facts/Summaries + Reindex)        |
-| `src/components/chat/ChatBubble.tsx`         | Message rendering with edit/regenerate/continue/branch   |
-| `src/components/chat/RelationshipPanel.tsx`  | Directional multi-axis relationships (Relations panel)   |
-| `src/components/chat/TreeVisualization.tsx`  | Message branch tree visualization                        |
-| `src/components/lorebook/LorebookEditor.tsx` | Lorebook editor with suggestions                         |
-| `src/components/settings/PresetEditor.tsx`   | Settings/presets with RAG toggles                        |
-
-### Stores
-
-| File                            | Purpose                             |
-| ------------------------------- | ----------------------------------- |
-| `src/stores/settings-store.ts`  | All settings including RAG toggles  |
-| `src/stores/chat-store.ts`      | Conversations, messages, branching  |
-| `src/stores/character-store.ts` | Character cards, long-term memory   |
-| `src/stores/lorebook-store.ts`  | Lorebook entries, suggestions queue |
-
-### Types
-
-| File                     | Purpose                                                     |
-| ------------------------ | ----------------------------------------------------------- |
-| `src/types/rag.ts`       | VectorEntry, MemorySummary, WorldFact, ContextSection, etc. |
-| `src/types/preset.ts`    | APIPreset fields, default presets, system prompt template   |
-| `src/types/character.ts` | CharacterCard type                                          |
-| `src/types/chat.ts`      | Message, Conversation, DirectedRelationship types           |
-
----
-
-## 18. Improvement Proposals
-
-### 1. Conversation-Scoped Persona Memory
-
-**Problem**: User personas share memory across conversations. A user playing different characters in different RPs gets mixed context.
-
-**Solution**: Scope user notes and persona context per conversation, not globally.
-
-### 2. Semantic Fact Merging
-
-**Problem**: Similar facts accumulate over time (e.g., "Alice is angry" → "Alice is furious" → "Alice is enraged"). All three are separate entries.
-
-**Solution**: Periodic fact consolidation — use embeddings to find clusters of similar facts and merge them via LLM, keeping the most recent/important version.
-
-### 3. Adaptive Summarization Frequency
-
-**Problem**: L0 triggers every 10 messages regardless of content density. A fast-paced battle scene has more important events per message than casual dialogue.
-
-**Solution**: Monitor token density and importance of recent messages. Trigger summarization earlier for high-density segments and later for low-density ones.
-
-### 4. RAG Confidence Scoring
-
-**Problem**: RAG sections are always injected if they exist, even if poorly matched to the current context.
-
-**Solution**: Add a minimum relevance threshold. Show confidence scores in the Context Preview so users can tune.
-
-### 5. Multi-Conversation Knowledge Graph
-
-**Problem**: Facts and relationships are siloed per conversation. If the same character appears in multiple RPs, knowledge doesn't transfer.
-
-**Solution**: Optional character-level fact store that aggregates across conversations. Toggle: "Use cross-conversation knowledge."
-
-### 6. Streaming Fact Extraction
-
-**Problem**: Fact extraction waits for the full AI response, then makes a separate LLM call. This adds latency and costs an extra API call.
-
-**Solution**: Extract facts incrementally as the response streams in, using heuristic pattern matching (for high-importance keywords) supplemented by periodic LLM verification.
-
-### 7. User-Defined Fact Templates
-
-**Problem**: Users may want to track specific types of information (e.g., HP, gold, quest progress) beyond the default categories.
-
-**Solution**: Allow custom fact categories with user-defined extraction patterns and display templates. Could work like structured lorebook entries.
-
-### 8. Conversation Branching Awareness in RAG
-
-**Problem**: RAG indexes all messages including inactive branches. Facts from abandoned storylines may pollute the active branch context.
-
-**Solution**: Tag vector entries and facts with their branch path. Only retrieve from the active branch lineage.
-
-### 9. Export/Import RAG Data
-
-**Problem**: RAG data (summaries, facts, vectors) is locked in the browser's IndexedDB. Switching browsers or devices loses everything.
-
-**Solution**: Add export/import functionality for the RAG database (JSON or binary). Could integrate with the existing character export format.
-
-### 10. Visual Timeline / Story Map
-
-**Problem**: For long RPs (500+ messages), users lose track of the narrative arc. Summaries help the AI but don't help the user.
-
-**Solution**: Build a visual timeline component showing L0/L1/L2 summaries on a scrollable timeline with branch visualization. Users can click events to jump to the original messages.
-
-### 11. Smart Context Priority
-
-**Problem**: The RAG budget distribution (30% summaries, rest split) is static. Some conversations may need more facts than summaries.
-
-**Solution**: Dynamic budget allocation based on query type. Combat queries favor facts/events. Dialogue queries favor relationships. Exploration queries favor locations.
-
-### 12. Automatic World State Updates from Facts
-
-**Problem**: World state (location, inventory, relationships) is only updated by the world state analyzer. Some facts imply state changes that aren't captured.
-
-**Solution**: Feed extracted facts back into the world state system. E.g., a fact "Alice gave Bob the sword" → automatically update Bob's inventory.
-
-### 13. Message Quality Scoring
-
-**Problem**: All messages are treated equally during summarization and fact extraction. Short "okay" responses waste processing.
-
-**Solution**: Score message quality/density before processing. Skip low-quality messages. Weight high-quality messages more in summaries.
-
-### 14. PWA Offline Support with Background Sync
-
-**Problem**: The app requires internet for AI API calls. Background processing (fact extraction, summaries) fails if offline.
-
-**Solution**: Queue background tasks and execute when connectivity returns. Leverage Service Worker for offline-first architecture.
-
-### 15. Collaborative Multi-User RP
-
-**Problem**: NexusAI is single-user. Multi-user RP sessions require external coordination.
-
-**Solution**: WebSocket-based real-time collaboration where multiple users control different characters. Shared world state. Individual RAG scoping per user's perspective.

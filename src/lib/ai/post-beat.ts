@@ -2,56 +2,39 @@
 
 /**
  * Post-beat background pipeline — everything that runs AFTER a generation completes:
- * arc cursor capture + canon dossier fetch, anti-stall detection (momentum nudge),
- * relationship analysis, and fact extraction.
+ * arc cursor capture + canon dossier fetch, anti-stall detection (momentum nudge), and
+ * relationship analysis.
  *
  * Single entry point (fire-and-forget, mirrors the historical inline behaviour of the chat
  * page) so the chat page — and later the Mode Troupe orchestrator — can't drift apart.
+ *
+ * Fact extraction used to run here too. It was removed with the rest of the WorldFact system:
+ * the Chronicle's Sections carry that memory now, and they cost no extra background call.
  */
 
 import type { CharacterCard } from '@/types/character';
 import type { Message } from '@/types/chat';
-import type { WorldFact } from '@/types/rag';
 import { useChatStore } from '@/stores/chat-store';
 import { useSettingsStore } from '@/stores/settings-store';
-import { backgroundAICall } from '@/lib/ai/background-ai';
-import {
-    FACT_EXTRACTION_PROMPT,
-    buildFactExtractionPrompt,
-    parseFactExtractionResponse,
-    deduplicateFacts,
-} from '@/lib/ai/fact-extractor';
-import { scoreMessageQuality } from '@/lib/ai/message-quality';
 import { resolveWork, nameMatchesText } from '@/lib/ai/canon-context';
 import { fetchCharacterDossier } from '@/lib/ai/canon-retrieval';
 import { detectStall, buildMomentumNudge } from '@/lib/ai/momentum';
 import { analyzeAndUpdateRelationships } from '@/lib/ai/relationship-analyst';
-import {
-    embedText,
-    isEmbedderReady,
-    getEmbeddingModelSignature,
-} from '@/lib/ai/embedding-service';
-import { saveFactsBatch, getFactsByConversation } from '@/lib/db';
 
 export interface PostBeatParams {
     character: CharacterCard;
     conversationId: string;
     /** Cleaned content (scratchpad/CoT stripped) — drives canon/arc/stall/relations. */
     finalContent: string;
-    /** Raw streamed content — the historical input to fact extraction. */
-    fullContent: string;
-    /** Id of the generated message (extracted facts are tied to it). */
+    /** Id of the generated message. */
     targetId: string;
     /** History BEFORE the generated message (stall detection compares to the previous beat). */
     history: Message[];
-    /** Active-branch message ids at generation time (branch-aware fact tagging). */
-    branchMessageIds: string[];
-    personaName?: string;
     isImpersonation: boolean;
     /**
      * This generation is not a fresh beat worth analysing: a non-final Troupe turn, or a
-     * regenerate/continue/retry of something already analysed. Suppresses BOTH fact extraction
-     * and the relationship analyst — running either again double-counts the same beat.
+     * regenerate/continue/retry of something already analysed. Suppresses the relationship
+     * analyst — running it again double-counts the same beat.
      */
     skipBeatAnalyses: boolean;
     /**
@@ -71,11 +54,8 @@ export function runPostBeatAnalyses(params: PostBeatParams): void {
         character,
         conversationId,
         finalContent,
-        fullContent,
         targetId,
         history,
-        branchMessageIds,
-        personaName,
         isImpersonation,
         skipBeatAnalyses,
         beatContent,
@@ -144,85 +124,5 @@ export function runPostBeatAnalyses(params: PostBeatParams): void {
             beatContent || finalContent,
             targetId
         ).catch((e) => console.error('[Relationships] analysis failed', e));
-    }
-
-    // ===== RAG: background fact extraction from the AI response (skip on regeneration).
-    // Quality gate: skip extraction for trivial/short responses to save API calls. =====
-    if (settings.enableFactExtraction && fullContent && !skipBeatAnalyses) {
-        const responseQuality = scoreMessageQuality({ role: 'assistant', content: fullContent });
-        if (responseQuality.score >= 4) {
-            (async () => {
-                try {
-                    // Troupe mode: list the OTHER characters present in recent beats so
-                    // facts credit the right speaker instead of the main card character.
-                    const sceneCharacters = [
-                        ...new Set(
-                            history
-                                .slice(-12)
-                                .filter(
-                                    (m) =>
-                                        m.speaker?.kind === 'character' &&
-                                        m.speaker.name !== character.name
-                                )
-                                .map((m) => m.speaker!.name)
-                        ),
-                    ];
-                    const factPrompt = buildFactExtractionPrompt(
-                        fullContent,
-                        character.name,
-                        personaName || 'User',
-                        sceneCharacters
-                    );
-
-                    // Runs on the unified background layer — backgroundAICall resolves its
-                    // own keys (NanoGPT quota or free OpenRouter rotation).
-                    const { backgroundModel: bgModel } = useSettingsStore.getState();
-                    const factSystemPrompt = FACT_EXTRACTION_PROMPT;
-
-                    const factResult = await backgroundAICall({
-                        systemPrompt: factSystemPrompt,
-                        userPrompt: factPrompt,
-                        temperature: 0.2,
-                        backgroundModel: bgModel,
-                    });
-
-                    if (!factResult) return;
-
-                    const extractedFacts = parseFactExtractionResponse(
-                        factResult.content,
-                        conversationId,
-                        targetId
-                    );
-                    if (extractedFacts.length === 0) return;
-
-                    const existingFacts = await getFactsByConversation(conversationId);
-                    const deduped = deduplicateFacts(extractedFacts, existingFacts);
-                    if (deduped.length === 0) return;
-
-                    // Tag facts with the active branch path for branch-aware retrieval
-                    const factsWithIds: WorldFact[] = [];
-                    for (const f of deduped) {
-                        const emb = await embedText(f.fact);
-                        factsWithIds.push({
-                            ...f,
-                            id: crypto.randomUUID(),
-                            embedding: emb,
-                            embeddingRevision: isEmbedderReady()
-                                ? getEmbeddingModelSignature()
-                                : undefined,
-                            branchPath: branchMessageIds,
-                        });
-                    }
-                    await saveFactsBatch(factsWithIds);
-                    console.log(`[RAG] Extracted ${factsWithIds.length} facts from response`);
-                } catch (err) {
-                    console.error('[RAG] Fact extraction failed:', err);
-                }
-            })();
-        } else {
-            console.log(
-                `[RAG] Skipping fact extraction — response quality too low (${responseQuality.score}/10: ${responseQuality.label})`
-            );
-        }
     }
 }

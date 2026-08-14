@@ -1,10 +1,13 @@
 /**
- * `skipBeatAnalyses` gates BOTH fact extraction and the relationship analyst.
+ * `skipBeatAnalyses` gates the relationship analyst: one pass per BEAT, not per generation.
  *
  * It used to be `skipFactExtraction`, honoured only by fact extraction — so in Troupe "turns"
  * mode the relationship analyst fired once per SPEAKER instead of once per beat: N background
  * calls, and up to N × NORMAL_DELTA_CAP of drift on a single beat. Regenerate/continue/retry
  * had the same problem, re-applying deltas for a beat already scored.
+ *
+ * (Fact extraction was the other thing this flag gated; the WorldFact system is gone — the
+ * Chronicle's Sections carry that memory now.)
  */
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
@@ -15,8 +18,6 @@ import type { CharacterCard } from '@/types/character';
 import type { Conversation } from '@/types/chat';
 
 vi.mock('@/lib/db', () => ({
-    saveFactsBatch: vi.fn(async () => undefined),
-    getFactsByConversation: vi.fn(async () => [] as never[]),
     saveConversation: vi.fn(async () => undefined),
     getConversationsByCharacter: vi.fn(async () => [] as never[]),
     saveMessage: vi.fn(async () => undefined),
@@ -57,10 +58,8 @@ function params(overrides: Partial<PostBeatParams> = {}): PostBeatParams {
         character: card,
         conversationId: CONV_ID,
         finalContent: 'Sasuke turns away without a word.',
-        fullContent: 'Sasuke turns away without a word.',
         targetId: 'm1',
         history: [],
-        branchMessageIds: [],
         isImpersonation: false,
         skipBeatAnalyses: false,
         ...overrides,
@@ -69,7 +68,7 @@ function params(overrides: Partial<PostBeatParams> = {}): PostBeatParams {
 
 beforeEach(() => {
     vi.clearAllMocks();
-    useSettingsStore.setState({ enableFactExtraction: false, enableMomentum: false });
+    useSettingsStore.setState({ enableMomentum: false });
     useChatStore.setState({
         conversations: [
             {

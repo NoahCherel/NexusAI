@@ -8,11 +8,9 @@ import {
     ChevronRight,
     Eye,
     Zap,
-    Brain,
     BookOpen,
     MessageSquare,
     FileText,
-    Globe,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import type { ContextSection } from '@/types/rag';
@@ -27,12 +25,31 @@ interface ContextPreviewPanelProps {
     warnings: string[];
     includedMessages: number;
     droppedMessages: number;
+    /** History-window accounting: the answer to "why isn't my budget full?". */
+    tokenBreakdown?: {
+        history: number;
+        dynamicReserve: number;
+        historyBudget: number;
+        historyTarget: number;
+        historyHeadroom: number;
+        system: number;
+    };
+    historyWindow?: {
+        action: 'unchanged' | 'cut' | 'expanded' | 'transient-trim';
+        reason: string;
+        recoverableMessageCount: number;
+    };
+    chronicleStats?: {
+        arcs: number;
+        sections: number;
+        fragments: number;
+        omittedSections: number;
+        uncoveredEvictedMessages: number;
+    };
 }
 
 const sectionIcons: Record<string, React.ReactNode> = {
     system: <Zap className="h-4 w-4 text-yellow-400" />,
-    memory: <Brain className="h-4 w-4 text-purple-400" />,
-    fact: <Eye className="h-4 w-4 text-blue-400" />,
     summary: <BookOpen className="h-4 w-4 text-green-400" />,
     lorebook: <BookOpen className="h-4 w-4 text-orange-400" />,
     canon: <BookOpen className="h-4 w-4 text-rose-400" />,
@@ -42,13 +59,18 @@ const sectionIcons: Record<string, React.ReactNode> = {
 
 const sectionColors: Record<string, string> = {
     system: 'border-yellow-400/30 bg-yellow-400/5',
-    memory: 'border-purple-400/30 bg-purple-400/5',
-    fact: 'border-blue-400/30 bg-blue-400/5',
     summary: 'border-green-400/30 bg-green-400/5',
     lorebook: 'border-orange-400/30 bg-orange-400/5',
     canon: 'border-rose-400/30 bg-rose-400/5',
     history: 'border-cyan-400/30 bg-cyan-400/5',
     'post-history': 'border-pink-400/30 bg-pink-400/5',
+};
+
+const windowActionLabels: Record<string, string> = {
+    unchanged: 'Inchangée — préfixe en cache',
+    cut: 'Recoupée',
+    expanded: 'Élargie',
+    'transient-trim': 'Rognage temporaire',
 };
 
 export function ContextPreviewPanel({
@@ -61,6 +83,9 @@ export function ContextPreviewPanel({
     warnings,
     includedMessages,
     droppedMessages,
+    tokenBreakdown,
+    historyWindow,
+    chronicleStats,
 }: ContextPreviewPanelProps) {
     const [expandedSections, setExpandedSections] = useState<Set<number>>(new Set());
 
@@ -136,24 +161,129 @@ export function ContextPreviewPanel({
                                     </span>
                                 </span>
                             </div>
-                            <div className="h-2 bg-white/5 rounded-full overflow-hidden">
+                            {/* Two segments: what is actually sent, then the slice reserved
+                                for the reply. Showing them as one bar made a mostly-empty
+                                context look fuller than it was. */}
+                            <div className="h-2 bg-white/5 rounded-full overflow-hidden flex">
                                 <div
-                                    className={`h-full ${usageColor} rounded-full transition-all duration-300`}
-                                    style={{ width: `${usagePercent}%` }}
+                                    className={`h-full ${usageColor} transition-all duration-300`}
+                                    style={{
+                                        width: `${Math.min(100, (inputTokens / maxTokens) * 100)}%`,
+                                    }}
+                                />
+                                <div
+                                    className="h-full bg-white/15 transition-all duration-300"
+                                    style={{
+                                        width: `${Math.min(100, (maxOutputTokens / maxTokens) * 100)}%`,
+                                    }}
+                                    title="Réservé pour la réponse du modèle"
                                 />
                             </div>
                             <div className="flex items-center justify-between text-xs text-muted-foreground">
-                                <span>{usagePercent}% utilisé</span>
+                                <span>
+                                    {usagePercent}% engagé (dont{' '}
+                                    {maxOutputTokens.toLocaleString()} réservés en sortie)
+                                </span>
                                 <span>
                                     {includedMessages} messages inclus
                                     {droppedMessages > 0 && (
                                         <span className="text-yellow-400 ml-1">
-                                            ({droppedMessages} tronqués)
+                                            ({droppedMessages} évincés)
                                         </span>
                                     )}
                                 </span>
                             </div>
                         </div>
+
+                        {/* History window — the accounting that used to be invisible, which is
+                            exactly why an under-filled context went unnoticed for so long. */}
+                        {tokenBreakdown && historyWindow && (
+                            <div className="px-4 py-3 border-b border-white/5 shrink-0 space-y-1.5 text-xs">
+                                <div className="flex items-center justify-between">
+                                    <span className="text-muted-foreground font-medium">
+                                        Fenêtre d&apos;historique
+                                    </span>
+                                    <span className="text-muted-foreground">
+                                        {windowActionLabels[historyWindow.action] ??
+                                            historyWindow.action}
+                                    </span>
+                                </div>
+                                <div className="flex items-center justify-between font-mono">
+                                    <span className="text-muted-foreground">Utilisé / budget</span>
+                                    <span>
+                                        <span className="text-foreground">
+                                            {tokenBreakdown.history.toLocaleString()}
+                                        </span>
+                                        <span className="text-muted-foreground">
+                                            {' '}
+                                            / {tokenBreakdown.historyBudget.toLocaleString()} tk
+                                        </span>
+                                        {tokenBreakdown.historyBudget > 0 && (
+                                            <span className="text-muted-foreground">
+                                                {' '}
+                                                (
+                                                {Math.round(
+                                                    (tokenBreakdown.history /
+                                                        tokenBreakdown.historyBudget) *
+                                                        100
+                                                )}
+                                                %)
+                                            </span>
+                                        )}
+                                    </span>
+                                </div>
+                                <div className="h-1.5 bg-white/5 rounded-full overflow-hidden">
+                                    <div
+                                        className="h-full bg-cyan-400/70 rounded-full"
+                                        style={{
+                                            width: `${Math.min(
+                                                100,
+                                                tokenBreakdown.historyBudget > 0
+                                                    ? (tokenBreakdown.history /
+                                                          tokenBreakdown.historyBudget) *
+                                                          100
+                                                    : 0
+                                            )}%`,
+                                        }}
+                                    />
+                                </div>
+                                <div className="flex items-center justify-between text-[11px] text-muted-foreground">
+                                    <span>
+                                        Cible {tokenBreakdown.historyTarget.toLocaleString()} ·
+                                        réserve dynamique{' '}
+                                        {tokenBreakdown.dynamicReserve.toLocaleString()}
+                                    </span>
+                                    {historyWindow.recoverableMessageCount > 0 && (
+                                        <span>
+                                            {historyWindow.recoverableMessageCount} récupérables
+                                        </span>
+                                    )}
+                                </div>
+                                <p className="text-[11px] text-muted-foreground/80 italic">
+                                    {historyWindow.reason}
+                                </p>
+                                {chronicleStats && (
+                                    <p className="text-[11px] text-muted-foreground">
+                                        Chronique : {chronicleStats.arcs} arc
+                                        {chronicleStats.arcs > 1 ? 's' : ''} ·{' '}
+                                        {chronicleStats.sections} section
+                                        {chronicleStats.sections > 1 ? 's' : ''} ·{' '}
+                                        {chronicleStats.fragments} fragment
+                                        {chronicleStats.fragments > 1 ? 's' : ''}
+                                        {chronicleStats.omittedSections > 0 && (
+                                            <span className="text-yellow-400">
+                                                {' '}
+                                                ({chronicleStats.omittedSections} section
+                                                {chronicleStats.omittedSections > 1
+                                                    ? 's omises'
+                                                    : ' omise'}{' '}
+                                                faute de place)
+                                            </span>
+                                        )}
+                                    </p>
+                                )}
+                            </div>
+                        )}
 
                         {/* Warnings */}
                         {warnings.length > 0 && (
@@ -191,10 +321,26 @@ export function ContextPreviewPanel({
                                                 <ChevronRight className="h-3 w-3 text-muted-foreground shrink-0" />
                                             )}
                                             {icon}
-                                            <span className="text-sm font-medium flex-1">
+                                            <span className="text-sm font-medium flex-1 min-w-0">
                                                 {section.label}
                                             </span>
-                                            <span className="text-xs font-mono text-muted-foreground">
+                                            {/* Without this, a 900-token section that no longer
+                                                adds to the total reads as a bug. */}
+                                            {section.countedIn && (
+                                                <span className="text-[10px] px-1.5 py-0.5 rounded border border-white/10 bg-white/5 text-muted-foreground shrink-0">
+                                                    compté dans{' '}
+                                                    {section.countedIn === 'system'
+                                                        ? 'le prompt système'
+                                                        : 'le post-historique'}
+                                                </span>
+                                            )}
+                                            <span
+                                                className={`text-xs font-mono shrink-0 ${
+                                                    section.countedIn
+                                                        ? 'text-muted-foreground/50 line-through'
+                                                        : 'text-muted-foreground'
+                                                }`}
+                                            >
                                                 {section.tokens.toLocaleString()} tokens
                                             </span>
                                         </button>

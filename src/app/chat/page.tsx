@@ -35,11 +35,8 @@ import { useAppInitialization } from '@/hooks/useAppInitialization';
 import { useBackgroundPipeline } from '@/hooks/useBackgroundPipeline';
 import { useChatGeneration, useActiveApiKey } from '@/hooks/useChatGeneration';
 import { APINotificationToast } from '@/components/ui/api-notification';
-import {
-    retrieveRelevantContext,
-    resolveActiveLorebookEntries,
-    buildContextPreview,
-} from '@/lib/ai/rag-service';
+import { resolveActiveLorebookEntries, buildContextPreview } from '@/lib/ai/rag-service';
+import { buildChronicle } from '@/lib/ai/hierarchical-summarizer';
 import { buildCanonOptions } from '@/lib/ai/canon-context';
 import type { ContextSection } from '@/types/rag';
 
@@ -57,15 +54,21 @@ export default function ChatPage() {
 
     // Context preview state
     const [isContextPreviewOpen, setIsContextPreviewOpen] = useState(false);
-    const [contextPreviewData, setContextPreviewData] = useState<{
-        sections: ContextSection[];
-        totalTokens: number;
-        maxTokens: number;
-        maxOutputTokens: number;
-        warnings: string[];
-        includedMessages: number;
-        droppedMessages: number;
-    } | null>(null);
+    const [contextPreviewData, setContextPreviewData] = useState<
+        | ({
+              sections: ContextSection[];
+              totalTokens: number;
+              maxTokens: number;
+              maxOutputTokens: number;
+              warnings: string[];
+              includedMessages: number;
+              droppedMessages: number;
+          } & Pick<
+              Awaited<ReturnType<typeof buildConversationPayload>>,
+              'tokenBreakdown' | 'historyWindow' | 'chronicleStats'
+          >)
+        | null
+    >(null);
 
     // Draft message from ChatInput (for context preview)
     const draftMessageRef = useRef('');
@@ -354,17 +357,22 @@ export default function ChatPage() {
         );
         const maxContextTokens = activePreset?.maxContextTokens ?? 16384;
         const maxOutputTokens = activePreset?.maxOutputTokens ?? 2048;
-        const { minRAGConfidence: previewMinConf, enableScratchpad: previewScratchpad } =
-            useSettingsStore.getState();
-        const lastMsg = simulatedMessages[simulatedMessages.length - 1]?.content || '';
+        const {
+            enableHierarchicalSummaries: previewMemory,
+            enableScratchpad: previewScratchpad,
+        } = useSettingsStore.getState();
 
         const {
             systemPrompt,
             effectivePostHistory,
             ragSections,
+            chronicleStats,
+            templatePlacesLorebook,
             messagesPayload,
             includedMessageCount,
             droppedMessageCount,
+            tokenBreakdown,
+            historyWindow,
         } = await buildConversationPayload({
             mode: 'preview',
             character,
@@ -385,50 +393,53 @@ export default function ChatPage() {
             activeProvider,
             maxContextTokens,
             maxOutputTokens,
+            // Read-only: the preview mirrors the real window but must never persist anything
+            // back onto the conversation (no anchor, no reserve).
             historyCutMessageId: conv?.historyCutMessageId,
-            retrieveRag: (ragBudget) =>
-                retrieveRelevantContext(lastMsg, activeConversationId, ragBudget, {
-
-                    recentMessages: simulatedMessages as CAMessage[],
-                    activeBranchMessageIds: simulatedMessages.map((m) => m.id),
-                    minConfidence: previewMinConf,
-                    // Mirror generation: same dedup + same summary eviction gate, so the
-                    // preview shows what the real call actually injects.
-                    dedupAgainstTexts: [
-                        ...(previewCanonOptions.canonDossiers ?? []).map(
-                            (d) => `${d.identity}\n${d.backstory ?? ''}\n${d.abilities ?? ''}`
-                        ),
-                        ...activeEntries.map((e) => e.content),
-                    ],
-                    evictedMessageCount: conv?.historyCutMessageId
-                        ? Math.max(
-                              0,
-                              simulatedMessages.findIndex(
-                                  (m) => m.id === conv.historyCutMessageId
-                              )
-                          )
-                        : 0,
-                }),
+            dynamicReserveTokens: conv?.dynamicReserveTokens,
+            // Mirrors generation exactly — same budget, same eviction gate — so the preview
+            // shows the Chronicle the real call would inject.
+            retrieveChronicle: previewMemory
+                ? (budget) =>
+                      buildChronicle(
+                          activeConversationId,
+                          budget,
+                          conv?.historyCutMessageId
+                              ? Math.max(
+                                    0,
+                                    simulatedMessages.findIndex(
+                                        (m) => m.id === conv.historyCutMessageId
+                                    )
+                                )
+                              : 0,
+                          simulatedMessages.map((m) => m.id)
+                      )
+                : undefined,
         });
 
-        // Build preview sections
-        // Pass original systemPrompt (without RAG) so preview shows sections separately without duplication
-        const previewData = await buildContextPreview(
+        const previewData = await buildContextPreview({
             systemPrompt,
             ragSections,
-            messagesPayload.filter((m) => m.role !== 'system'),
-            effectivePostHistory,
+            historyMessages: messagesPayload.filter((m) => m.role !== 'system'),
+            postHistory: effectivePostHistory,
             maxContextTokens,
             maxOutputTokens,
-            activeEntries,
-            previewCanonOptions.injectionMeta
-        );
+            activeLorebookEntries: activeEntries,
+            lorebookPlacement: templatePlacesLorebook ? 'system' : 'post-history',
+            canonInjection: previewCanonOptions.injectionMeta,
+            tokenBreakdown,
+            historyWindow,
+            chronicleStats,
+        });
 
         setContextPreviewData({
             ...previewData,
             maxOutputTokens,
             includedMessages: includedMessageCount,
             droppedMessages: droppedMessageCount,
+            tokenBreakdown,
+            historyWindow,
+            chronicleStats,
             warnings: [
                 ...previewData.warnings,
                 ...(draftText
@@ -872,6 +883,9 @@ export default function ChatPage() {
                     warnings={contextPreviewData.warnings}
                     includedMessages={contextPreviewData.includedMessages}
                     droppedMessages={contextPreviewData.droppedMessages}
+                    tokenBreakdown={contextPreviewData.tokenBreakdown}
+                    historyWindow={contextPreviewData.historyWindow}
+                    chronicleStats={contextPreviewData.chronicleStats}
                 />
             )}
         </div>

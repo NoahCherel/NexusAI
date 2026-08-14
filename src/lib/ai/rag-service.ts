@@ -1,464 +1,19 @@
 /**
- * RAG (Retrieval-Augmented Generation) Service
+ * Lorebook resolution and context preview.
  *
- * Orchestrates the retrieval of relevant past context for RPG conversations.
- * Combines vector search over facts, summaries, and message chunks
- * with importance scoring and temporal decay.
+ * Long-term memory used to live here too — atomic facts and vector chunk retrieval, scored
+ * with cosine similarity and temporal decay. Both were removed: they duplicated the
+ * hierarchical summaries without being readable or editable, and the model could not tell
+ * that the three blocks overlapped. Memory is now the Chronicle alone
+ * (see `hierarchical-summarizer.ts`).
  */
 
-import type { WorldFact, VectorEntry, ContextSection } from '@/types/rag';
+import type { ContextSection } from '@/types/rag';
 import type { Message } from '@/types/chat';
 import type { Lorebook, LorebookEntry } from '@/types/character';
-import {
-    getFactsByConversation,
-    getVectorsByConversation,
-    updateFact,
-    saveVector,
-} from '@/lib/db';
 import { getActiveLorebookEntries } from './context-builder';
-import {
-    embedText,
-    cosineSimilarity,
-    getSimilarityThresholds,
-    isCurrentSpace,
-    isEmbedderReady,
-    getEmbeddingModelSignature,
-} from './embedding-service';
+import { embedText, cosineSimilarity, getSimilarityThresholds } from './embedding-service';
 import { countTokens } from '@/lib/tokenizer';
-import { getBestContextSummary } from './hierarchical-summarizer';
-import {
-    buildRetrievalQueryText,
-    extractSearchTerms,
-    lexicalOverlapScore,
-} from './rag-ranking';
-
-// ============================================
-// Temporal Decay
-// ============================================
-
-/**
- * Story-time decay factor. Measured in MESSAGES since the fact was recorded — not wall
- * clock: a fact from 10 messages ago is equally fresh whether those messages happened an
- * hour or a month ago (real-time decay was killing facts between sessions).
- * Critical items (importance >= 8) never decay.
- */
-function temporalDecay(
-    messageDistance: number | null,
-    lastAccessedAt: number,
-    importance: number,
-    accessCount: number
-): number {
-    // Base decay: exponential half-life in messages. Unknown distance (legacy facts
-    // without branchPath) → neutral, the similarity/lexical legs still rank them.
-    let ageFactor = 1;
-    if (importance < 8 && messageDistance !== null) {
-        const halfLifeMessages = importance >= 5 ? 120 : 60;
-        ageFactor = Math.pow(0.5, Math.max(0, messageDistance) / halfLifeMessages);
-    }
-
-    // Recency boost: recently accessed items get a boost (session-local, hours are fine)
-    const lastAccessHours = (Date.now() - lastAccessedAt) / (1000 * 60 * 60);
-    const recencyBoost = lastAccessHours < 1 ? 1.5 : lastAccessHours < 24 ? 1.2 : 1.0;
-
-    // Frequency boost: items accessed multiple times are likely important
-    const freqBoost = Math.min(1.5, 1 + accessCount * 0.1);
-
-    return ageFactor * recencyBoost * freqBoost;
-}
-
-// ============================================
-// Importance Scoring
-// ============================================
-
-/**
- * Calculate a combined relevance score.
- * Combines cosine similarity, importance, and temporal decay.
- */
-function combinedScore(
-    cosineSim: number,
-    importance: number,
-    messageDistance: number | null,
-    lastAccessedAt: number,
-    accessCount: number
-): number {
-    const decay = temporalDecay(messageDistance, lastAccessedAt, importance, accessCount);
-    const importanceWeight = importance / 10; // Normalize to 0-1
-
-    // Weighted combination:
-    // 50% similarity, 25% importance, 25% temporal relevance
-    return cosineSim * 0.5 + importanceWeight * 0.25 + decay * 0.25;
-}
-
-/**
- * Cheap lexical redundancy check for cross-system dedup: fraction of a fact's terms
- * already present in an authoritative text (canon dossier / lorebook entry). Embedding
- * spaces are model-dependent — this stays valid across embedder migrations.
- */
-function lexicalRedundancy(factTerms: Set<string>, authorityText: string): number {
-    if (factTerms.size === 0) return 0;
-    const haystack = authorityText.toLowerCase();
-    let hits = 0;
-    for (const term of factTerms) {
-        if (haystack.includes(term)) hits++;
-    }
-    return hits / factTerms.size;
-}
-
-// ============================================
-// Main RAG Retrieval
-// ============================================
-
-/**
- * Retrieve relevant context for a given query message.
- * Returns structured sections ready for context injection.
- */
-export async function retrieveRelevantContext(
-    queryText: string,
-    conversationId: string,
-    tokenBudget: number,
-    options: {
-        topKFacts?: number;
-        topKChunks?: number;
-        includeSummary?: boolean;
-
-        recentMessages?: Message[]; // Recent active-branch messages for richer low-cost retrieval
-        activeBranchMessageIds?: string[]; // Active branch message IDs for filtering
-        minConfidence?: number; // Minimum confidence threshold (0–1)
-        /**
-         * Authoritative texts already injected this turn (canon dossiers, active lorebook
-         * entries). Facts that merely restate them are dropped (priority of truth: the
-         * higher system wins; injecting the paraphrase twice wastes tokens and invites
-         * contradiction).
-         */
-        dedupAgainstTexts?: string[];
-        /**
-         * Messages evicted from the verbatim history window (hysteresis cut index).
-         * Summaries covering the live window are skipped (see getBestContextSummary).
-         */
-        evictedMessageCount?: number;
-    } = {}
-): Promise<ContextSection[]> {
-    const {
-        topKFacts = 10,
-        topKChunks = 5,
-        includeSummary = true,
-        recentMessages,
-        activeBranchMessageIds,
-        minConfidence = 0,
-        dedupAgainstTexts,
-        evictedMessageCount,
-    } = options;
-
-    const sections: ContextSection[] = [];
-    let remainingBudget = tokenBudget;
-
-    // 1. Build a richer retrieval query, then embed it once. This is cheaper than
-    // upgrading providers and gives vector search better scene anchors.
-    const retrievalQueryText = buildRetrievalQueryText(queryText, {
-        recentMessages,
-    });
-    const queryTerms = extractSearchTerms(retrievalQueryText);
-    const queryEmbedding = await embedText(retrievalQueryText || queryText, 'query');
-
-    // 2. Hierarchical summary (compact; only content EVICTED from the history window —
-    // summarizing verbatim-present messages pays for them twice and invites drift).
-    let injectedSummaryText = '';
-    if (includeSummary) {
-        const summaryBudget = Math.min(Math.floor(tokenBudget * 0.35), 400);
-        const summaryText = await getBestContextSummary(
-            conversationId,
-            summaryBudget,
-            evictedMessageCount,
-            activeBranchMessageIds
-        );
-        if (summaryText) {
-            injectedSummaryText = summaryText;
-            const tokens = countTokens(summaryText);
-            sections.push({
-                priority: 1,
-                content: summaryText,
-                tokens,
-                label: 'Résumé de l’histoire',
-                type: 'summary',
-            });
-            remainingBudget -= tokens;
-        }
-    }
-
-    // 3. Retrieve relevant facts via vector search
-    let activeFacts = await getFactsByConversation(conversationId);
-
-    // Branch-aware filtering: only include facts from the active branch lineage
-    if (activeBranchMessageIds && activeBranchMessageIds.length > 0) {
-        const branchSet = new Set(activeBranchMessageIds);
-        activeFacts = activeFacts.filter((f) => {
-            // If fact has branchPath, check it overlaps with active branch
-            if (f.branchPath && f.branchPath.length > 0) {
-                return f.branchPath.some((id) => branchSet.has(id));
-            }
-            // Facts without branchPath (legacy) are always included
-            return true;
-        });
-    }
-
-    // Cross-system dedup: drop facts that just restate canon/lorebook content injected
-    // this turn (≥70% of the fact's terms already present in an authority text).
-    if (dedupAgainstTexts && dedupAgainstTexts.length > 0 && activeFacts.length > 0) {
-        activeFacts = activeFacts.filter((f) => {
-            const terms = extractSearchTerms(f.fact);
-            return !dedupAgainstTexts.some((t) => lexicalRedundancy(terms, t) >= 0.7);
-        });
-    }
-
-    // Story-position anchor for message-distance decay: how deep the active branch is now.
-    const currentBranchDepth = activeBranchMessageIds?.length ?? recentMessages?.length ?? null;
-
-    if (activeFacts.length > 0 && remainingBudget > 50) {
-        const factResults = retrieveRelevantFacts(
-            queryEmbedding,
-            queryTerms,
-            activeFacts,
-            topKFacts,
-            currentBranchDepth
-        );
-
-        if (factResults.length > 0) {
-            // Update access stats for retrieved facts
-            for (const r of factResults) {
-                updateFact(r.item.id, {
-                    lastAccessedAt: Date.now(),
-                    accessCount: r.item.accessCount + 1,
-                }).catch(console.error);
-            }
-
-            // Compute average confidence for facts section
-            const avgFactConfidence =
-                factResults.reduce((sum, r) => sum + r.score, 0) / factResults.length;
-
-            // Apply minimum confidence threshold — only include if meaningfully relevant
-            if (avgFactConfidence >= Math.max(minConfidence, 0.3)) {
-                const factLines = factResults.map((r) => {
-                    const imp = r.item.importance >= 8 ? '⚠️' : r.item.importance >= 5 ? '•' : '◦';
-                    return `${imp} ${r.item.fact}`;
-                });
-
-                const factsText = '🔍 Relevant Past Events:\n' + factLines.join('\n');
-                const tokens = countTokens(factsText);
-
-                if (tokens <= remainingBudget) {
-                    sections.push({
-                        priority: 2,
-                        content: factsText,
-                        tokens,
-                        label: `Faits (${factResults.length})`,
-                        type: 'fact',
-                        confidence: avgFactConfidence,
-                    });
-                    remainingBudget -= tokens;
-                }
-            }
-        }
-    }
-
-    // 4. Retrieve relevant message chunks
-    const chunks = await getVectorsByConversation(conversationId);
-
-    // Branch-aware filtering for chunks
-    let filteredChunks = chunks;
-    if (activeBranchMessageIds && activeBranchMessageIds.length > 0) {
-        const branchSet = new Set(activeBranchMessageIds);
-        filteredChunks = chunks.filter((c) => {
-            if (c.branchPath && c.branchPath.length > 0) {
-                return c.branchPath.some((id) => branchSet.has(id));
-            }
-            // Legacy chunks without branchPath are always included
-            return true;
-        });
-    }
-
-    // Background migration of stale-space vectors (embedding model changed).
-    queueReembedding(activeFacts, filteredChunks);
-
-    if (filteredChunks.length > 0 && remainingBudget > 50) {
-        const chunkResults = retrieveRelevantChunks(
-            queryEmbedding,
-            queryTerms,
-            filteredChunks,
-            topKChunks
-        );
-
-        // L0 summaries are also indexed as chunks: drop chunks that just restate the
-        // summary injected above (same-text-twice in one prompt).
-        const dedupedChunkResults = injectedSummaryText
-            ? chunkResults.filter(
-                  (r) =>
-                      lexicalRedundancy(extractSearchTerms(r.item.text), injectedSummaryText) <
-                      0.7
-              )
-            : chunkResults;
-
-        if (dedupedChunkResults.length > 0) {
-            const avgChunkConfidence =
-                dedupedChunkResults.reduce((sum, r) => sum + r.score, 0) /
-                dedupedChunkResults.length;
-
-            if (avgChunkConfidence >= minConfidence) {
-                const chunkTexts = dedupedChunkResults.map((r) => r.item.text);
-                const chunksText = '📜 Related Past Scenes:\n' + chunkTexts.join('\n---\n');
-                const tokens = countTokens(chunksText);
-
-                if (tokens <= remainingBudget) {
-                    sections.push({
-                        priority: 3,
-                        content: chunksText,
-                        tokens,
-                        label: `Scènes (${dedupedChunkResults.length})`,
-                        type: 'memory',
-                        confidence: avgChunkConfidence,
-                    });
-                    remainingBudget -= tokens;
-                }
-            }
-        }
-    }
-
-    return sections;
-}
-
-/**
- * Retrieve relevant facts with combined scoring.
- */
-function retrieveRelevantFacts(
-    queryEmbedding: number[],
-    queryTerms: Set<string>,
-    facts: WorldFact[],
-    topK: number,
-    currentBranchDepth: number | null
-): Array<{ item: WorldFact; score: number }> {
-    const { min: minSim, minCritical } = getSimilarityThresholds();
-    return facts
-        .map((f) => {
-            // Cosine only within the CURRENT embedding space — a MiniLM-era vector scored
-            // against an e5 query is noise. Stale items ride on the lexical leg until the
-            // lazy re-embedder catches them up.
-            const hasCurrentEmb =
-                !!f.embedding && f.embedding.length > 0 && isCurrentSpace(f.embeddingRevision);
-            const sim = hasCurrentEmb ? cosineSimilarity(queryEmbedding, f.embedding!) : 0;
-            const lexical = lexicalOverlapScore(queryTerms, f.fact, [
-                f.category,
-                ...f.relatedEntities,
-            ]);
-            // Distance in messages: the branchPath captured at creation tells how deep
-            // the story was when the fact was recorded.
-            const messageDistance =
-                currentBranchDepth !== null && f.branchPath && f.branchPath.length > 0
-                    ? currentBranchDepth - f.branchPath.length
-                    : null;
-            const score = combinedScore(
-                sim,
-                f.importance,
-                messageDistance,
-                f.lastAccessedAt,
-                f.accessCount
-            ) + lexical * 0.25;
-            return { item: f, score, sim, lexical, hasCurrentEmb };
-        })
-        .sort((a, b) => b.score - a.score)
-        .slice(0, topK)
-        .filter(
-            (r) =>
-                r.score > 0.25 &&
-                (r.sim >= minSim ||
-                    r.lexical >= 0.2 ||
-                    (r.item.importance >= 8 && r.sim >= minCritical))
-        )
-        .map(({ item, score }) => ({ item, score }));
-}
-
-function retrieveRelevantChunks(
-    queryEmbedding: number[],
-    queryTerms: Set<string>,
-    chunks: VectorEntry[],
-    topK: number
-): Array<{ item: VectorEntry; score: number }> {
-    const { min: minSim } = getSimilarityThresholds();
-    return chunks
-        .map((chunk) => {
-            const hasCurrentEmb =
-                chunk.embedding &&
-                chunk.embedding.length > 0 &&
-                isCurrentSpace(chunk.embeddingRevision);
-            const sim = hasCurrentEmb ? cosineSimilarity(queryEmbedding, chunk.embedding) : 0;
-            const lexical = lexicalOverlapScore(queryTerms, chunk.text, [
-                ...chunk.metadata.characters,
-                chunk.metadata.location,
-                ...chunk.metadata.tags,
-            ]);
-            const importance = Math.max(0, Math.min(1, chunk.metadata.importance / 10));
-            const score = sim * 0.7 + lexical * 0.2 + importance * 0.1;
-            return { item: chunk, score, sim, lexical };
-        })
-        .filter((result) => result.score >= 0.2 && (result.sim >= minSim || result.lexical >= 0.2))
-        .sort((a, b) => b.score - a.score)
-        .slice(0, topK)
-        .map(({ item, score }) => ({ item, score }));
-}
-
-// ============================================
-// Lazy re-embedding (embedding-space migrations)
-// ============================================
-
-const reembedQueued = new Set<string>();
-
-/**
- * Re-embed (in the background, max 20 per retrieval) items whose vectors belong to an
- * older embedding space. Never mixes spaces: until an item is migrated it scores on the
- * lexical leg only. No-op while the ML embedder isn't ready (the TF-IDF fallback must not
- * be stamped as the current model's space).
- */
-function queueReembedding(facts: WorldFact[], chunks: VectorEntry[]): void {
-    if (!isEmbedderReady()) return;
-    const staleFacts = facts
-        .filter(
-            (f) =>
-                f.embedding &&
-                f.embedding.length > 0 &&
-                !isCurrentSpace(f.embeddingRevision) &&
-                !reembedQueued.has(f.id)
-        )
-        .slice(0, 20);
-    const staleChunks = chunks
-        .filter(
-            (c) =>
-                c.embedding &&
-                c.embedding.length > 0 &&
-                !isCurrentSpace(c.embeddingRevision) &&
-                !reembedQueued.has(c.id)
-        )
-        .slice(0, Math.max(0, 20 - staleFacts.length));
-    if (staleFacts.length === 0 && staleChunks.length === 0) return;
-    staleFacts.forEach((f) => reembedQueued.add(f.id));
-    staleChunks.forEach((c) => reembedQueued.add(c.id));
-
-    void (async () => {
-        try {
-            const revision = getEmbeddingModelSignature();
-            for (const f of staleFacts) {
-                const embedding = await embedText(f.fact);
-                await updateFact(f.id, { embedding, embeddingRevision: revision });
-            }
-            for (const c of staleChunks) {
-                const embedding = await embedText(c.text);
-                await saveVector({ ...c, embedding, embeddingRevision: revision });
-            }
-            console.log(
-                `[RAG] Re-embedded ${staleFacts.length + staleChunks.length} items into ${revision}`
-            );
-        } catch (err) {
-            console.warn('[RAG] Lazy re-embedding failed:', err);
-        }
-    })();
-}
 
 // ============================================
 // Lorebook Resolution (single entry point)
@@ -673,65 +228,22 @@ export async function hybridLorebookSearch(
 }
 
 // ============================================
-// Message Chunk Indexing
-// ============================================
-
-/**
- * Index a group of messages as a vector chunk for future retrieval.
- */
-export async function indexMessageChunk(
-    messages: Message[],
-    conversationId: string,
-    summaryText: string,
-    metadata: {
-        characters?: string[];
-        location?: string;
-        importance?: number;
-        tags?: string[];
-    } = {},
-    branchPath?: string[]
-): Promise<void> {
-    const embedding = await embedText(summaryText);
-
-    const entry: VectorEntry = {
-        id: crypto.randomUUID(),
-        conversationId,
-        messageIds: messages.map((m) => m.id),
-        text: summaryText,
-        embedding,
-        // Only stamp the space when the ML model actually produced the vector — the
-        // TF-IDF fallback must stay unstamped (→ lexical-only, re-embedded later).
-        embeddingRevision: isEmbedderReady() ? getEmbeddingModelSignature() : undefined,
-        metadata: {
-            timestamp: Date.now(),
-            characters: metadata.characters || [],
-            location: metadata.location || '',
-            importance: metadata.importance || 5,
-            tags: metadata.tags || [],
-        },
-        branchPath,
-        createdAt: Date.now(),
-    };
-
-    await saveVector(entry);
-}
-
-// ============================================
 // Context Preview Builder
 // ============================================
 
-/**
- * Build a full context preview showing exactly what would be sent to the AI.
- * This is for the UI preview feature.
- */
-export async function buildContextPreview(
-    systemPrompt: string,
-    ragSections: ContextSection[],
-    historyMessages: { role: string; content: string }[],
-    postHistory: string | undefined,
-    maxContextTokens: number,
-    maxOutputTokens: number,
-    activeLorebookEntries?: { keys: string[]; content: string }[],
+export interface ContextPreviewInput {
+    /** The system prompt as actually sent (canon/lorebook blocks still inside). */
+    systemPrompt: string;
+    /** The Chronicle, already merged into `postHistory` — shown, not re-counted. */
+    ragSections: ContextSection[];
+    /** Only the messages that made the window, as they go on the wire. */
+    historyMessages: { role: string; content: string }[];
+    postHistory?: string;
+    maxContextTokens: number;
+    maxOutputTokens: number;
+    activeLorebookEntries?: { keys: string[]; content: string }[];
+    /** Where the preset's template renders the lorebook — decides where it is counted. */
+    lorebookPlacement: 'system' | 'post-history';
     /**
      * Casting metadata used to expose what's injected vs ignored, so the user can see
      * exactly which canon fiches reach the model (and which were excluded because they're
@@ -743,13 +255,44 @@ export async function buildContextPreview(
         ignoredDisabled: string[]; // dossiers explicitly toggled off
         scanDepth: number; // how many recent messages were scanned
         dueToAppear?: string[]; // characters hinted to the Director (arc-matched)
-    }
-): Promise<{
+    };
+    /** History-window accounting — drives the "why isn't my budget full?" warnings. */
+    tokenBreakdown?: {
+        historyBudget: number;
+        historyHeadroom: number;
+        dynamicReserve: number;
+    };
+    historyWindow?: { recoverableMessageCount: number };
+    /** Non-zero `uncoveredEvictedMessages` means real, silent memory loss. */
+    chronicleStats?: { uncoveredEvictedMessages: number };
+}
+
+/**
+ * Build a full context preview showing exactly what would be sent to the AI.
+ *
+ * The total used to be inflated: the canon section re-counted blocks already inside the
+ * system prompt, and the Chronicle was counted both as its own section and inside the
+ * post-history block that contains it. Sections that merely display material counted
+ * elsewhere now carry `countedIn` and contribute zero.
+ */
+export async function buildContextPreview(input: ContextPreviewInput): Promise<{
     sections: ContextSection[];
     totalTokens: number;
     maxTokens: number;
     warnings: string[];
 }> {
+    const {
+        systemPrompt,
+        ragSections,
+        historyMessages,
+        postHistory,
+        maxContextTokens,
+        maxOutputTokens,
+        activeLorebookEntries,
+        lorebookPlacement,
+        canonInjection,
+    } = input;
+
     const sections: ContextSection[] = [];
     const warnings: string[] = [];
 
@@ -764,19 +307,11 @@ export async function buildContextPreview(
         }
     }
 
-    // Strip CANON / IN THIS RP blocks (they're shown in their own section). The blocks span
-    // multiple lines from a bracketed label until a blank line. We capture the whole block.
+    // Strip CANON blocks (shown in their own section). The block spans multiple lines from a
+    // bracketed label until a blank line.
     displaySystemPrompt = displaySystemPrompt.replace(
         /\[CANON — [^\]]+\][\s\S]*?(?=\n\n|\n\[|$)/g,
         '⟨bloc canon — voir la section Canon⟩'
-    );
-    displaySystemPrompt = displaySystemPrompt.replace(
-        /\[IN THIS RP — [^\]]+\][\s\S]*?(?=\n\n|\n\[|$)/g,
-        '⟨bloc in-this-rp — voir la section Canon⟩'
-    );
-    displaySystemPrompt = displaySystemPrompt.replace(
-        /\[RELATIONSHIPS —[\s\S]*?(?=\n\n|$)/g,
-        '⟨bloc relations — voir la section Canon⟩'
     );
 
     // Clean up excessive whitespace from stripping
@@ -791,27 +326,16 @@ export async function buildContextPreview(
         type: 'system',
     });
 
-    // 2.5 Canon dossiers — shows EXACTLY which casting fiches reached the model, plus why
-    // the others were excluded. This is the user-facing answer to "is my casting being used?".
+    // 2. Canon dossiers — shows EXACTLY which casting fiches reached the model, plus why the
+    // others were excluded. Display only: every token here is already in the system prompt.
     if (canonInjection) {
-        const {
-            injectedNames,
-            ignoredStubs,
-            ignoredDisabled,
-            scanDepth,
-            dueToAppear,
-        } = canonInjection;
+        const { injectedNames, ignoredStubs, ignoredDisabled, scanDepth, dueToAppear } =
+            canonInjection;
 
-        // Extract the actual rendered blocks straight from the system prompt so the user sees
-        // the literal text the model will read.
-        const canonBlocks: string[] = [];
-        const canonRegex = /\[CANON — [^\]]+\][\s\S]*?(?=\n\n|\n\[|$)/g;
-        const rpRegex = /\[IN THIS RP — [^\]]+\][\s\S]*?(?=\n\n|\n\[|$)/g;
-        const relRegex = /\[RELATIONSHIPS —[\s\S]*?(?=\n\n|$)/g;
-        const canonMatches = systemPrompt.match(canonRegex) || [];
-        const rpMatches = systemPrompt.match(rpRegex) || [];
-        const relMatches = systemPrompt.match(relRegex) || [];
-        canonBlocks.push(...canonMatches, ...rpMatches, ...relMatches);
+        // Pull the rendered blocks straight from the system prompt so the user reads the
+        // literal text the model will read. `[IN THIS RP]` and `[RELATIONSHIPS]` are NOT
+        // here — they live in the dynamic zone, so they show up under post-history.
+        const canonBlocks = systemPrompt.match(/\[CANON — [^\]]+\][\s\S]*?(?=\n\n|\n\[|$)/g) || [];
 
         const lines: string[] = [];
         lines.push(
@@ -849,31 +373,36 @@ export async function buildContextPreview(
             tokens: countTokens(content),
             label: `Dossiers du canon (${injectedNames.length} injectés) — ce que le modèle voit de votre casting`,
             type: 'canon',
+            countedIn: 'system',
         });
     }
 
-    // 3. Lorebook entries (shown separately for visibility, but tokens already counted in system prompt)
+    // 3. Lorebook entries — rendered either inside the system prompt or in the dynamic zone,
+    // depending on whether the preset's template has a {{lorebook}} placeholder.
     if (activeLorebookEntries && activeLorebookEntries.length > 0) {
-        // Keep the order they were passed in (User Persona first, then AI Character, then priority/alphabetical)
+        // Keep the order they were passed in (User Persona first, then AI Character, then
+        // priority/alphabetical).
         const lorebookContent = activeLorebookEntries
             .map((e) => `[About ${e.keys[0]}: ${e.content}]`)
             .join('\n');
-        const lorebookTokens = countTokens(lorebookContent);
         sections.push({
             priority: 1,
             content: lorebookContent,
-            tokens: lorebookTokens,
-            label: `Lorebook (${activeLorebookEntries.length} entrées) — inclus dans le prompt système`,
+            tokens: countTokens(lorebookContent),
+            label: `Lorebook (${activeLorebookEntries.length} entrées)`,
             type: 'lorebook',
+            countedIn: lorebookPlacement,
         });
     }
 
-    // 3. RAG sections
+    // 4. The Chronicle — displayed on its own, but physically part of the post-history block.
     for (const section of ragSections) {
-        sections.push(section);
+        sections.push({ ...section, countedIn: 'post-history' });
     }
 
-    // 3. Message history (display-only transcript — role labels localized for the preview)
+    // 5. Message history. Display and accounting are deliberately separate: the transcript is
+    // decorated with localized role labels for readability, but the count must match what the
+    // payload builder measures — the raw content, message by message.
     const roleDisplayLabels: Record<string, string> = {
         user: 'utilisateur',
         assistant: 'assistant',
@@ -882,7 +411,7 @@ export async function buildContextPreview(
     const historyContent = historyMessages
         .map((m) => `[${roleDisplayLabels[m.role] ?? m.role}]: ${m.content}`)
         .join('\n\n');
-    const historyTokens = countTokens(historyContent);
+    const historyTokens = historyMessages.reduce((sum, m) => sum + countTokens(m.content), 0);
     sections.push({
         priority: 10,
         content: historyContent,
@@ -891,23 +420,19 @@ export async function buildContextPreview(
         type: 'history',
     });
 
-    // 4. Post-history
+    // 6. Post-history (dynamic zone) — the Chronicle above is inside this.
     if (postHistory) {
-        const phTokens = countTokens(postHistory);
         sections.push({
             priority: 11,
             content: postHistory,
-            tokens: phTokens,
+            tokens: countTokens(postHistory),
             label: 'Instructions post-historique',
             type: 'post-history',
         });
     }
 
-    // Calculate totals
-    // Note: lorebook tokens are already included in the system prompt, so exclude from total
     const totalTokens =
-        sections.filter((s) => s.type !== 'lorebook').reduce((sum, s) => sum + s.tokens, 0) +
-        maxOutputTokens;
+        sections.reduce((sum, s) => sum + (s.countedIn ? 0 : s.tokens), 0) + maxOutputTokens;
 
     if (totalTokens > maxContextTokens) {
         warnings.push(
@@ -920,6 +445,35 @@ export async function buildContextPreview(
         warnings.push(`⚡ Le contexte est à ${Math.round(usedRatio * 100)}% de sa capacité`);
     }
 
+    // The Chronicle is now the ONLY thing that remembers evicted messages. If it is behind,
+    // that stretch of the story is simply gone — worth saying out loud.
+    if (input.chronicleStats && input.chronicleStats.uncoveredEvictedMessages > 0) {
+        warnings.push(
+            `⚠️ ${input.chronicleStats.uncoveredEvictedMessages} message(s) sont sortis de la fenêtre sans avoir été résumés : le modèle ne s'en souvient plus. Le rattrapage se fait automatiquement au fil des messages suivants.`
+        );
+    }
+
+    // Makes the hysteresis legible instead of mysterious: room is free AND there is history
+    // to reclaim, so the window will widen shortly.
+    const tb = input.tokenBreakdown;
+    if (
+        tb &&
+        input.historyWindow &&
+        tb.historyBudget > 0 &&
+        tb.historyHeadroom > tb.historyBudget * 0.25 &&
+        input.historyWindow.recoverableMessageCount > 0
+    ) {
+        warnings.push(
+            `ℹ️ ${tb.historyHeadroom} tokens libres dans le budget d'historique et ${input.historyWindow.recoverableMessageCount} message(s) récupérables — la fenêtre s'élargira au prochain tour.`
+        );
+    }
+
+    if (tb && tb.historyBudget > 0 && tb.dynamicReserve >= (tb.historyBudget + tb.dynamicReserve) * 0.45) {
+        warnings.push(
+            `⚠️ La zone dynamique (chronique, lorebook, canon) sature sa réserve — réduisez le budget lorebook pour rendre de la place à l'historique.`
+        );
+    }
+
     return {
         sections,
         totalTokens,
@@ -927,3 +481,4 @@ export async function buildContextPreview(
         warnings,
     };
 }
+

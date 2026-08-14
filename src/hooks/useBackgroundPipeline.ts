@@ -2,9 +2,9 @@
 
 /**
  * Background memory pipeline for the chat page:
- * - owns the hierarchical auto-summary effect (L0 chunk → L1 section → L2 arc), and
- * - exposes `runPostBeat` (arc capture, momentum, relations, fact extraction) so the
- *   generation flow has a single post-response entry point.
+ * - owns the Chronicle's auto-summary effect (L0 Fragment → L1 Section → L2 Arc), and
+ * - exposes `runPostBeat` (arc capture, momentum, relations) so the generation flow has a
+ *   single post-response entry point.
  *
  * Everything here runs on the unified background layer (backgroundAICall resolves its own
  * keys — NanoGPT quota or free OpenRouter rotation).
@@ -14,10 +14,17 @@ import { useEffect, useRef } from 'react';
 import type { CharacterCard } from '@/types/character';
 import type { Message } from '@/types/chat';
 import { useSettingsStore } from '@/stores/settings-store';
+import { useChatStore } from '@/stores/chat-store';
 import { backgroundAICall } from '@/lib/ai/background-ai';
-import { embedText } from '@/lib/ai/embedding-service';
-import { indexMessageChunk } from '@/lib/ai/rag-service';
 import { getAdaptiveChunkSize } from '@/lib/ai/message-quality';
+
+/**
+ * Fragments produced in a single run while the Chronicle is behind the eviction boundary.
+ * Bounded so a very stale conversation doesn't fire dozens of background calls at once —
+ * `backgroundAICall` already rate-limits to one call every 2s, and the next sent message
+ * resumes the catch-up.
+ */
+const CATCHUP_L0_PER_RUN = 3;
 import {
     shouldCreateL0Summary,
     shouldCreateL1Summary,
@@ -98,73 +105,76 @@ export function useBackgroundPipeline({
                     DEFAULT_CHUNK_SIZE
                 );
 
-                // Check L0 (chunk summary with adaptive frequency)
-                if (shouldCreateL0Summary(messages.length, existingSummaries, adaptiveChunkSize)) {
-                    const chunk = getNextChunkToSummarize(
-                        messages,
-                        existingSummaries,
-                        adaptiveChunkSize
+                // How far the Chronicle is BEHIND the eviction boundary. Messages past it have
+                // left the verbatim window without ever being summarized — with facts and
+                // vector chunks gone, nothing else remembers them. Normally this is 0 (the
+                // pipeline runs far ahead of eviction), but it is reachable: memory switched
+                // off for a while, no API key when those messages arrived, repeated background
+                // failures, or a long imported conversation. Catching up one Fragment per sent
+                // message would take 200 messages to recover 200; do several per run instead.
+                const conv = useChatStore
+                    .getState()
+                    .conversations.find((c) => c.id === activeConversationId);
+                const evictedCount = conv?.historyCutMessageId
+                    ? Math.max(
+                          0,
+                          messages.findIndex((m) => m.id === conv.historyCutMessageId)
+                      )
+                    : 0;
+                const coveredCount = existingSummaries
+                    .filter((s) => s.level === 0)
+                    .reduce((max, s) => Math.max(max, s.messageRange[1]), 0);
+                const isBehind = evictedCount > coveredCount;
+                const l0Budget = isBehind ? CATCHUP_L0_PER_RUN : 1;
+                if (isBehind) {
+                    console.warn(
+                        `[Chronicle] Behind by ${evictedCount - coveredCount} evicted messages — catching up (up to ${l0Budget} fragments this run)`
                     );
-                    if (chunk) {
-                        const l0Summaries = existingSummaries.filter((s) => s.level === 0);
-                        // Use actual coverage from existing summaries
-                        const startIdx =
-                            l0Summaries.length > 0
-                                ? Math.max(...l0Summaries.map((s) => s.messageRange[1]))
-                                : 0;
-                        const endIdx = startIdx + chunk.length;
+                }
 
-                        console.log(
-                            `[RAG] Creating L0 summary for messages ${startIdx}-${endIdx} (adaptive chunk=${adaptiveChunkSize})`
-                        );
-                        lastSummarizedCount.current = messages.length;
+                // L0 fragments (adaptive frequency). Re-read after each one: the next chunk
+                // starts where the summary just written ends.
+                for (let produced = 0; produced < l0Budget; produced++) {
+                    const current =
+                        produced === 0
+                            ? existingSummaries
+                            : await getSummariesByConversation(activeConversationId);
+                    if (!shouldCreateL0Summary(messages.length, current, adaptiveChunkSize)) break;
 
-                        const prompt = buildL0Prompt(chunk, character.name, userName);
+                    const chunk = getNextChunkToSummarize(messages, current, adaptiveChunkSize);
+                    if (!chunk) break;
 
-                        const result = await backgroundAICall({
-                            systemPrompt: SUMMARIZATION_PROMPT_L0,
-                            userPrompt: prompt,
-                            temperature: 0.3,
-                            backgroundModel,
-                        });
+                    const startIdx = current
+                        .filter((s) => s.level === 0)
+                        .reduce((max, s) => Math.max(max, s.messageRange[1]), 0);
+                    const endIdx = startIdx + chunk.length;
 
-                        if (result) {
-                            const parsed = parseSummarizationResponse(result.content);
+                    console.log(
+                        `[RAG] Creating L0 summary for messages ${startIdx}-${endIdx} (adaptive chunk=${adaptiveChunkSize})`
+                    );
+                    lastSummarizedCount.current = messages.length;
 
-                            if (parsed) {
-                                const embedding = await embedText(parsed.summary);
-                                const branchPath = messages.map((m) => m.id);
-                                const summary = await createSummary(
-                                    activeConversationId,
-                                    0,
-                                    parsed.summary,
-                                    parsed.keyFacts,
-                                    [startIdx, endIdx],
-                                    [],
-                                    embedding,
-                                    branchPath
-                                );
-                                await indexMessageChunk(
-                                    chunk,
-                                    activeConversationId,
-                                    parsed.summary,
-                                    {
-                                        characters: [character.name],
-                                        location: '',
-                                        importance: 5,
-                                    },
-                                    branchPath
-                                );
+                    const result = await backgroundAICall({
+                        systemPrompt: SUMMARIZATION_PROMPT_L0,
+                        userPrompt: buildL0Prompt(chunk, character.name, userName),
+                        temperature: 0.3,
+                        backgroundModel,
+                    });
+                    if (!result) break; // model unavailable — stop rather than hammer it
 
-                                // NOTE: keyFacts deliberately do NOT become WorldFacts —
-                                // fact-extractor (post-beat) is the single producer. The
-                                // keyFacts stay inside the summary (searchable via its
-                                // embedding); a second producer here created duplicates.
+                    const parsed = parseSummarizationResponse(result.content);
+                    if (!parsed) continue;
 
-                                console.log('[RAG] L0 summary created:', summary.id);
-                            }
-                        }
-                    }
+                    const summary = await createSummary(
+                        activeConversationId,
+                        0,
+                        parsed.summary,
+                        parsed.keyFacts,
+                        [startIdx, endIdx],
+                        [],
+                        messages.map((m) => m.id)
+                    );
+                    console.log('[RAG] L0 summary created:', summary.id);
                 }
 
                 // Check L1 (section summary from L0s)
@@ -189,7 +199,6 @@ export function useBackgroundPipeline({
                                     Math.min(...l0s.map((s) => s.messageRange[0])),
                                     Math.max(...l0s.map((s) => s.messageRange[1])),
                                 ];
-                                const embedding = await embedText(parsed.summary);
                                 await createSummary(
                                     activeConversationId,
                                     1,
@@ -197,7 +206,6 @@ export function useBackgroundPipeline({
                                     parsed.keyFacts,
                                     range,
                                     l0s.map((s) => s.id),
-                                    embedding,
                                     messages.map((m) => m.id)
                                 );
                                 console.log('[RAG] L1 summary created');
@@ -234,7 +242,6 @@ export function useBackgroundPipeline({
                                     Math.min(...l1s.map((s) => s.messageRange[0])),
                                     Math.max(...l1s.map((s) => s.messageRange[1])),
                                 ];
-                                const embedding = await embedText(parsed.summary);
                                 await createSummary(
                                     activeConversationId,
                                     2,
@@ -242,7 +249,6 @@ export function useBackgroundPipeline({
                                     parsed.keyFacts,
                                     range,
                                     l1s.map((s) => s.id),
-                                    embedding,
                                     messages.map((m) => m.id)
                                 );
                                 console.log('[RAG] L2 arc summary created');

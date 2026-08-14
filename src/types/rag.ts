@@ -1,29 +1,11 @@
 /**
- * Types for the RAG (Retrieval-Augmented Generation) memory system.
- * Supports hierarchical summarization, vector embeddings, and atomic facts.
+ * Types for the long-term memory system (the Chronicle).
+ *
+ * Memory is exclusively hierarchical summaries: Fragments (L0) roll up into Sections (L1),
+ * which roll up into Arcs (L2). Atomic facts and vector chunk retrieval used to live here too;
+ * both were removed — they duplicated the summaries without being readable or editable, and
+ * their overlap was invisible to the model.
  */
-
-// ============================================
-// Vector Embeddings
-// ============================================
-
-export interface VectorEntry {
-    id: string;
-    conversationId: string;
-    messageIds: string[]; // Source message IDs
-    text: string; // Original text (summary of the chunk)
-    embedding: number[]; // Vector (384d)
-    embeddingRevision?: string; // Embedding-space signature; cross-space cosine is invalid
-    metadata: {
-        timestamp: number;
-        characters: string[]; // NPCs involved
-        location: string; // Place
-        importance: number; // 1-10 (computed by AI or heuristic)
-        tags: string[]; // "combat", "dialogue", "discovery", etc.
-    };
-    branchPath?: string[]; // Ordered message IDs forming the branch lineage
-    createdAt: number;
-}
 
 // ============================================
 // Hierarchical Summaries
@@ -34,103 +16,52 @@ export type SummaryLevel = 0 | 1 | 2;
 export interface MemorySummary {
     id: string;
     conversationId: string;
-    level: SummaryLevel; // 0 = chunk (10 msgs), 1 = section (50 msgs), 2 = arc
-    messageRange: [number, number]; // Message indices covered
-    content: string; // The summary text
-    keyFacts: string[]; // Extractable atomic facts
-    embedding?: number[]; // For RAG
-    childIds: string[]; // Child summary IDs
+    /** 0 = Fragment (~10 msgs), 1 = Section (~50 msgs), 2 = Arc (~150 msgs). */
+    level: SummaryLevel;
+    /** Message indices covered, 0-based with an EXCLUSIVE end: `[0, 50]` is the first 50. */
+    messageRange: [number, number];
+    /** The summary text. */
+    content: string;
+    /** Atomic statements pulled out of the summary. Shown in the panel, never injected. */
+    keyFacts: string[];
+    /** Child summary IDs (L1 → its L0s, L2 → its L1s). No upward link. */
+    childIds: string[];
     createdAt: number;
-    // Ordered message IDs of the branch this summary was created on. Filtering mirrors
-    // facts/chunks: after a branch switch, summaries of the abandoned branch must not keep
-    // narrating it as ground truth. Absent = legacy (always included).
+    /**
+     * Rewritten by hand in the memory panel. A full re-index destroys and rebuilds every
+     * summary, so it must warn about these before throwing the user's own writing away.
+     * Cleared when the summary is regenerated (it is machine-written again).
+     */
+    isManuallyEdited?: boolean;
+    editedAt?: number;
+    /**
+     * Ordered message IDs of the branch this summary was created on. After a branch switch,
+     * summaries of the abandoned branch must not keep narrating it as ground truth.
+     * Absent = legacy (always included).
+     */
     branchPath?: string[];
 }
 
 // ============================================
-// Atomic Facts (World Events)
+// Context assembly (preview + dynamic block)
 // ============================================
-
-export type FactCategory =
-    | 'event'
-    | 'relationship'
-    | 'item'
-    | 'location'
-    | 'lore'
-    | 'consequence'
-    | 'dialogue'
-    | string;
-
-export interface WorldFact {
-    id: string;
-    conversationId: string;
-    messageId: string; // Source message
-    fact: string; // "The player obtained the Fire Sword from dragon Kael"
-    category: FactCategory;
-    importance: number; // 1-10
-    timestamp: number;
-    embedding?: number[]; // For RAG
-    embeddingRevision?: string; // Embedding-space signature; cross-space cosine is invalid
-    relatedEntities: string[]; // ["Fire Sword", "Kael", "Player"]
-    lastAccessedAt: number; // For temporal decay
-    accessCount: number; // Number of times retrieved
-    branchPath?: string[]; // Ordered message IDs forming the branch lineage
-}
-
-// ============================================
-// RAG Query & Results
-// ============================================
-
-export interface RAGQuery {
-    text: string;
-    embedding?: number[];
-    conversationId: string;
-    topK?: number;
-    minScore?: number;
-    categoryFilter?: FactCategory[];
-}
-
-export interface RAGResult {
-    type: 'fact' | 'summary' | 'chunk';
-    content: string;
-    score: number; // Cosine similarity score
-    importance: number;
-    metadata?: {
-        characters?: string[];
-        location?: string;
-        tags?: string[];
-        timestamp?: number;
-    };
-}
-
-// ============================================
-// Context Budget Allocation
-// ============================================
-
-export interface ContextBudget {
-    systemPrompt: number; // Token budget for system prompt
-    memory: number; // Token budget for RAG memories
-    history: number; // Token budget for recent messages
-    output: number; // Token budget for output
-    total: number; // Total token limit
-}
 
 export interface ContextSection {
     priority: number; // 1 = highest
     content: string;
     tokens: number;
     label: string; // For context preview UI
-    type: 'system' | 'memory' | 'fact' | 'summary' | 'lorebook' | 'history' | 'post-history' | 'canon';
+    type: 'system' | 'summary' | 'lorebook' | 'history' | 'post-history' | 'canon';
     confidence?: number; // 0–1 relevance confidence score
-}
-
-// ============================================
-// Context Preview (for UI)
-// ============================================
-
-export interface ContextPreview {
-    sections: ContextSection[];
-    totalTokens: number;
-    maxTokens: number;
-    warnings: string[]; // e.g., "Context truncated - 45 messages dropped"
+    /**
+     * These tokens are ALREADY counted inside another section — the system prompt or the
+     * post-history block. The section is still shown (the user wants to read it) but must not
+     * be added to the total again. The value says where, so the UI can label it.
+     *
+     * This is a per-section flag rather than a list of excluded types because the same type
+     * lands in different places depending on the preset's template: the lorebook is rendered
+     * inside the system prompt when the template has `{{lorebook}}`, and in the dynamic zone
+     * otherwise.
+     */
+    countedIn?: 'system' | 'post-history';
 }

@@ -12,7 +12,6 @@ import {
     Loader2,
     X,
     Edit2,
-    Database,
     Layers,
     RefreshCw,
     Search,
@@ -31,9 +30,8 @@ import {
     DialogDescription,
     DialogFooter,
 } from '@/components/ui/dialog';
-import { deleteFactsByConversation, saveFactsBatch } from '@/lib/db';
 import { loadRagDataByConversation } from '@/lib/rag-data-loader';
-import type { WorldFact, MemorySummary } from '@/types/rag';
+import type { MemorySummary } from '@/types/rag';
 import { useSettingsStore } from '@/stores/settings-store';
 import { decryptApiKey } from '@/lib/crypto';
 
@@ -42,7 +40,7 @@ interface MemoryPanelProps {
     onClose: () => void;
 }
 
-type TabType = 'notes' | 'guidance' | 'scratchpad' | 'style' | 'facts' | 'summaries';
+type TabType = 'notes' | 'guidance' | 'scratchpad' | 'style' | 'summaries';
 
 export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
     const { getActiveCharacter } = useCharacterStore();
@@ -64,18 +62,17 @@ export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
     const [editValue, setEditValue] = useState('');
     const [confirmDeleteIndex, setConfirmDeleteIndex] = useState<number | null>(null);
 
-    // RAG data state
-    const [facts, setFacts] = useState<WorldFact[]>([]);
+    // Chronicle state
     const [summaries, setSummaries] = useState<MemorySummary[]>([]);
     const [isLoadingRag, setIsLoadingRag] = useState(false);
-    const [confirmClearFacts, setConfirmClearFacts] = useState(false);
-    const [deletingFactIds, setDeletingFactIds] = useState<Set<string>>(new Set());
     const [isReindexing, setIsReindexing] = useState(false);
+    const [confirmReindex, setConfirmReindex] = useState(false);
     const [reindexProgress, setReindexProgress] = useState('');
-    const [isMergingFacts, setIsMergingFacts] = useState(false);
-    const [mergeResult, setMergeResult] = useState('');
-    const [factSearchTerm, setFactSearchTerm] = useState('');
     const [summarySearchTerm, setSummarySearchTerm] = useState('');
+    const [editingSummaryId, setEditingSummaryId] = useState<string | null>(null);
+    const [summaryEditValue, setSummaryEditValue] = useState('');
+    const [regeneratingSummaryId, setRegeneratingSummaryId] = useState<string | null>(null);
+    const [expandedSummaryIds, setExpandedSummaryIds] = useState<Set<string>>(new Set());
 
     // Style Guard state
     const [styleSuggestions, setStyleSuggestions] = useState<string[]>([]);
@@ -85,33 +82,26 @@ export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
     // invalidating in-flight results (covers swiping away and back to the same tip).
     const analysisRunIdRef = useRef(0);
 
-    // Load RAG data when tab changes
+    // Load the Chronicle when its tab opens
     const loadRagData = useCallback(async () => {
         if (!activeConversationId) return;
         setIsLoadingRag(true);
         try {
-            const {
-                facts: loadedFacts,
-                summaries: loadedSummaries,
-                errors,
-            } = await loadRagDataByConversation(activeConversationId);
-            setFacts(loadedFacts);
+            const { summaries: loadedSummaries, errors } =
+                await loadRagDataByConversation(activeConversationId);
             setSummaries(loadedSummaries);
-            if (errors.facts) {
-                console.error('[MemoryPanel] Failed to load facts:', errors.facts);
-            }
             if (errors.summaries) {
                 console.error('[MemoryPanel] Failed to load summaries:', errors.summaries);
             }
         } catch (err) {
-            console.error('[MemoryPanel] Failed to load RAG data:', err);
+            console.error('[MemoryPanel] Failed to load the Chronicle:', err);
         } finally {
             setIsLoadingRag(false);
         }
     }, [activeConversationId]);
 
     useEffect(() => {
-        if (isOpen && (activeTab === 'facts' || activeTab === 'summaries')) {
+        if (isOpen && activeTab === 'summaries') {
             loadRagData();
         }
     }, [isOpen, activeTab, loadRagData]);
@@ -271,99 +261,98 @@ export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
         setConfirmDeleteIndex(null);
     };
 
-    const handleDeleteFact = async (factId: string) => {
-        setDeletingFactIds((prev) => new Set(prev).add(factId));
-        try {
-            const { initDB } = await import('@/lib/db');
-            const db = await initDB();
-            await db.delete('facts', factId);
-            setFacts((prev) => prev.filter((f) => f.id !== factId));
-        } catch (err) {
-            console.error('[MemoryPanel] Failed to delete fact:', err);
-        } finally {
-            setDeletingFactIds((prev) => {
-                const next = new Set(prev);
-                next.delete(factId);
-                return next;
-            });
-        }
-    };
-
-    const handleClearAllFacts = async () => {
-        if (!activeConversationId) return;
-        try {
-            await deleteFactsByConversation(activeConversationId);
-            setFacts([]);
-            setConfirmClearFacts(false);
-        } catch (err) {
-            console.error('[MemoryPanel] Failed to clear facts:', err);
-        }
-    };
-
-    const handleMergeFacts = async () => {
-        if (facts.length < 2 || isMergingFacts) return;
-        setIsMergingFacts(true);
-        setMergeResult('');
-        try {
-            const { mergeRelatedFacts } = await import('@/lib/ai/fact-extractor');
-            const { embedText, isEmbedderReady, getEmbeddingModelSignature } = await import(
-                '@/lib/ai/embedding-service'
-            );
-            const { initDB } = await import('@/lib/db');
-
-            const { mergedFacts, deletedIds, clusterCount } = mergeRelatedFacts(facts, 0.7);
-
-            if (clusterCount === 0) {
-                setMergeResult('Aucun fait similaire à fusionner.');
-                return;
-            }
-
-            const db = await initDB();
-
-            // Delete old facts
-            const tx = db.transaction('facts', 'readwrite');
-            for (const id of deletedIds) {
-                await tx.store.delete(id);
-            }
-            await tx.done;
-
-            // Create new merged facts with embeddings
-            const newFacts: WorldFact[] = await Promise.all(
-                mergedFacts.map(async (f) => ({
-                    ...f,
-                    id: crypto.randomUUID(),
-                    embedding: await embedText(f.fact),
-                    embeddingRevision: isEmbedderReady()
-                        ? getEmbeddingModelSignature()
-                        : undefined,
-                }))
-            );
-
-            await saveFactsBatch(newFacts);
-
-            setMergeResult(
-                `${deletedIds.length} faits fusionnés en ${newFacts.length} (${clusterCount} groupes)`
-            );
-            await loadRagData();
-        } catch (err) {
-            console.error('[MemoryPanel] Merge failed:', err);
-            setMergeResult(
-                'Échec de la fusion : ' + (err instanceof Error ? err.message : 'Erreur inconnue')
-            );
-        } finally {
-            setIsMergingFacts(false);
-            setTimeout(() => setMergeResult(''), 4000);
-        }
-    };
-
     const handleDeleteSummary = async (summaryId: string) => {
         try {
-            const { initDB } = await import('@/lib/db');
-            const db = await initDB();
-            await db.delete('summaries', summaryId);
+            const { deleteSummary } = await import('@/lib/db');
+            await deleteSummary(summaryId);
             setSummaries((prev) => prev.filter((s) => s.id !== summaryId));
         } catch (err) {
             console.error('[MemoryPanel] Failed to delete summary:', err);
+        }
+    };
+
+    /**
+     * Save a hand-edited summary. `saveSummary` is an upsert, so read-patch-write is the whole
+     * update path. The `isManuallyEdited` flag is what keeps a full re-index from silently
+     * throwing the edit away without warning.
+     */
+    const handleSaveSummaryEdit = async (summaryId: string) => {
+        const target = summaries.find((s) => s.id === summaryId);
+        if (!target || !summaryEditValue.trim()) return;
+        const updated: MemorySummary = {
+            ...target,
+            content: summaryEditValue.trim(),
+            isManuallyEdited: true,
+            editedAt: Date.now(),
+        };
+        try {
+            const { saveSummary } = await import('@/lib/db');
+            await saveSummary(updated);
+            setSummaries((prev) => prev.map((s) => (s.id === summaryId ? updated : s)));
+            setEditingSummaryId(null);
+            setSummaryEditValue('');
+        } catch (err) {
+            console.error('[MemoryPanel] Failed to save summary:', err);
+        }
+    };
+
+    /**
+     * Rebuild ONE summary from its children. Needed because improving the summarization
+     * prompts does nothing to summaries already written — and the only alternative, a full
+     * re-index, destroys the whole Chronicle including hand-written edits.
+     */
+    const handleRegenerateSummary = async (summary: MemorySummary) => {
+        if (regeneratingSummaryId || summary.level === 0) return;
+        setRegeneratingSummaryId(summary.id);
+        try {
+            const {
+                buildL1Prompt,
+                buildL2Prompt,
+                parseSummarizationResponse,
+                SUMMARIZATION_PROMPT_L1,
+                SUMMARIZATION_PROMPT_L2,
+            } = await import('@/lib/ai/hierarchical-summarizer');
+            const { backgroundAICall } = await import('@/lib/ai/background-ai');
+            const { saveSummary } = await import('@/lib/db');
+
+            const children = summaries.filter((s) => summary.childIds.includes(s.id));
+            if (children.length === 0) {
+                setReindexProgress('Impossible de régénérer : les résumés source ont été supprimés.');
+                setTimeout(() => setReindexProgress(''), 5000);
+                return;
+            }
+
+            const isArc = summary.level === 2;
+            const result = await backgroundAICall({
+                systemPrompt: isArc ? SUMMARIZATION_PROMPT_L2 : SUMMARIZATION_PROMPT_L1,
+                userPrompt: isArc ? buildL2Prompt(children) : buildL1Prompt(children),
+                temperature: 0.3,
+                backgroundModel: useSettingsStore.getState().backgroundModel,
+            });
+            if (!result) {
+                setReindexProgress('Régénération échouée : aucune réponse du modèle de fond.');
+                setTimeout(() => setReindexProgress(''), 5000);
+                return;
+            }
+
+            const parsed = parseSummarizationResponse(result.content);
+            if (!parsed) return;
+
+            // A regenerated summary is machine-written again: the manual-edit flag goes away,
+            // otherwise a re-index would spare something the user never wrote.
+            const updated: MemorySummary = {
+                ...summary,
+                content: parsed.summary,
+                keyFacts: parsed.keyFacts,
+                isManuallyEdited: false,
+                editedAt: undefined,
+            };
+            await saveSummary(updated);
+            setSummaries((prev) => prev.map((s) => (s.id === summary.id ? updated : s)));
+        } catch (err) {
+            console.error('[MemoryPanel] Failed to regenerate summary:', err);
+        } finally {
+            setRegeneratingSummaryId(null);
         }
     };
 
@@ -393,16 +382,12 @@ export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
                 return;
             }
 
-            const { embedText } = await import('@/lib/ai/embedding-service');
-            const { indexMessageChunk } = await import('@/lib/ai/rag-service');
             const {
                 createSummary,
                 shouldCreateL1Summary,
                 getL0SummariesForL1,
                 shouldCreateL2Summary,
                 getL1SummariesForL2,
-            } = await import('@/lib/ai/hierarchical-summarizer');
-            const {
                 buildL0Prompt,
                 buildL1Prompt,
                 buildL2Prompt,
@@ -410,12 +395,11 @@ export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
                 SUMMARIZATION_PROMPT_L1,
                 SUMMARIZATION_PROMPT_L2,
                 parseSummarizationResponse,
+                DEFAULT_CHUNK_SIZE,
             } = await import('@/lib/ai/hierarchical-summarizer');
-            const {
-                getSummariesByConversation: getSummaries,
-                deleteSummariesByConversation,
-                deleteVectorsByConversation,
-            } = await import('@/lib/db');
+            const { getAdaptiveChunkSize } = await import('@/lib/ai/message-quality');
+            const { getSummariesByConversation: getSummaries, deleteSummariesByConversation } =
+                await import('@/lib/db');
             const { backgroundAICall } = await import('@/lib/ai/background-ai');
             const { getActivePersona, backgroundModel } =
                 await import('@/stores/settings-store').then((m) => {
@@ -430,13 +414,16 @@ export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
             const activePersona = getActivePersona();
             const userName = activePersona?.name || 'You';
 
-            // Clear all existing summaries and vectors for a clean rebuild
-            setReindexProgress('Suppression des anciens résumés et vecteurs…');
+            // Clear the whole Chronicle for a clean rebuild
+            setReindexProgress('Suppression de l’ancienne chronique…');
             await deleteSummariesByConversation(activeConversationId);
-            await deleteVectorsByConversation(activeConversationId);
 
-            // Process all messages in chunks of 10
-            const chunkSize = 10;
+            // Same adaptive sizing as the live pipeline — a fixed 10 here produced a Chronicle
+            // that did not line up with the one the background pipeline would have written.
+            const chunkSize = getAdaptiveChunkSize(
+                msgs.slice(-15).map((m) => ({ role: m.role, content: m.content })),
+                DEFAULT_CHUNK_SIZE
+            );
             const totalToProcess = Math.floor(msgs.length / chunkSize);
 
             if (totalToProcess <= 0) {
@@ -470,7 +457,6 @@ export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
                 if (result) {
                     const parsed = parseSummarizationResponse(result.content);
                     if (parsed) {
-                        const embedding = await embedText(parsed.summary);
                         await createSummary(
                             activeConversationId,
                             0,
@@ -478,16 +464,8 @@ export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
                             parsed.keyFacts,
                             [startIdx, startIdx + chunk.length],
                             [],
-                            embedding,
                             msgs.map((m) => m.id)
                         );
-                        await indexMessageChunk(chunk, activeConversationId, parsed.summary, {
-                            characters: [character.name],
-                            importance: 5,
-                        });
-
-                        // keyFacts stay inside the summary — fact-extractor (post-beat) is
-                        // the single WorldFact producer (no duplicate facts path).
                     } else {
                         console.warn(`[Reindex] Chunk ${i + 1}: failed to parse summary response`);
                     }
@@ -518,7 +496,6 @@ export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
                             Math.min(...l0s.map((s) => s.messageRange[0])),
                             Math.max(...l0s.map((s) => s.messageRange[1])),
                         ];
-                        const embedding = await embedText(parsed.summary);
                         await createSummary(
                             activeConversationId,
                             1,
@@ -526,7 +503,6 @@ export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
                             parsed.keyFacts,
                             range,
                             l0s.map((s) => s.id),
-                            embedding,
                             msgs.map((m) => m.id)
                         );
                     }
@@ -556,7 +532,6 @@ export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
                             Math.min(...l1s.map((s) => s.messageRange[0])),
                             Math.max(...l1s.map((s) => s.messageRange[1])),
                         ];
-                        const embedding = await embedText(parsed.summary);
                         await createSummary(
                             activeConversationId,
                             2,
@@ -564,7 +539,6 @@ export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
                             parsed.keyFacts,
                             range,
                             l1s.map((s) => s.id),
-                            embedding,
                             msgs.map((m) => m.id)
                         );
                     }
@@ -591,19 +565,6 @@ export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
 
     if (!isOpen) return null;
 
-    const getCategoryColor = (cat: string) => {
-        const colors: Record<string, string> = {
-            event: 'text-blue-400 bg-blue-500/10',
-            relationship: 'text-pink-400 bg-pink-500/10',
-            item: 'text-amber-400 bg-amber-500/10',
-            location: 'text-green-400 bg-green-500/10',
-            lore: 'text-purple-400 bg-purple-500/10',
-            consequence: 'text-red-400 bg-red-500/10',
-            dialogue: 'text-cyan-400 bg-cyan-500/10',
-        };
-        return colors[cat] || 'text-indigo-400 bg-indigo-500/10'; // Custom categories get indigo
-    };
-
     const getLevelLabel = (level: number) => {
         const labels = ['Fragment (L0)', 'Section (L1)', 'Arc (L2)'];
         return labels[level] || `Niveau ${level}`;
@@ -618,12 +579,13 @@ export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
         return colors[level] || 'text-muted-foreground bg-muted/20 border-border/20';
     };
 
+    const manuallyEditedCount = summaries.filter((s) => s.isManuallyEdited).length;
+
     const tabs: { key: TabType; label: string; icon: typeof Brain; count?: number }[] = [
         { key: 'notes', label: 'Notes', icon: Brain, count: memories.length },
         { key: 'guidance', label: 'Guidage', icon: Sparkles },
         { key: 'scratchpad', label: 'Scratchpad', icon: BrainCircuit },
         { key: 'style', label: 'Style', icon: Feather, count: activeBanList.length },
-        { key: 'facts', label: 'Facts', icon: Database, count: facts.length },
         { key: 'summaries', label: 'Résumés', icon: Layers, count: summaries.length },
     ];
 
@@ -1011,149 +973,6 @@ export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
                         </div>
                     )}
 
-                    {/* === FACTS TAB === */}
-                    {activeTab === 'facts' && (
-                        <div className="flex flex-col flex-1 min-h-0">
-                            {/* Search bar */}
-                            <div className="px-4 pt-3 pb-1 shrink-0">
-                                <div className="relative">
-                                    <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
-                                    <Input
-                                        placeholder="Rechercher des faits…"
-                                        value={factSearchTerm}
-                                        onChange={(e) => setFactSearchTerm(e.target.value)}
-                                        className="pl-8 h-8 text-xs bg-background/40 border-border/40"
-                                    />
-                                    {factSearchTerm && (
-                                        <button
-                                            onClick={() => setFactSearchTerm('')}
-                                            className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                                        >
-                                            <X className="w-3 h-3" />
-                                        </button>
-                                    )}
-                                </div>
-                            </div>
-                            <div className="flex-1 overflow-y-auto">
-                                <div className="p-4 space-y-2">
-                                    {isLoadingRag ? (
-                                        <div className="flex items-center justify-center py-12">
-                                            <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
-                                        </div>
-                                    ) : facts.length === 0 ? (
-                                        <div className="text-center py-8">
-                                            <Database className="w-12 h-12 mx-auto text-muted-foreground/30 mb-3" />
-                                            <p className="text-sm text-muted-foreground">
-                                                Aucun fait extrait
-                                            </p>
-                                            <p className="text-xs text-muted-foreground/70 mt-1">
-                                                Les faits sont extraits automatiquement des conversations
-                                            </p>
-                                        </div>
-                                    ) : (
-                                        facts
-                                            .filter((fact) => {
-                                                if (!factSearchTerm.trim()) return true;
-                                                const term = factSearchTerm.toLowerCase();
-                                                return (
-                                                    fact.fact.toLowerCase().includes(term) ||
-                                                    fact.category.toLowerCase().includes(term) ||
-                                                    fact.relatedEntities.some((e) => e.toLowerCase().includes(term))
-                                                );
-                                            })
-                                            .sort((a, b) => b.importance - a.importance)
-                                            .map((fact) => (
-                                                <div
-                                                    key={fact.id}
-                                                    className="p-3 rounded-lg bg-muted/30 border border-border/30 group transition-all space-y-1.5"
-                                                >
-                                                    <div className="flex items-start justify-between gap-2">
-                                                        <p className="text-xs flex-1 leading-relaxed">
-                                                            {fact.fact}
-                                                        </p>
-                                                        <Button
-                                                            variant="ghost"
-                                                            size="icon"
-                                                            className="h-6 w-6 shrink-0 opacity-50 hover:opacity-100 transition-opacity hover:bg-destructive/10"
-                                                            onClick={() =>
-                                                                handleDeleteFact(fact.id)
-                                                            }
-                                                            disabled={deletingFactIds.has(fact.id)}
-                                                        >
-                                                            {deletingFactIds.has(fact.id) ? (
-                                                                <Loader2 className="w-3 h-3 animate-spin" />
-                                                            ) : (
-                                                                <Trash2 className="w-3 h-3 text-destructive" />
-                                                            )}
-                                                        </Button>
-                                                    </div>
-                                                    <div className="flex items-center gap-1.5 flex-wrap">
-                                                        <span
-                                                            className={cn(
-                                                                'text-[9px] font-bold px-1.5 py-0.5 rounded',
-                                                                getCategoryColor(fact.category)
-                                                            )}
-                                                        >
-                                                            {fact.category}
-                                                        </span>
-                                                        <span className="text-[9px] text-muted-foreground">
-                                                            imp: {fact.importance}/10
-                                                        </span>
-                                                        {fact.relatedEntities
-                                                            .slice(0, 3)
-                                                            .map((entity, i) => (
-                                                                <span
-                                                                    key={i}
-                                                                    className="text-[9px] text-muted-foreground/70 bg-muted/50 px-1 py-0.5 rounded"
-                                                                >
-                                                                    {entity}
-                                                                </span>
-                                                            ))}
-                                                    </div>
-                                                </div>
-                                            ))
-                                    )}
-                                </div>
-                            </div>
-
-                            {/* Merge & Clear facts */}
-                            {facts.length > 0 && (
-                                <div className="p-3 border-t bg-muted/10 shrink-0 space-y-2">
-                                    {mergeResult && (
-                                        <p className="text-xs text-muted-foreground text-center">
-                                            {mergeResult}
-                                        </p>
-                                    )}
-                                    <div className="flex gap-2">
-                                        <Button
-                                            variant="outline"
-                                            size="sm"
-                                            className="flex-1 gap-2 text-xs"
-                                            onClick={handleMergeFacts}
-                                            disabled={isMergingFacts || facts.length < 2}
-                                        >
-                                            {isMergingFacts ? (
-                                                <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                                            ) : (
-                                                <Sparkles className="w-3.5 h-3.5" />
-                                            )}
-                                            Fusionner les similaires
-                                        </Button>
-                                        <Button
-                                            variant="outline"
-                                            size="sm"
-                                            className="flex-1 gap-2 text-xs text-destructive hover:text-destructive hover:bg-destructive/10 border-destructive/20"
-                                            onClick={() => setConfirmClearFacts(true)}
-                                        >
-                                            <Trash2 className="w-3.5 h-3.5" />
-                                            Tout effacer ({facts.length})
-                                        </Button>
-                                    </div>
-                                </div>
-                            )}
-                        </div>
-                    )}
-
                     {/* === SUMMARIES TAB === */}
                     {activeTab === 'summaries' && (
                         <div className="flex flex-col flex-1 min-h-0">
@@ -1190,7 +1009,9 @@ export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
                                                 Aucun résumé pour l&apos;instant
                                             </p>
                                             <p className="text-xs text-muted-foreground/70 mt-1">
-                                                Les résumés sont créés automatiquement tous les 10 messages
+                                                La chronique se construit toute seule : un
+                                                Fragment tous les ~10 messages, une Section tous
+                                                les 5 Fragments, un Arc toutes les 3 Sections.
                                             </p>
                                         </div>
                                     ) : (
@@ -1212,37 +1033,183 @@ export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
                                                     key={summary.id}
                                                     className="p-3 rounded-lg bg-muted/30 border border-border/30 group transition-all space-y-1.5"
                                                 >
-                                                    <div className="flex items-start justify-between gap-2">
-                                                        <div className="flex-1 min-w-0">
-                                                            <div className="flex items-center gap-2 mb-1 flex-wrap">
-                                                                <span
-                                                                    className={cn(
-                                                                        'text-[9px] font-bold px-1.5 py-0.5 rounded border',
-                                                                        getLevelColor(summary.level)
-                                                                    )}
+                                                    <div className="flex items-center gap-2 flex-wrap">
+                                                        <span
+                                                            className={cn(
+                                                                'text-[9px] font-bold px-1.5 py-0.5 rounded border',
+                                                                getLevelColor(summary.level)
+                                                            )}
+                                                        >
+                                                            {getLevelLabel(summary.level)}
+                                                        </span>
+                                                        {/* Ranges are stored 0-based with an
+                                                            exclusive end; showing them raw read
+                                                            as "msgs 0–10" for the first ten. */}
+                                                        <span className="text-[9px] text-muted-foreground">
+                                                            messages {summary.messageRange[0] + 1} à{' '}
+                                                            {summary.messageRange[1]}
+                                                        </span>
+                                                        {summary.isManuallyEdited && (
+                                                            <span className="text-[9px] px-1.5 py-0.5 rounded border border-amber-500/30 bg-amber-500/10 text-amber-400">
+                                                                modifié à la main
+                                                            </span>
+                                                        )}
+                                                    </div>
+
+                                                    {editingSummaryId === summary.id ? (
+                                                        <div className="space-y-2">
+                                                            <Textarea
+                                                                value={summaryEditValue}
+                                                                onChange={(e) =>
+                                                                    setSummaryEditValue(
+                                                                        e.target.value
+                                                                    )
+                                                                }
+                                                                className="text-xs min-h-[140px]"
+                                                                autoFocus
+                                                            />
+                                                            <div className="flex gap-2">
+                                                                <Button
+                                                                    size="sm"
+                                                                    variant="ghost"
+                                                                    className="flex-1 h-7 text-xs"
+                                                                    onClick={() => {
+                                                                        setEditingSummaryId(null);
+                                                                        setSummaryEditValue('');
+                                                                    }}
                                                                 >
-                                                                    {getLevelLabel(summary.level)}
-                                                                </span>
-                                                                <span className="text-[9px] text-muted-foreground">
-                                                                    msgs {summary.messageRange[0]}–
-                                                                    {summary.messageRange[1]}
-                                                                </span>
+                                                                    Annuler
+                                                                </Button>
+                                                                <Button
+                                                                    size="sm"
+                                                                    className="flex-1 h-7 text-xs"
+                                                                    onClick={() =>
+                                                                        handleSaveSummaryEdit(
+                                                                            summary.id
+                                                                        )
+                                                                    }
+                                                                >
+                                                                    Enregistrer
+                                                                </Button>
                                                             </div>
-                                                            <p className="text-xs leading-relaxed">
+                                                        </div>
+                                                    ) : (
+                                                        <>
+                                                            <p className="text-xs leading-relaxed whitespace-pre-wrap">
                                                                 {summary.content}
                                                             </p>
-                                                        </div>
-                                                        <Button
-                                                            variant="ghost"
-                                                            size="icon"
-                                                            className="h-6 w-6 shrink-0 opacity-50 hover:opacity-100 transition-opacity hover:bg-destructive/10"
-                                                            onClick={() =>
-                                                                handleDeleteSummary(summary.id)
-                                                            }
-                                                        >
-                                                            <Trash2 className="w-3 h-3 text-destructive" />
-                                                        </Button>
-                                                    </div>
+
+                                                            {summary.keyFacts.length > 0 && (
+                                                                <button
+                                                                    onClick={() =>
+                                                                        setExpandedSummaryIds(
+                                                                            (prev) => {
+                                                                                const next =
+                                                                                    new Set(prev);
+                                                                                if (
+                                                                                    next.has(
+                                                                                        summary.id
+                                                                                    )
+                                                                                )
+                                                                                    next.delete(
+                                                                                        summary.id
+                                                                                    );
+                                                                                else
+                                                                                    next.add(
+                                                                                        summary.id
+                                                                                    );
+                                                                                return next;
+                                                                            }
+                                                                        )
+                                                                    }
+                                                                    className="text-[10px] text-muted-foreground hover:text-foreground"
+                                                                >
+                                                                    {expandedSummaryIds.has(
+                                                                        summary.id
+                                                                    )
+                                                                        ? '▾ '
+                                                                        : '▸ '}
+                                                                    {summary.keyFacts.length} fait
+                                                                    {summary.keyFacts.length > 1
+                                                                        ? 's'
+                                                                        : ''}{' '}
+                                                                    clé
+                                                                    {summary.keyFacts.length > 1
+                                                                        ? 's'
+                                                                        : ''}
+                                                                </button>
+                                                            )}
+                                                            {expandedSummaryIds.has(summary.id) && (
+                                                                <ul className="text-[10px] text-muted-foreground space-y-0.5 pl-3">
+                                                                    {summary.keyFacts.map(
+                                                                        (kf, i) => (
+                                                                            <li key={i}>• {kf}</li>
+                                                                        )
+                                                                    )}
+                                                                </ul>
+                                                            )}
+
+                                                            <div className="flex items-center gap-1 pt-0.5">
+                                                                <Button
+                                                                    variant="ghost"
+                                                                    size="icon"
+                                                                    className="h-6 w-6 opacity-60 hover:opacity-100"
+                                                                    title="Modifier ce résumé"
+                                                                    onClick={() => {
+                                                                        setEditingSummaryId(
+                                                                            summary.id
+                                                                        );
+                                                                        setSummaryEditValue(
+                                                                            summary.content
+                                                                        );
+                                                                    }}
+                                                                >
+                                                                    <Edit2 className="w-3 h-3" />
+                                                                </Button>
+                                                                {/* L0 fragments are built from
+                                                                    raw messages, not from child
+                                                                    summaries — nothing to
+                                                                    regenerate them from here. */}
+                                                                {summary.level > 0 && (
+                                                                    <Button
+                                                                        variant="ghost"
+                                                                        size="icon"
+                                                                        className="h-6 w-6 opacity-60 hover:opacity-100"
+                                                                        title="Régénérer depuis les résumés enfants"
+                                                                        disabled={
+                                                                            regeneratingSummaryId !==
+                                                                            null
+                                                                        }
+                                                                        onClick={() =>
+                                                                            handleRegenerateSummary(
+                                                                                summary
+                                                                            )
+                                                                        }
+                                                                    >
+                                                                        {regeneratingSummaryId ===
+                                                                        summary.id ? (
+                                                                            <Loader2 className="w-3 h-3 animate-spin" />
+                                                                        ) : (
+                                                                            <Sparkles className="w-3 h-3" />
+                                                                        )}
+                                                                    </Button>
+                                                                )}
+                                                                <Button
+                                                                    variant="ghost"
+                                                                    size="icon"
+                                                                    className="h-6 w-6 ml-auto opacity-60 hover:opacity-100 hover:bg-destructive/10"
+                                                                    title="Supprimer"
+                                                                    onClick={() =>
+                                                                        handleDeleteSummary(
+                                                                            summary.id
+                                                                        )
+                                                                    }
+                                                                >
+                                                                    <Trash2 className="w-3 h-3 text-destructive" />
+                                                                </Button>
+                                                            </div>
+                                                        </>
+                                                    )}
                                                 </div>
                                             ))
                                     )}
@@ -1260,7 +1227,7 @@ export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
                                     variant="outline"
                                     size="sm"
                                     className="w-full gap-2 text-xs"
-                                    onClick={handleReindex}
+                                    onClick={() => setConfirmReindex(true)}
                                     disabled={isReindexing}
                                 >
                                     {isReindexing ? (
@@ -1307,30 +1274,41 @@ export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
                     </DialogContent>
                 </Dialog>
 
-                {/* Clear All Facts Confirmation */}
-                <Dialog open={confirmClearFacts} onOpenChange={setConfirmClearFacts}>
-                    <DialogContent className="sm:max-w-[350px]">
+                {/* Reindex confirmation — a full rebuild destroys hand-written summaries, so
+                    it must say how many before doing it. */}
+                <Dialog open={confirmReindex} onOpenChange={setConfirmReindex}>
+                    <DialogContent className="sm:max-w-[380px]">
                         <DialogHeader>
-                            <DialogTitle>Effacer tous les faits ?</DialogTitle>
+                            <DialogTitle>Reconstruire toute la chronique ?</DialogTitle>
                             <DialogDescription>
-                                Cela supprimera {facts.length} faits extraits. Cette action est
-                                irréversible.
+                                Les {summaries.length} résumés actuels seront supprimés puis
+                                régénérés depuis les messages.
+                                {manuallyEditedCount > 0 && (
+                                    <span className="block mt-2 text-amber-400">
+                                        ⚠️ {manuallyEditedCount} résumé
+                                        {manuallyEditedCount > 1 ? 's que vous avez modifiés' : ' que vous avez modifié'}{' '}
+                                        à la main {manuallyEditedCount > 1 ? 'seront perdus' : 'sera perdu'}.
+                                    </span>
+                                )}
                             </DialogDescription>
                         </DialogHeader>
                         <DialogFooter className="flex-row gap-2">
                             <Button
                                 variant="ghost"
                                 className="flex-1"
-                                onClick={() => setConfirmClearFacts(false)}
+                                onClick={() => setConfirmReindex(false)}
                             >
                                 Annuler
                             </Button>
                             <Button
                                 variant="destructive"
                                 className="flex-1"
-                                onClick={handleClearAllFacts}
+                                onClick={() => {
+                                    setConfirmReindex(false);
+                                    handleReindex();
+                                }}
                             >
-                                Tout effacer
+                                Reconstruire
                             </Button>
                         </DialogFooter>
                     </DialogContent>

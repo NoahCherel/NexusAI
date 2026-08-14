@@ -72,6 +72,10 @@ export interface Conversation {
     // window only moves when the budget overflows (then cuts a whole block), keeping the
     // history prefix byte-stable between turns so provider prompt caching can hit.
     historyCutMessageId?: string;
+    // Smoothed size of the dynamic zone (Chronicle, lorebook, journal, contracts…), used to
+    // SIZE the history window against a stable budget instead of this turn's rendered block.
+    // Without it the fattest turn in a conversation capped the window for every turn after.
+    dynamicReserveTokens?: number;
     // Canon cast stickiness: name -> history length at last mention. A dossier stays
     // injected for a window of beats after its last mention so the (cached) system prompt
     // doesn't flap when a name drops out of the recent-scan window.

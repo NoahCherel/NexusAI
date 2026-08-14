@@ -15,6 +15,7 @@
 import { describe, it, expect } from 'vitest';
 import { buildConversationPayload } from '@/lib/ai/payload-builder';
 import { buildRAGEnhancedPayload } from '@/lib/ai/context-builder';
+import { countMessageTokens } from '@/lib/tokenizer';
 import { LEGACY_DEFAULT_SYSTEM_PROMPT_TEMPLATE } from '@/types/preset';
 import type { CharacterCard } from '@/types/character';
 import type { Message } from '@/types/chat';
@@ -270,13 +271,127 @@ describe('history window hysteresis', () => {
         expect(second.includedMessageCount).toBe(first.includedMessageCount + 1);
     });
 
-    it('leaves headroom: the refit uses ~75% of the budget', () => {
+    it('refits right up to the target, leaving only a growth margin', () => {
         const r = buildRAGEnhancedPayload('SYS', [], longHistory, opts);
-        const budget = opts.maxContextTokens - opts.maxOutputTokens - 1; // minus SYS≈1
-        expect(r.tokenBreakdown.history).toBeLessThanOrEqual(Math.floor(budget * 0.75));
-        // Lower bound: a refit that includes ZERO messages (real starvation regression)
-        // must fail this test, not pass the one-sided upper bound.
+        const b = r.tokenBreakdown;
+
+        expect(b.history).toBeLessThanOrEqual(b.historyTarget);
+        // THE anti-under-fill assertion. The old bounds (35%–75% of the budget) were so wide
+        // that a regression filling only 36% still passed — which is exactly the class of bug
+        // this whole change exists to fix. The window must now stop within one message of its
+        // target, or not at all.
+        const maxMsg = Math.max(
+            ...longHistory.map((m) => countMessageTokens(m.id, m.content))
+        );
+        expect(b.history).toBeGreaterThan(b.historyTarget - maxMsg);
+        // A margin still exists, but it is a couple of messages, not a quarter of the budget.
+        expect(b.historyTarget).toBeLessThan(b.historyBudget);
+        expect(b.historyTarget).toBeGreaterThan(Math.floor(b.historyBudget * 0.8));
         expect(r.includedMessageCount).toBeGreaterThan(0);
-        expect(r.tokenBreakdown.history).toBeGreaterThan(Math.floor(budget * 0.35));
+    });
+
+    it('re-expands once the dynamic zone deflates (no monotonic ratchet)', () => {
+        // THE regression test. Turn N has a huge dynamic block, so the anchor is set low.
+        // Under the old rule the anchor could only move forward, so every later turn — however
+        // light — stayed capped by that one fat turn, forever.
+        const fatPostHistory = 'contexte dynamique volumineux '.repeat(30);
+        const first = buildRAGEnhancedPayload('SYS', [], longHistory, {
+            ...opts,
+            postHistoryInstructions: fatPostHistory,
+        });
+        expect(first.suggestedCutMessageId).toBeDefined();
+
+        // The dynamic zone collapses and stays small for many turns.
+        let cut = first.suggestedCutMessageId;
+        let reserve = first.nextDynamicReserve;
+        let last = first;
+        for (let turn = 0; turn < 30; turn++) {
+            last = buildRAGEnhancedPayload('SYS', [], longHistory, {
+                ...opts,
+                postHistoryInstructions: 'x',
+                historyCutMessageId: cut,
+                dynamicReserveTokens: reserve,
+            });
+            cut = last.suggestedCutMessageId ?? cut;
+            reserve = last.nextDynamicReserve;
+        }
+
+        expect(last.includedMessageCount).toBeGreaterThan(first.includedMessageCount);
+        expect(last.tokenBreakdown.history).toBeGreaterThan(
+            first.tokenBreakdown.history * 1.3
+        );
+    });
+
+    it('does not thrash when the dynamic zone oscillates turn to turn', () => {
+        // The counter-test to the one above: a naive symmetric hysteresis re-expands the moment
+        // the block shrinks and re-cuts when it grows, breaking the cache prefix ~10 times over
+        // 20 turns. The reserve high-water mark is what keeps the window still.
+        let cut: string | undefined;
+        let reserve: number | undefined;
+        let moves = 0;
+        for (let turn = 0; turn < 20; turn++) {
+            const r = buildRAGEnhancedPayload('SYS', [], longHistory, {
+                ...opts,
+                postHistoryInstructions:
+                    turn % 2 === 0 ? 'contexte dynamique volumineux '.repeat(20) : 'x',
+                historyCutMessageId: cut,
+                dynamicReserveTokens: reserve,
+            });
+            if (r.suggestedCutMessageId && r.suggestedCutMessageId !== cut) moves++;
+            cut = r.suggestedCutMessageId ?? cut;
+            reserve = r.nextDynamicReserve;
+        }
+        expect(moves).toBeLessThanOrEqual(2);
+    });
+
+    it('absorbs a one-off spike without re-anchoring the window', () => {
+        const settle = buildRAGEnhancedPayload('SYS', [], longHistory, {
+            ...opts,
+            postHistoryInstructions: 'x',
+        });
+        const anchor = settle.suggestedCutMessageId;
+        const reserve = settle.nextDynamicReserve;
+
+        const spike = buildRAGEnhancedPayload('SYS', [], longHistory, {
+            ...opts,
+            postHistoryInstructions: 'pic ponctuel '.repeat(25),
+            historyCutMessageId: anchor,
+            dynamicReserveTokens: reserve,
+        });
+        // Trimmed to fit this request, but the anchor is NOT moved…
+        expect(spike.historyWindow.action).toBe('transient-trim');
+        expect(spike.suggestedCutMessageId).toBeUndefined();
+
+        // …so the next normal turn gets the full window back.
+        const after = buildRAGEnhancedPayload('SYS', [], longHistory, {
+            ...opts,
+            postHistoryInstructions: 'x',
+            historyCutMessageId: anchor,
+            dynamicReserveTokens: spike.nextDynamicReserve,
+        });
+        expect(after.includedMessageCount).toBeGreaterThanOrEqual(spike.includedMessageCount);
+    });
+
+    it('reclaims an anchor inherited from the old ratcheting rule', () => {
+        // Existing conversations carry an anchor cut far too low, and no stored reserve.
+        const first = buildRAGEnhancedPayload('SYS', [], longHistory, {
+            ...opts,
+            postHistoryInstructions: 'contexte dynamique volumineux '.repeat(30),
+        });
+        const legacy = buildRAGEnhancedPayload('SYS', [], longHistory, {
+            ...opts,
+            historyCutMessageId: first.suggestedCutMessageId,
+            // no dynamicReserveTokens — the field did not exist when this anchor was written
+        });
+        expect(legacy.historyWindow.action).toBe('expanded');
+        expect(legacy.includedMessageCount).toBeGreaterThan(first.includedMessageCount);
+    });
+
+    it('never starves the window to zero messages', () => {
+        const r = buildRAGEnhancedPayload('SYS', [], longHistory, {
+            ...opts,
+            postHistoryInstructions: 'bloc dynamique démesuré '.repeat(200),
+        });
+        expect(r.includedMessageCount).toBeGreaterThanOrEqual(1);
     });
 });
