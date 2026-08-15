@@ -338,6 +338,7 @@ export async function buildContextPreview(input: ContextPreviewInput): Promise<{
         const canonBlocks = systemPrompt.match(/\[CANON — [^\]]+\][\s\S]*?(?=\n\n|\n\[|$)/g) || [];
 
         const lines: string[] = [];
+        lines.push('— Ce que le modèle voit de votre casting —');
         lines.push(
             `Portée : les ${scanDepth} dernier(s) message(s) ont été analysés à la recherche de noms du casting mentionnés dans la scène.`
         );
@@ -371,7 +372,9 @@ export async function buildContextPreview(input: ContextPreviewInput): Promise<{
             priority: 1,
             content,
             tokens: countTokens(content),
-            label: `Dossiers du canon (${injectedNames.length} injectés) — ce que le modèle voit de votre casting`,
+            // Short on purpose: section labels sit next to a badge and a token count, and on a
+            // phone a long one wrapped to a word per line. The explanation lives in the body.
+            label: `Dossiers du canon (${injectedNames.length} injectés)`,
             type: 'canon',
             countedIn: 'system',
         });

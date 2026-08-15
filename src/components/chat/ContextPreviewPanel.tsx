@@ -145,7 +145,7 @@ export function ContextPreviewPanel({
 
                         {/* Token Usage Bar */}
                         <div className="px-4 py-3 border-b border-white/5 space-y-2 shrink-0">
-                            <div className="flex items-center justify-between text-sm">
+                            <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5 text-sm">
                                 <span className="text-muted-foreground">Budget de tokens</span>
                                 <span className="font-mono">
                                     <span className="text-foreground">
@@ -179,13 +179,17 @@ export function ContextPreviewPanel({
                                     title="Réservé pour la réponse du modèle"
                                 />
                             </div>
-                            <div className="flex items-center justify-between text-xs text-muted-foreground">
+                            {/* wrap + gap: on a phone these two run into each other and the
+                                parenthesised halves end up orphaned on their own lines. */}
+                            <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5 text-xs text-muted-foreground">
                                 <span>
-                                    {usagePercent}% engagé (dont{' '}
-                                    {maxOutputTokens.toLocaleString()} réservés en sortie)
+                                    {usagePercent}% engagé{' '}
+                                    <span className="whitespace-nowrap">
+                                        (dont {maxOutputTokens.toLocaleString()} en sortie)
+                                    </span>
                                 </span>
-                                <span>
-                                    {includedMessages} messages inclus
+                                <span className="whitespace-nowrap">
+                                    {includedMessages} msgs inclus
                                     {droppedMessages > 0 && (
                                         <span className="text-yellow-400 ml-1">
                                             ({droppedMessages} évincés)
@@ -199,7 +203,7 @@ export function ContextPreviewPanel({
                             exactly why an under-filled context went unnoticed for so long. */}
                         {tokenBreakdown && historyWindow && (
                             <div className="px-4 py-3 border-b border-white/5 shrink-0 space-y-1.5 text-xs">
-                                <div className="flex items-center justify-between">
+                                <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5">
                                     <span className="text-muted-foreground font-medium">
                                         Fenêtre d&apos;historique
                                     </span>
@@ -208,7 +212,7 @@ export function ContextPreviewPanel({
                                             historyWindow.action}
                                     </span>
                                 </div>
-                                <div className="flex items-center justify-between font-mono">
+                                <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5 font-mono">
                                     <span className="text-muted-foreground">Utilisé / budget</span>
                                     <span>
                                         <span className="text-foreground">
@@ -247,7 +251,7 @@ export function ContextPreviewPanel({
                                         }}
                                     />
                                 </div>
-                                <div className="flex items-center justify-between text-[11px] text-muted-foreground">
+                                <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5 text-[11px] text-muted-foreground">
                                     <span>
                                         Cible {tokenBreakdown.historyTarget.toLocaleString()} ·
                                         réserve dynamique{' '}
@@ -313,35 +317,46 @@ export function ContextPreviewPanel({
                                     >
                                         <button
                                             onClick={() => toggleSection(idx)}
-                                            className="w-full px-3 py-2 flex items-center gap-2 hover:bg-white/5 transition-colors text-left"
+                                            className="w-full px-3 py-2 flex items-start gap-2 hover:bg-white/5 transition-colors text-left"
                                         >
-                                            {isExpanded ? (
-                                                <ChevronDown className="h-3 w-3 text-muted-foreground shrink-0" />
-                                            ) : (
-                                                <ChevronRight className="h-3 w-3 text-muted-foreground shrink-0" />
-                                            )}
-                                            {icon}
-                                            <span className="text-sm font-medium flex-1 min-w-0">
-                                                {section.label}
+                                            <span className="shrink-0 pt-0.5">
+                                                {isExpanded ? (
+                                                    <ChevronDown className="h-3 w-3 text-muted-foreground" />
+                                                ) : (
+                                                    <ChevronRight className="h-3 w-3 text-muted-foreground" />
+                                                )}
                                             </span>
-                                            {/* Without this, a 900-token section that no longer
-                                                adds to the total reads as a bug. */}
-                                            {section.countedIn && (
-                                                <span className="text-[10px] px-1.5 py-0.5 rounded border border-white/10 bg-white/5 text-muted-foreground shrink-0">
-                                                    compté dans{' '}
-                                                    {section.countedIn === 'system'
-                                                        ? 'le prompt système'
-                                                        : 'le post-historique'}
+                                            <span className="shrink-0 pt-0.5">{icon}</span>
+
+                                            {/* Two rows on a phone, one on wider screens. The
+                                                badge and the token count are shrink-0, so side
+                                                by side with the label they left it barely 100px
+                                                and it wrapped one word per line. */}
+                                            <span className="flex-1 min-w-0 flex flex-col gap-1 sm:flex-row sm:items-center sm:gap-2">
+                                                <span className="text-sm font-medium break-words sm:flex-1 sm:min-w-0">
+                                                    {section.label}
                                                 </span>
-                                            )}
-                                            <span
-                                                className={`text-xs font-mono shrink-0 ${
-                                                    section.countedIn
-                                                        ? 'text-muted-foreground/50 line-through'
-                                                        : 'text-muted-foreground'
-                                                }`}
-                                            >
-                                                {section.tokens.toLocaleString()} tokens
+                                                <span className="flex items-center gap-1.5 shrink-0">
+                                                    {/* Without this, a 900-token section that no
+                                                        longer adds to the total reads as a bug. */}
+                                                    {section.countedIn && (
+                                                        <span className="text-[10px] leading-tight px-1.5 py-0.5 rounded border border-white/10 bg-white/5 text-muted-foreground whitespace-nowrap">
+                                                            déjà compté&nbsp;:{' '}
+                                                            {section.countedIn === 'system'
+                                                                ? 'système'
+                                                                : 'post-historique'}
+                                                        </span>
+                                                    )}
+                                                    <span
+                                                        className={`text-xs font-mono whitespace-nowrap ${
+                                                            section.countedIn
+                                                                ? 'text-muted-foreground/50 line-through'
+                                                                : 'text-muted-foreground'
+                                                        }`}
+                                                    >
+                                                        {section.tokens.toLocaleString()} tk
+                                                    </span>
+                                                </span>
                                             </span>
                                         </button>
 
