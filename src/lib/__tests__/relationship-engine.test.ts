@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
     applyAxisDelta,
     applyDeltas,
+    revertMessageDeltas,
     makeRelationship,
     axisLabel,
     NORMAL_DELTA_CAP,
@@ -112,5 +113,53 @@ describe('axisLabel', () => {
         expect(axisLabel('trust', -80)).toBe('betrayed/hostile');
         expect(axisLabel('trust', 5)).toBe('wary');
         expect(axisLabel('trust', 90)).toBe('fully relies on them');
+    });
+});
+
+describe('revertMessageDeltas', () => {
+    // Exact because the ledger stores the EFFECTIVE delta (post-inertia): rolling back is a
+    // subtraction, not a re-derivation of the velocity/resistance maths.
+    it('restores the axes a message moved, and drops only its entries', () => {
+        const base = makeRelationship('Naruto', '{{user}}', { trust: 30, respect: 10 });
+        const after = applyDeltas(
+            base,
+            [
+                { axis: 'trust', delta: 8, reason: 'a' },
+                { axis: 'respect', delta: -5, reason: 'b' },
+            ],
+            'm1'
+        );
+        const withOther = applyDeltas(after, [{ axis: 'trust', delta: 4, reason: 'c' }], 'm2');
+
+        const reverted = revertMessageDeltas(withOther, 'm1');
+        expect(reverted.ledger.every((e) => e.messageId === 'm2')).toBe(true);
+        expect(reverted.axes.respect).toBe(base.axes.respect);
+        // m2's trust gain survives; only m1's is undone.
+        const m2Trust = withOther.ledger.find((e) => e.messageId === 'm2')!.delta;
+        expect(reverted.axes.trust).toBe(base.axes.trust + m2Trust);
+    });
+
+    it('round-trips: apply then revert returns the original axes', () => {
+        const base = makeRelationship('Naruto', '{{user}}', { trust: -40, affection: 60 });
+        const after = applyDeltas(
+            base,
+            [
+                { axis: 'trust', delta: -25, reason: 'betrayal', major: true },
+                { axis: 'affection', delta: 8, reason: 'a kindness' },
+            ],
+            'm1'
+        );
+        const reverted = revertMessageDeltas(after, 'm1');
+        expect(reverted.axes).toEqual(base.axes);
+        expect(reverted.ledger).toHaveLength(0);
+    });
+
+    it('is a no-op for an unknown message id', () => {
+        const rel = applyDeltas(
+            makeRelationship('Naruto', '{{user}}'),
+            [{ axis: 'trust', delta: 8, reason: 'a' }],
+            'm1'
+        );
+        expect(revertMessageDeltas(rel, 'nope')).toBe(rel);
     });
 });

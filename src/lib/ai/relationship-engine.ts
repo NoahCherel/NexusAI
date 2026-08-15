@@ -124,6 +124,33 @@ export function applyDeltas(
     return { ...rel, axes, ledger, updatedAt: now };
 }
 
+/**
+ * Undo every change a given message caused, exactly.
+ *
+ * The ledger stores the EFFECTIVE delta (post-inertia), so reversal is a plain subtraction —
+ * no need to re-derive the velocity/resistance maths. Used before re-analysing a regenerated,
+ * continued or retried message: the old version's deltas are rolled back first, so the beat is
+ * scored once no matter how many times it is rewritten. Without it, the choice was between
+ * double-counting and skipping the analysis entirely.
+ */
+export function revertMessageDeltas(
+    rel: DirectedRelationship,
+    messageId: string
+): DirectedRelationship {
+    const toRevert = rel.ledger.filter((e) => e.messageId === messageId);
+    if (toRevert.length === 0) return rel;
+
+    const axes: RelationshipAxes = { ...rel.axes };
+    for (const e of toRevert) axes[e.axis] = clampAxis(axes[e.axis] - e.delta);
+
+    return {
+        ...rel,
+        axes,
+        ledger: rel.ledger.filter((e) => e.messageId !== messageId),
+        updatedAt: Date.now(),
+    };
+}
+
 /** A short human label for an axis value, used in the prompt and the UI. */
 export function axisLabel(axis: RelationshipAxis, v: number): string {
     if (axis === 'trust') {

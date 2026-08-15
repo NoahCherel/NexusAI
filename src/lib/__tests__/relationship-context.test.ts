@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
     seedAxesFromNature,
     mainCharacterBond,
+    onStageNames,
     formatRelationshipBlock,
 } from '@/lib/ai/relationship-context';
 import { makeRelationship } from '@/lib/ai/relationship-engine';
@@ -48,6 +49,33 @@ describe('mainCharacterBond', () => {
         const block = formatRelationshipBlock(mainCharacterBond('Naruto'), ['Naruto'], 'Kael');
         expect(block).toContain('Naruto → Kael');
         expect(block).not.toContain('Kael → Naruto');
+    });
+});
+
+describe('onStageNames', () => {
+    it('keeps the card character even when the prose never names them', () => {
+        // The failure that silenced the analyst: a character does not write their own name.
+        expect(onStageNames({ cardName: 'Sakura', mentioned: [] })).toEqual(['Sakura']);
+    });
+
+    it('unions ground truth (speaker, roster, sticky cast) with text matches', () => {
+        const names = onStageNames({
+            cardName: 'Sakura',
+            speakerNames: ['Kakashi'],
+            sceneRoster: ['Naruto'],
+            stickyCast: { Sasuke: 12 },
+            mentioned: ['Tazuna'],
+        });
+        expect(names).toEqual(['Sakura', 'Kakashi', 'Naruto', 'Sasuke', 'Tazuna']);
+    });
+
+    it('dedupes case-insensitively and never lists the player sentinel', () => {
+        const names = onStageNames({
+            cardName: 'Sakura',
+            speakerNames: ['sakura', USER_REL_KEY],
+            mentioned: ['SAKURA', '  '],
+        });
+        expect(names).toEqual(['Sakura']);
     });
 });
 

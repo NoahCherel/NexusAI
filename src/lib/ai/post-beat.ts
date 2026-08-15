@@ -43,6 +43,18 @@ export interface PostBeatParams {
      * alone misses what the other characters actually did. Defaults to `finalContent`.
      */
     beatContent?: string;
+    /**
+     * Who the app attributed this beat to. Ground truth for the relationship analyst, which
+     * otherwise has to infer presence from name matching — and a character's own line almost
+     * never contains their own name. Defaults to the card's character.
+     */
+    speakerNames?: string[];
+    /**
+     * Id of the message this generation replaces (regenerate / retry / reroll). The relationship
+     * analyst rolls its deltas back before scoring the new version, so a rerolled beat neither
+     * double-counts nor freezes.
+     */
+    supersededMessageId?: string;
 }
 
 /**
@@ -59,6 +71,8 @@ export function runPostBeatAnalyses(params: PostBeatParams): void {
         isImpersonation,
         skipBeatAnalyses,
         beatContent,
+        speakerNames,
+        supersededMessageId,
     } = params;
 
     const settings = useSettingsStore.getState();
@@ -122,7 +136,9 @@ export function runPostBeatAnalyses(params: PostBeatParams): void {
             character,
             conversationId,
             beatContent || finalContent,
-            targetId
+            targetId,
+            speakerNames,
+            supersededMessageId
         ).catch((e) => console.error('[Relationships] analysis failed', e));
     }
 }

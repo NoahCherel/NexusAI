@@ -122,6 +122,13 @@ export function useChatGeneration({
              * the final turn can hand the analyst the whole beat instead of its last reply.
              */
             beatPrefix?: string;
+            /** Troupe: every character who spoke in this beat, for analyst attribution. */
+            beatSpeakers?: string[];
+            /**
+             * Regenerate / retry / reroll: the message this one replaces. Its relationship
+             * deltas are rolled back before the new version is scored.
+             */
+            supersedesMessageId?: string;
             /**
              * Continue-in-place for providers WITHOUT assistant prefill (NanoGPT/OpenAI):
              * `history` must END with this existing assistant message; the model gets an
@@ -535,6 +542,17 @@ export function useChatGeneration({
                               options.speaker?.name ? `${options.speaker.name}: ` : ''
                           }${finalContent}`
                         : undefined,
+                    // Ground truth for the relationship analyst: who actually wrote this beat.
+                    // Inferring it from the prose fails — a character's own line rarely names
+                    // them. Troupe passes every speaker of the beat; otherwise it's the card.
+                    // Only a 'character' speaker is a person on stage — the Troupe narrator
+                    // ("Scène") would otherwise be announced to the analyst as cast.
+                    speakerNames: options.beatSpeakers ?? [
+                        options.speaker?.kind === 'character'
+                            ? options.speaker.name
+                            : character.name,
+                    ],
+                    supersededMessageId: options.supersedesMessageId,
                 });
             }
 
@@ -657,6 +675,9 @@ export function useChatGeneration({
                         userName,
                     },
                     skipBeatAnalyses: false,
+                    // The unified beat is attributed to the narrator, so name the characters
+                    // the Director actually put in it for the relationship analyst.
+                    beatSpeakers: decision.speakers.map((s) => s.name),
                 });
                 return;
             }
@@ -697,6 +718,7 @@ export function useChatGeneration({
                     sceneGoal: i === 0 ? decision.sceneGoal : undefined,
                     skipBeatAnalyses: !isFinalTurn,
                     beatPrefix: isFinalTurn && beatLines.length > 0 ? beatLines.join('\n') : undefined,
+                    beatSpeakers: isFinalTurn ? speakers.map((s) => s.name) : undefined,
                     retrievalCacheKey: beatRetrievalKey,
                 });
                 if (!result) break;
@@ -929,7 +951,9 @@ export function useChatGeneration({
             await triggerAiReponse(
                 msgToRegen.speaker ? withSpeakerPrefixes(history) : history,
                 {
-                    skipBeatAnalyses: true,
+                    // Relationships ARE re-scored on a reroll: the discarded version's deltas
+                    // are rolled back first (see supersedesMessageId), so the beat counts once.
+                    supersedesMessageId: id,
                     speaker: msgToRegen.speaker,
                     // Unified beat: replay the SAME Director context — without it the scene
                     // would collapse into an ordinary single-character reply.
@@ -961,7 +985,9 @@ export function useChatGeneration({
                 msgToContinue.speaker ? withSpeakerPrefixes(history) : history,
                 {
                     prefill,
-                    skipBeatAnalyses: true,
+                    // The continuation replaces the message, so its earlier deltas are rolled
+                    // back and the longer text is scored fresh.
+                    supersedesMessageId: id,
                     speaker: msgToContinue.speaker,
                     sceneEnsemble: msgToContinue.sceneEnsemble,
                 }
@@ -976,7 +1002,9 @@ export function useChatGeneration({
             const history = messages.slice(0, msgIndex + 1);
             await triggerAiReponse(history, {
                 continueTargetId: id,
-                skipBeatAnalyses: true,
+                // Continue-in-place keeps the same message id, so the analyst's own
+                // messageId rollback covers it; passing it is belt-and-braces.
+                supersedesMessageId: id,
                 speaker: msgToContinue.speaker,
                 sceneEnsemble: msgToContinue.sceneEnsemble,
             });
@@ -993,7 +1021,7 @@ export function useChatGeneration({
         await triggerAiReponse(
             msgToRetry.speaker ? withSpeakerPrefixes(history) : history,
             {
-                skipBeatAnalyses: true,
+                supersedesMessageId: id,
                 speaker: msgToRetry.speaker,
                 sceneEnsemble: msgToRetry.sceneEnsemble,
             }

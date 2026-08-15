@@ -20,8 +20,10 @@ import { useChatStore } from '@/stores/chat-store';
 import { backgroundAICall } from '@/lib/ai/background-ai';
 import { getCanonDossiersByWork } from '@/lib/db';
 import { resolveWork, getActiveCanonNames } from '@/lib/ai/canon-context';
+import { onStageNames } from '@/lib/ai/relationship-context';
 import {
     applyDeltas,
+    revertMessageDeltas,
     findRelationship,
     relKey,
     RELATIONSHIP_AXES,
@@ -81,8 +83,17 @@ export function parseRelationshipDeltas(text: string): RawChange[] {
     }
 }
 
-/** Build the per-relationship state lines fed to the analyst. */
-function describeRelationships(rels: DirectedRelationship[], userName: string): string {
+/**
+ * Build the per-relationship state lines fed to the analyst. Each line is tagged on-stage or
+ * off-stage rather than filtered out: the model is told who is present and decides for itself
+ * what moved. Hard-filtering the candidates is what silenced the analyst — a character almost
+ * never writes their own name in their own line, so the one who just spoke read as absent.
+ */
+function describeRelationships(
+    rels: DirectedRelationship[],
+    userName: string,
+    onStage: Set<string>
+): string {
     return rels
         .map((r) => {
             const a = r.axes;
@@ -91,7 +102,11 @@ function describeRelationships(rels: DirectedRelationship[], userName: string): 
             ).join(', ');
             const from = r.from === USER_REL_KEY ? userName : r.from;
             const to = r.to === USER_REL_KEY ? userName : r.to;
-            return `${from} → ${to}: ${axisStr}`;
+            const present =
+                onStage.has(r.from.toLowerCase()) || r.from === USER_REL_KEY
+                    ? ''
+                    : ' [not in this scene]';
+            return `${from} → ${to}: ${axisStr}${present}`;
         })
         .join('\n');
 }
@@ -106,7 +121,15 @@ export async function analyzeAndUpdateRelationships(
     card: CharacterCard,
     conversationId: string,
     newMessage: string,
-    messageId?: string
+    messageId?: string,
+    /** Ground truth from the app: who the beat was attributed to. */
+    speakerNames?: string[],
+    /**
+     * Id of the message this one replaces (regenerate / retry / continue-by-reroll produce a
+     * NEW message, so its deltas are filed under a different id than the version being
+     * discarded). Its deltas are rolled back before the fresh beat is scored.
+     */
+    supersededMessageId?: string
 ): Promise<void> {
     const settings = useSettingsStore.getState();
     // Deliberately NOT gated on useCanonCodex: relationships also work for OC cards and
@@ -120,21 +143,40 @@ export async function analyzeAndUpdateRelationships(
 
     // Nothing tracked → nothing to move. Bail before the dossier read and the API call:
     // bonds are only born in the Relations panel, so an untouched conversation is free.
-    const tracked = conv.relationships || [];
+    let tracked = conv.relationships || [];
     if (tracked.length === 0) return;
+
+    // Re-scoring a beat we already scored (regenerate / continue / retry): roll back the
+    // previous version's deltas, so one beat counts once however often it is rewritten. The
+    // alternative — skipping the analysis — is what made rerolled beats stop moving.
+    // Both ids matter: continue-in-place reuses the same message, a reroll makes a new one.
+    //
+    // Computed here but NOT persisted: writing the rollback before the API call would destroy
+    // the bond's history outright whenever that call fails (no key, quota, network).
+    const staleIds = [...new Set([messageId, supersededMessageId].filter(Boolean) as string[])];
+    let rolledBack = false;
+    if (staleIds.length > 0) {
+        const next = tracked.map((r) =>
+            staleIds.reduce((acc, id) => revertMessageDeltas(acc, id), r)
+        );
+        rolledBack = next.some((r, i) => r !== tracked[i]);
+        if (rolledBack) tracked = next;
+    }
 
     // Canon dossiers only enrich the analysis (personality cues) — the analyst runs without them.
     const work = resolveWork(card);
     const dossiers = work ? await getCanonDossiersByWork(work) : [];
 
-    // Which cast members are involved in this beat?
-    const activeNames = getActiveCanonNames(
-        card,
-        conv,
-        [{ content: newMessage } as never],
-        1
-    );
-    if (activeNames.length === 0) return; // no tracked character on stage → nothing to update
+    // Who is on stage. Ground truth (the speaker the app attributed, the Troupe roster, the
+    // recent cast) plus literal name matches — NOT name matching alone, which misses the very
+    // character who just spoke and so returned "nobody is here" on ordinary prose.
+    const activeNames = onStageNames({
+        cardName: card.name,
+        speakerNames,
+        sceneRoster: conv.sceneRoster,
+        stickyCast: conv.stickyCast,
+        mentioned: getActiveCanonNames(card, conv, [{ content: newMessage } as never], 1),
+    });
 
     const activePersona = settings.personas.find((p) => p.id === settings.activePersonaId);
     // Persona-at-send-time: the ledger must name the persona who actually played this
@@ -146,18 +188,19 @@ export async function analyzeAndUpdateRelationships(
         )?.speaker?.name;
     const userName = lastUserSpeaker || activePersona?.name || 'the player';
 
-    // Relationships eligible for update: NPC-origin, touching an active character. Capped so a
-    // conversation with a large hand-built web can't balloon this prompt (the message body is
-    // already truncated below); NPC→player bonds are the ones that matter most, so they win.
-    const activeSet = new Set([USER_REL_KEY.toLowerCase(), ...activeNames.map((n) => n.toLowerCase())]);
+    // Candidates: every NPC-origin bond ({{user}}→X is the player's to write, never the AI's).
+    // Deliberately NOT filtered down to who is on stage — that filter only ever made sense as
+    // damage control for auto-created bonds, and with manual creation the list is short. It is
+    // ordered instead (on-stage first, then NPC→player, then most recently touched) and capped,
+    // with presence marked per line so the model judges rather than being pre-censored.
+    const activeSet = new Set(activeNames.map((n) => n.toLowerCase()));
+    const rank = (r: DirectedRelationship) =>
+        (activeSet.has(r.from.toLowerCase()) ? 0 : 4) +
+        (activeSet.has(r.to.toLowerCase()) || r.to === USER_REL_KEY ? 0 : 2) +
+        (r.to === USER_REL_KEY ? 0 : 1);
     const eligible = tracked
-        .filter(
-            (r) =>
-                r.from !== USER_REL_KEY &&
-                activeSet.has(r.from.toLowerCase()) &&
-                activeSet.has(r.to.toLowerCase())
-        )
-        .sort((a, b) => Number(b.to === USER_REL_KEY) - Number(a.to === USER_REL_KEY))
+        .filter((r) => r.from !== USER_REL_KEY)
+        .sort((a, b) => rank(a) - rank(b) || (b.updatedAt || 0) - (a.updatedAt || 0))
         .slice(0, MAX_ANALYZED_BONDS);
     if (eligible.length === 0) return;
 
@@ -169,12 +212,19 @@ export async function analyzeAndUpdateRelationships(
         .map((d) => `${d.character}: ${d.identity.slice(0, 220)}`)
         .join('\n');
 
+    // Who wrote this beat. Without it the analyst got an unattributed block of prose and had to
+    // guess the speaker from the narration — a character's own line rarely names them.
+    const spoke = (speakerNames?.length ? speakerNames : [card.name]).filter(Boolean);
+
     const userPrompt = [
         `Player (the user, {{user}}): ${userName}`,
+        `Characters present in this scene: ${activeNames.join(', ') || '(unclear)'}`,
+        `This beat was written by: ${spoke.join(', ')}. The prose is theirs — narration in the third person ("she", "he") refers to them unless another character is named.`,
         personaCues && `Character personalities:\n${personaCues}`,
-        `Current relationship values (only propose changes for these "from" characters; NEVER for ${userName}):\n${describeRelationships(
+        `Current relationship values (only propose changes for these "from" characters; NEVER for ${userName}). Lines marked [not in this scene] belong to characters who are absent — leave them alone unless the beat genuinely involves them:\n${describeRelationships(
             eligible,
-            userName
+            userName,
+            activeSet
         )}`,
         `Latest message in the scene:\n"""${newMessage.replace(/{{user}}/gi, userName).slice(0, 4000)}"""`,
     ]
@@ -188,10 +238,17 @@ export async function analyzeAndUpdateRelationships(
         maxTokens: 1200,
         disableReasoning: true,
     });
+    // Analysis failed (no key, quota, network): leave the bonds exactly as they were. In
+    // particular do NOT commit the rollback — a failed reroll must not erase history.
     if (!result) return;
 
+    /** Commit the rollback even when nothing new moved: the old beat no longer exists. */
+    const persistRollbackOnly = () => {
+        if (rolledBack) useChatStore.getState().setRelationships(conversationId, tracked);
+    };
+
     const changes = parseRelationshipDeltas(result.content);
-    if (changes.length === 0) return;
+    if (changes.length === 0) return persistRollbackOnly();
 
     // Group valid changes by relationship key.
     const byKey = new Map<string, { rel: DirectedRelationship; deltas: ProposedDelta[] }>();
@@ -213,7 +270,7 @@ export async function analyzeAndUpdateRelationships(
             major: !!c.major,
         });
     }
-    if (byKey.size === 0) return;
+    if (byKey.size === 0) return persistRollbackOnly();
 
     // Apply via the engine (caps, velocity, resistance, ledger) and persist.
     const updatedByKey = new Map<string, DirectedRelationship>();

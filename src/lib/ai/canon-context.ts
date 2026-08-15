@@ -12,7 +12,7 @@ import type { CanonDossier } from '@/types/canon';
 import { getCanonDossiersByWork, getArcOutline } from '@/lib/db';
 import { deriveWorkFromName } from '@/lib/ai/canon-retrieval';
 import { useSettingsStore } from '@/stores/settings-store';
-import { formatRelationshipBlock } from '@/lib/ai/relationship-context';
+import { formatRelationshipBlock, onStageNames } from '@/lib/ai/relationship-context';
 
 export function resolveWork(card: CharacterCard): string {
     return (card.work?.trim() || deriveWorkFromName(card.name)).trim();
@@ -186,10 +186,15 @@ export async function buildCanonOptions(
         persistSticky?: boolean;
     } = {}
 ): Promise<CanonPromptOptions> {
-    // The card's own character is always on stage, even on the turns where nobody says their
-    // name — without this, the one bond that always matters would drop out of the prompt.
-    const withCardCharacter = (names: string[]): string[] =>
-        card.name ? [...new Set([...names, card.name])] : names;
+    // Who is on stage, from the shared helper the analyst also uses — text matching alone
+    // drops the character who just spoke (they rarely say their own name).
+    const relationshipStage = (mentioned: string[]): string[] =>
+        onStageNames({
+            cardName: card.name,
+            sceneRoster: conversation?.sceneRoster,
+            stickyCast: conversation?.stickyCast,
+            mentioned,
+        });
 
     // Relationships and the momentum nudge are NOT canon features: they must keep reaching
     // the prompt even when the Canon Codex is off or the card has no resolvable work —
@@ -199,7 +204,7 @@ export async function buildCanonOptions(
         // Only who is actually on stage. This used to pass EVERY name in the list, so a bond
         // with an NPC last seen 200 messages ago shipped on every single turn — the main
         // reason the block kept growing and eating history.
-        const onStage = withCardCharacter(
+        const onStage = relationshipStage(
             getActiveCanonNames(card, conversation, recentMessages, SCAN_DEPTH)
         );
         return {
@@ -291,7 +296,7 @@ export async function buildCanonOptions(
     // it would buy canon dossiers we didn't ask for.
     const relationshipBlock = formatRelationshipBlock(
         conversation?.relationships,
-        withCardCharacter(activeNameList),
+        relationshipStage(activeNameList),
         userName
     );
 

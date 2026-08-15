@@ -61,6 +61,47 @@ export function mainCharacterBond(characterName: string): DirectedRelationship[]
     return [makeRelationship(USER_REL_KEY, name), makeRelationship(name, USER_REL_KEY)];
 }
 
+/**
+ * Who is on stage right now — the single source of truth for both the analyst and the injected
+ * block, so the two can never drift apart again.
+ *
+ * Scanning the reply text for cast names was the ONLY signal, and it is a weak one: a character
+ * almost never says their own name in their own line ("She threw herself in front of him"), so
+ * the character who just spoke read as absent. Ground truth the app already holds beats the
+ * heuristic: who actually spoke, who is on the Troupe roster, who has been in the last beats.
+ * Text matching stays, as one signal among several.
+ */
+export function onStageNames(opts: {
+    /** The card's own character: always on stage, named or not. */
+    cardName?: string;
+    /** Ground truth — who the app attributed this beat to. */
+    speakerNames?: string[];
+    /** Troupe: the declared on-stage roster. */
+    sceneRoster?: string[];
+    /** Canon sticky cast (name → last-seen), already pruned to its window when written. */
+    stickyCast?: Record<string, number>;
+    /** Names literally matched in the recent text. */
+    mentioned?: string[];
+}): string[] {
+    const out: string[] = [];
+    const seen = new Set<string>();
+    const add = (n: string | undefined) => {
+        const v = n?.trim();
+        if (!v || v === USER_REL_KEY) return;
+        const k = v.toLowerCase();
+        if (seen.has(k)) return;
+        seen.add(k);
+        out.push(v);
+    };
+
+    add(opts.cardName);
+    opts.speakerNames?.forEach(add);
+    opts.sceneRoster?.forEach(add);
+    Object.keys(opts.stickyCast || {}).forEach(add);
+    opts.mentioned?.forEach(add);
+    return out;
+}
+
 /** Resolve the {{user}} sentinel to a display name. */
 function display(name: string, userName: string): string {
     return name === USER_REL_KEY ? userName : name;
