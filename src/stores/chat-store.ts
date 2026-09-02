@@ -1,5 +1,11 @@
 import { create } from 'zustand';
-import type { Message, Conversation, ArcCompass, DirectedRelationship } from '@/types';
+import type {
+    Message,
+    Conversation,
+    ArcCompass,
+    DirectedRelationship,
+    CharacterRef,
+} from '@/types';
 import {
     saveConversation,
     getConversationsByCharacter,
@@ -30,6 +36,19 @@ interface ChatState {
     ) => Promise<string>;
     setActiveConversation: (id: string | null) => void;
     addMessage: (message: Message) => void;
+    /** Apply messages already committed by one IndexedDB scene transaction in one render. */
+    applyCommittedSceneBeat: (params: {
+        conversationId: string;
+        messages: Message[];
+        storyStateRevisionId: string;
+        roster: string[];
+    }) => void;
+    applyStoryStateRevision: (params: {
+        conversationId: string;
+        messageId: string;
+        storyStateRevisionId: string;
+        roster: string[];
+    }) => void;
     updateMessage: (
         id: string,
         updates: Partial<Message>,
@@ -62,7 +81,13 @@ interface ChatState {
     setStickyCast: (conversationId: string, stickyCast: Record<string, number>) => void;
     setSceneMode: (conversationId: string, sceneMode: boolean) => void;
     setSceneRoster: (conversationId: string, roster: string[]) => void;
-    setSceneStyle: (conversationId: string, style: 'turns' | 'unified') => void;
+    setSceneCharacterOverride: (
+        conversationId: string,
+        displayName: string,
+        character: CharacterRef
+    ) => void;
+    setSceneStyle: (conversationId: string, style: 'turns' | 'composed-turns' | 'unified') => void;
+    setDirectedSceneSuggestionDismissed: (conversationId: string, dismissed: boolean) => void;
     setBanList: (conversationId: string, banList: string[]) => void;
     getActiveBranchBanList: (conversationId: string) => string[];
     setRelationships: (conversationId: string, relationships: DirectedRelationship[]) => void;
@@ -356,6 +381,64 @@ export const useChatStore = create<ChatState>()((set, get) => ({
         saveMessage(enrichedMessage).catch(console.error);
     },
 
+    applyCommittedSceneBeat: ({
+        conversationId,
+        messages: committedMessages,
+        storyStateRevisionId,
+        roster,
+    }) => {
+        set((state) => {
+            const first = committedMessages[0];
+            const conversationMessages = state.messages.filter(
+                (message) => message.conversationId === conversationId
+            );
+            const deactivate = new Set<string>();
+            for (const sibling of conversationMessages.filter(
+                (message) => message.parentId === first.parentId
+            )) {
+                deactivate.add(sibling.id);
+                getDescendantIds(conversationMessages, sibling.id).forEach((id) =>
+                    deactivate.add(id)
+                );
+            }
+            return {
+                messages: [
+                    ...state.messages.map((message) =>
+                        deactivate.has(message.id) ? { ...message, isActiveBranch: false } : message
+                    ),
+                    ...committedMessages,
+                ],
+                conversations: state.conversations.map((conversation) =>
+                    conversation.id === conversationId
+                        ? {
+                              ...conversation,
+                              activeStoryStateRevisionId: storyStateRevisionId,
+                              sceneRoster: roster,
+                              updatedAt: new Date(),
+                          }
+                        : conversation
+                ),
+            };
+        });
+    },
+
+    applyStoryStateRevision: ({ conversationId, messageId, storyStateRevisionId, roster }) => {
+        set((state) => ({
+            messages: state.messages.map((message) =>
+                message.id === messageId ? { ...message, storyStateRevisionId } : message
+            ),
+            conversations: state.conversations.map((conversation) =>
+                conversation.id === conversationId
+                    ? {
+                          ...conversation,
+                          activeStoryStateRevisionId: storyStateRevisionId,
+                          sceneRoster: roster,
+                      }
+                    : conversation
+            ),
+        }));
+    },
+
     updateMessage: (id, updates, options) => {
         let updatedMessage: Message | undefined;
         set((state) => ({
@@ -566,9 +649,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
                 if (c.id !== conversationId) return c;
                 conversationToUpdate = {
                     ...c,
-                    ...('cutMessageId' in state
-                        ? { historyCutMessageId: state.cutMessageId }
-                        : {}),
+                    ...('cutMessageId' in state ? { historyCutMessageId: state.cutMessageId } : {}),
                     ...('dynamicReserveTokens' in state
                         ? { dynamicReserveTokens: state.dynamicReserveTokens }
                         : {}),
@@ -611,6 +692,26 @@ export const useChatStore = create<ChatState>()((set, get) => ({
         if (conversationToUpdate) saveConversation(conversationToUpdate).catch(console.error);
     },
 
+    setSceneCharacterOverride: (conversationId, displayName, character) => {
+        let conversationToUpdate: Conversation | undefined;
+        const key = displayName.trim().toLocaleLowerCase();
+        set((state) => ({
+            conversations: state.conversations.map((conversation) => {
+                if (conversation.id !== conversationId) return conversation;
+                conversationToUpdate = {
+                    ...conversation,
+                    sceneCharacterOverrides: {
+                        ...(conversation.sceneCharacterOverrides ?? {}),
+                        [key]: character,
+                    },
+                    updatedAt: new Date(),
+                };
+                return conversationToUpdate;
+            }),
+        }));
+        if (conversationToUpdate) saveConversation(conversationToUpdate).catch(console.error);
+    },
+
     setSceneStyle: (conversationId, style) => {
         let conversationToUpdate: Conversation | undefined;
         set((state) => ({
@@ -620,6 +721,18 @@ export const useChatStore = create<ChatState>()((set, get) => ({
                     return conversationToUpdate;
                 }
                 return c;
+            }),
+        }));
+        if (conversationToUpdate) saveConversation(conversationToUpdate).catch(console.error);
+    },
+
+    setDirectedSceneSuggestionDismissed: (conversationId, directedSceneSuggestionDismissed) => {
+        let conversationToUpdate: Conversation | undefined;
+        set((state) => ({
+            conversations: state.conversations.map((conversation) => {
+                if (conversation.id !== conversationId) return conversation;
+                conversationToUpdate = { ...conversation, directedSceneSuggestionDismissed };
+                return conversationToUpdate;
             }),
         }));
         if (conversationToUpdate) saveConversation(conversationToUpdate).catch(console.error);

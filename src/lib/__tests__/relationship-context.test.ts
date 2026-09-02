@@ -23,8 +23,8 @@ describe('seedAxesFromNature', () => {
 
     it('seeds an enemy as negative trust and affection', () => {
         const a = seedAxesFromNature('sworn enemy');
-        expect((a.trust ?? 0)).toBeLessThan(0);
-        expect((a.affection ?? 0)).toBeLessThan(0);
+        expect(a.trust ?? 0).toBeLessThan(0);
+        expect(a.affection ?? 0).toBeLessThan(0);
     });
 });
 

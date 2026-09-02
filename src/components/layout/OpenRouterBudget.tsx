@@ -26,17 +26,21 @@ function getPricing(): Promise<Map<string, ModelPrice>> {
     if (!pricingPromise) {
         pricingPromise = fetch('https://openrouter.ai/api/v1/models')
             .then((res) => (res.ok ? res.json() : Promise.reject(res.status)))
-            .then((json: { data?: { id: string; pricing?: { prompt?: string; completion?: string } }[] }) => {
-                const map = new Map<string, ModelPrice>();
-                for (const m of json.data ?? []) {
-                    const prompt = Number(m.pricing?.prompt ?? NaN);
-                    const completion = Number(m.pricing?.completion ?? NaN);
-                    if (Number.isFinite(prompt) && Number.isFinite(completion)) {
-                        map.set(m.id, { prompt, completion });
+            .then(
+                (json: {
+                    data?: { id: string; pricing?: { prompt?: string; completion?: string } }[];
+                }) => {
+                    const map = new Map<string, ModelPrice>();
+                    for (const m of json.data ?? []) {
+                        const prompt = Number(m.pricing?.prompt ?? NaN);
+                        const completion = Number(m.pricing?.completion ?? NaN);
+                        if (Number.isFinite(prompt) && Number.isFinite(completion)) {
+                            map.set(m.id, { prompt, completion });
+                        }
                     }
+                    return map;
                 }
-                return map;
-            })
+            )
             .catch((err) => {
                 console.warn('[Budget] OpenRouter pricing fetch failed:', err);
                 pricingPromise = null; // allow a later retry
@@ -104,7 +108,9 @@ export function OpenRouterBudgetBadge() {
                 {tokensLeft !== null ? ` · ≈ ${formatTokens(tokensLeft)} tok` : ''} · semaine
             </span>
             <span className="sm:hidden whitespace-nowrap">
-                {tokensLeft !== null ? `≈ ${formatTokens(tokensLeft)} tok` : `${remaining.toFixed(2)} $`}
+                {tokensLeft !== null
+                    ? `≈ ${formatTokens(tokensLeft)} tok`
+                    : `${remaining.toFixed(2)} $`}
             </span>
         </div>
     );

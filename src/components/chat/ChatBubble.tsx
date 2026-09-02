@@ -3,7 +3,6 @@
 import { motion, AnimatePresence, Variants } from 'framer-motion';
 import {
     ChevronDown,
-    GitBranch,
     RefreshCw,
     Edit2,
     Trash2,
@@ -122,7 +121,6 @@ export const ChatBubble = memo(function ChatBubble({
     onEdit,
     onRegenerate,
     onContinue,
-    onBranch,
     onDelete,
     onRetry,
     currentBranchIndex = 0,
@@ -305,12 +303,12 @@ export const ChatBubble = memo(function ChatBubble({
                     <div className="flex items-center gap-3 px-1 text-[10px] text-muted-foreground/60 font-mono">
                         <span>
                             {usage.estimated ? '≈ ' : ''}
-                            {formatTokens(usage.promptTokens)} → {formatTokens(usage.completionTokens)} tok
+                            {formatTokens(usage.promptTokens)} →{' '}
+                            {formatTokens(usage.completionTokens)} tok
                         </span>
                         {!!usage.cachedTokens && usage.promptTokens > 0 && (
                             <span>
-                                cache{' '}
-                                {Math.round((usage.cachedTokens / usage.promptTokens) * 100)}%
+                                cache {Math.round((usage.cachedTokens / usage.promptTokens) * 100)}%
                             </span>
                         )}
                         {typeof usage.cost === 'number' && usage.cost > 0 && (

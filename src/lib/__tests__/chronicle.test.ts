@@ -33,7 +33,8 @@ function summary(
 }
 
 /** Text of a believable size for the level (Arcs ~250-350 words, Sections ~150-250). */
-const prose = (label: string, words: number) => `${label}. ` + `récit détaillé de la scène `.repeat(words / 5);
+const prose = (label: string, words: number) =>
+    `${label}. ` + `récit détaillé de la scène `.repeat(words / 5);
 
 /** Arc 1 over messages 1-150, with its three Sections and fifteen Fragments underneath. */
 function fullPyramid(): MemorySummary[] {

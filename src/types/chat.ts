@@ -1,5 +1,6 @@
 // Chat and conversation types
 import type { Provider } from '@/lib/ai/providers';
+import type { CharacterRef } from './scene';
 
 export interface Message {
     id: string;
@@ -43,6 +44,13 @@ export interface Message {
     // Persisted so regenerate/retry/continue can replay the SAME ensemble contract instead
     // of collapsing the multi-character scene into an ordinary single-character reply.
     sceneEnsemble?: SceneEnsembleInfo;
+
+    // Directed ensemble beat metadata. Private intentions remain in `sceneBeats` and are
+    // deliberately not copied onto transcript messages.
+    sceneBeatId?: string;
+    sceneTurnIndex?: number;
+    characterRef?: CharacterRef;
+    storyStateRevisionId?: string;
 }
 
 /** Director beat context for a 'unified' scene message (mirrors the payload param). */
@@ -83,9 +91,13 @@ export interface Conversation {
     // Scene Mode (Troupe): AI narrator + one reply per on-stage character.
     sceneMode?: boolean;
     sceneRoster?: string[]; // characters currently on stage
-    // 'turns' (default): one streamed message per speaker, fine-grained regen.
-    // 'unified': ONE RP call writes the whole directed scene as a single message (cheaper).
-    sceneStyle?: 'turns' | 'unified';
+    // 'turns': historical sequential mode. 'composed-turns': one directed, atomic beat
+    // rendered as separate bubbles. 'unified': one prose message for the whole ensemble.
+    sceneStyle?: 'turns' | 'composed-turns' | 'unified';
+    activeStoryStateRevisionId?: string; // denormalized active-branch cache
+    directedSceneSuggestionDismissed?: boolean;
+    /** User choices for ambiguous scene names, keyed by normalized display name. */
+    sceneCharacterOverrides?: Record<string, CharacterRef>;
     createdAt: Date;
     updatedAt: Date;
 }

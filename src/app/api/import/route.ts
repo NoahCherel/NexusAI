@@ -161,7 +161,10 @@ async function importAICC(id: string) {
     return pngToResult(buf);
 }
 
-const HANDLERS: Record<DetectedImport['platform'], (id: string) => Promise<{ card: CharacterCard; avatarDataUrl?: string }>> = {
+const HANDLERS: Record<
+    DetectedImport['platform'],
+    (id: string) => Promise<{ card: CharacterCard; avatarDataUrl?: string }>
+> = {
     jannyai: importJannyAI,
     chub: importChub,
     pygmalion: importPygmalion,

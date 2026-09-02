@@ -39,9 +39,10 @@ function isBlocked(status: number, text: string): boolean {
     return status === 403 || text.startsWith('This request has been blocked');
 }
 
-async function chubSearch(params: URLSearchParams): Promise<
-    | { ok: true; nodes: ChubNode[]; count: number }
-    | { ok: false; blocked: boolean; status: number }
+async function chubSearch(
+    params: URLSearchParams
+): Promise<
+    { ok: true; nodes: ChubNode[]; count: number } | { ok: false; blocked: boolean; status: number }
 > {
     const res = await fetch(`${CHUB_SEARCH_URL}?${params}`, { headers: BROWSER_HEADERS });
     const text = await res.text();

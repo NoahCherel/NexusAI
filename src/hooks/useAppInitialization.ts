@@ -3,7 +3,7 @@
 import { useEffect, useRef } from 'react';
 import { useCharacterStore } from '@/stores/character-store';
 import { useChatStore } from '@/stores/chat-store';
-import { initDB } from '@/lib/db';
+import { initDB, markRunningSceneBeatsInterrupted } from '@/lib/db';
 
 /**
  * Hook to initialize IndexedDB and load data on app start.
@@ -22,6 +22,7 @@ export function useAppInitialization() {
         const init = async () => {
             try {
                 await initDB();
+                await markRunningSceneBeatsInterrupted();
                 await loadCharacters();
             } catch (error) {
                 console.error('App initialization failed:', error);

@@ -14,6 +14,8 @@ const eslintConfig = defineConfig([
         'out/**',
         'build/**',
         'next-env.d.ts',
+        // Vendored SillyTavern extension, maintained as a separate repository/license.
+        'Megumin-Suite/**',
     ]),
 ]);
 

@@ -1,8 +1,8 @@
 'use client';
 
 import { useState, useRef, useEffect, KeyboardEvent } from 'react';
-import { motion, AnimatePresence, Variants } from 'framer-motion';
-import { Send, Check, Square, User, Plus, StopCircle } from 'lucide-react';
+import { motion, Variants } from 'framer-motion';
+import { Send, User, Plus, StopCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import {
@@ -43,8 +43,6 @@ export function ChatInput({
     onDraftChange,
 }: ChatInputProps) {
     const [message, setMessage] = useState('');
-    const [isFocused, setIsFocused] = useState(false);
-    const [justSent, setJustSent] = useState(false);
     const [isImpersonating, setIsImpersonating] = useState(false);
 
     const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -68,11 +66,6 @@ export function ChatInput({
         if (message.trim() && !isLoading && !disabled) {
             onSend(message.trim());
             setMessage('');
-            setJustSent(true);
-
-            // Reset justSent after animation
-            setTimeout(() => setJustSent(false), 600);
-
             if (textareaRef.current) {
                 textareaRef.current.style.height = 'auto';
             }
@@ -144,8 +137,6 @@ export function ChatInput({
                         onDraftChange?.(e.target.value);
                     }}
                     onKeyDown={handleKeyDown}
-                    onFocus={() => setIsFocused(true)}
-                    onBlur={() => setIsFocused(false)}
                     placeholder={placeholder}
                     className="flex-1 min-h-[40px] max-h-[80px] sm:max-h-[200px] resize-none border-0 bg-transparent focus-visible:ring-0 focus-visible:ring-offset-0 py-2.5 px-3 leading-relaxed custom-scrollbar placeholder:text-muted-foreground/50"
                     disabled={isLoading || disabled}

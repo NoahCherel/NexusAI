@@ -59,14 +59,19 @@ function seedConversation(relationships?: DirectedRelationship[]) {
 const stored = () =>
     useChatStore.getState().conversations.find((c) => c.id === CONV_ID)?.relationships ?? [];
 
-const reply = (content: string) => vi.mocked(backgroundAICall).mockResolvedValue({
-    content,
-    usedModel: 'noop',
-} as Awaited<ReturnType<typeof backgroundAICall>>);
+const reply = (content: string) =>
+    vi.mocked(backgroundAICall).mockResolvedValue({
+        content,
+        usedModel: 'noop',
+    } as Awaited<ReturnType<typeof backgroundAICall>>);
 
 beforeEach(() => {
     vi.clearAllMocks();
-    useSettingsStore.setState({ enableRelationshipAnalyst: true, personas: [], activePersonaId: null });
+    useSettingsStore.setState({
+        enableRelationshipAnalyst: true,
+        personas: [],
+        activePersonaId: null,
+    });
 });
 
 describe('analyzeAndUpdateRelationships — creation is manual', () => {
@@ -88,7 +93,13 @@ describe('analyzeAndUpdateRelationships — creation is manual', () => {
         reply(
             JSON.stringify({
                 changes: [
-                    { from: 'Sasuke', to: 'Naruto', axis: 'respect', delta: 8, reason: 'saved him' },
+                    {
+                        from: 'Sasuke',
+                        to: 'Naruto',
+                        axis: 'respect',
+                        delta: 8,
+                        reason: 'saved him',
+                    },
                 ],
             })
         );
@@ -266,7 +277,14 @@ describe('analyzeAndUpdateRelationships — a rerolled beat is scored once', () 
         expect(sakuraTrust()).toBeGreaterThan(0);
 
         reply(JSON.stringify({ changes: [] }));
-        await analyzeAndUpdateRelationships(card, CONV_ID, 'A flatter take.', 'm2', ['Sakura'], 'm1');
+        await analyzeAndUpdateRelationships(
+            card,
+            CONV_ID,
+            'A flatter take.',
+            'm2',
+            ['Sakura'],
+            'm1'
+        );
         expect(sakuraTrust()).toBe(0);
         expect(stored()[0].ledger).toHaveLength(0);
     });

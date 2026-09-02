@@ -179,7 +179,9 @@ export async function fetchCharacterDossier(
     const config = await getRetrievalConfig();
     if (!config) return null;
 
-    console.log(`[Canon] Fetching dossier: ${character} (${work}) @ ${timelineCap} via ${config.model}`);
+    console.log(
+        `[Canon] Fetching dossier: ${character} (${work}) @ ${timelineCap} via ${config.model}`
+    );
 
     const userPrompt = `Work: ${work}\nCharacter: ${character}\nTimeline cap (include only canon up to here, no spoilers beyond): ${timelineCap}`;
 
@@ -195,18 +197,19 @@ export async function fetchCharacterDossier(
     });
     if (!result) return null;
 
-    const parsed = extractJsonObject(result.content) as
-        | {
-              identity?: string;
-              backstory?: string;
-              relationships?: CanonRelationship[];
-              abilities?: string;
-              appearsInArcs?: string[];
-              sources?: string[];
-          }
-        | null;
+    const parsed = extractJsonObject(result.content) as {
+        identity?: string;
+        backstory?: string;
+        relationships?: CanonRelationship[];
+        abilities?: string;
+        appearsInArcs?: string[];
+        sources?: string[];
+    } | null;
     if (!parsed || typeof parsed.identity !== 'string') {
-        console.warn('[Canon] Dossier response was not parseable JSON:', result.content.slice(0, 300));
+        console.warn(
+            '[Canon] Dossier response was not parseable JSON:',
+            result.content.slice(0, 300)
+        );
         return null;
     }
 
@@ -228,7 +231,9 @@ export async function fetchCharacterDossier(
         abilities: typeof parsed.abilities === 'string' ? parsed.abilities : undefined,
         // Keep arcs the roster already knew if the dossier call didn't return any.
         appearsInArcs: fetchedArcs.length > 0 ? fetchedArcs : existing?.appearsInArcs,
-        sources: Array.isArray(parsed.sources) ? parsed.sources.filter((s) => typeof s === 'string') : [],
+        sources: Array.isArray(parsed.sources)
+            ? parsed.sources.filter((s) => typeof s === 'string')
+            : [],
         fetchedAt: Date.now(),
         stub: false,
         enabled: existing?.enabled ?? true,
@@ -311,7 +316,10 @@ export async function fetchCastRoster(
         const existing = await getCanonDossier(work, entry.name);
         if (existing && !existing.stub) {
             // Keep the full/edited dossier; just backfill arcs if missing.
-            if ((!existing.appearsInArcs || existing.appearsInArcs.length === 0) && entry.appearsInArcs?.length) {
+            if (
+                (!existing.appearsInArcs || existing.appearsInArcs.length === 0) &&
+                entry.appearsInArcs?.length
+            ) {
                 await saveCanonDossier({ ...existing, appearsInArcs: entry.appearsInArcs });
             }
             continue;
@@ -373,15 +381,18 @@ export async function fetchArcOutline(
     });
     if (!result) return null;
 
-    const parsed = extractJsonObject(result.content) as
-        | { outline?: string; sources?: string[] }
-        | null;
+    const parsed = extractJsonObject(result.content) as {
+        outline?: string;
+        sources?: string[];
+    } | null;
     if (!parsed || typeof parsed.outline !== 'string' || !parsed.outline.trim()) return null;
 
     const outline: ArcOutline = {
         work: work.trim(),
         outline: parsed.outline,
-        sources: Array.isArray(parsed.sources) ? parsed.sources.filter((s) => typeof s === 'string') : [],
+        sources: Array.isArray(parsed.sources)
+            ? parsed.sources.filter((s) => typeof s === 'string')
+            : [],
         fetchedAt: Date.now(),
     };
     await saveArcOutline(outline);

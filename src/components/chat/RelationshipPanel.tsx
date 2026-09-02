@@ -474,7 +474,9 @@ function RelationshipCard({
                 <span className="text-sm font-semibold truncate">
                     {fromLabel} <span className="text-muted-foreground">→</span> {toLabel}
                     {isUserOrigin && (
-                        <span className="ml-2 text-[10px] text-muted-foreground">(toi — manuel)</span>
+                        <span className="ml-2 text-[10px] text-muted-foreground">
+                            (toi — manuel)
+                        </span>
                     )}
                     {rel.seededFromCanon && (
                         <span className="ml-2 text-[10px] text-amber-500/80">canon</span>
@@ -555,7 +557,9 @@ function RelationshipCard({
                         <ChevronDown className="w-3 h-3" /> Historique
                     </div>
                     {rel.ledger.length === 0 ? (
-                        <p className="text-[11px] text-muted-foreground/70">Aucun changement enregistré.</p>
+                        <p className="text-[11px] text-muted-foreground/70">
+                            Aucun changement enregistré.
+                        </p>
                     ) : (
                         [...rel.ledger].reverse().map((e, i) => (
                             <div key={i} className="text-[11px] flex items-start gap-1.5">
@@ -568,7 +572,9 @@ function RelationshipCard({
                                     {e.delta > 0 ? '+' : ''}
                                     {e.delta}
                                 </span>
-                                <span className="text-muted-foreground shrink-0">{AXIS_FR[e.axis]}</span>
+                                <span className="text-muted-foreground shrink-0">
+                                    {AXIS_FR[e.axis]}
+                                </span>
                                 <span className="text-foreground/80">{e.reason}</span>
                             </div>
                         ))

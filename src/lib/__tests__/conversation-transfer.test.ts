@@ -36,9 +36,7 @@ function summary(
 
 /** Arc → 3 Sections → 6 Fragments. */
 function pyramid(): MemorySummary[] {
-    const frags = Array.from({ length: 6 }, (_, i) =>
-        summary(`f${i}`, 0, [i * 10, (i + 1) * 10])
-    );
+    const frags = Array.from({ length: 6 }, (_, i) => summary(`f${i}`, 0, [i * 10, (i + 1) * 10]));
     const sections = [
         summary('s0', 1, [0, 20], ['f0', 'f1']),
         summary('s1', 1, [20, 40], ['f2', 'f3']),
@@ -102,7 +100,11 @@ describe('remapSummariesForImport', () => {
 
     it('drops references to children that were not exported, rather than dangling', () => {
         const orphanParent = summary('s9', 1, [0, 20], ['missing-1', 'f0']);
-        const out = remapSummariesForImport([summary('f0', 0, [0, 10]), orphanParent], NEW_CONV, []);
+        const out = remapSummariesForImport(
+            [summary('f0', 0, [0, 10]), orphanParent],
+            NEW_CONV,
+            []
+        );
 
         const section = out.find((s) => s.level === 1)!;
         expect(section.childIds).toHaveLength(1);

@@ -7,10 +7,21 @@
  */
 
 import type { CharacterCard } from '@/types/character';
-import type { DirectedRelationship } from '@/types/chat';
+import type { DirectedRelationship, Conversation, Message as ChatMessage } from '@/types/chat';
+import type { CharacterRef, SceneBeatRecord, SceneTransition, StoryState } from '@/types/scene';
 import type { MemorySummary } from '@/types/rag';
 import { useChatStore, useCharacterStore } from '@/stores';
-import { getSummariesByConversation, saveSummary } from '@/lib/db';
+import {
+    commitStoryStateRevision,
+    getConversationMessages as getStoredConversationMessages,
+    getSceneBeatsByConversation,
+    getStoryStatesByConversation,
+    getSummariesByConversation,
+    saveSceneBeat,
+    saveMessage,
+    saveStoryState,
+    saveSummary,
+} from '@/lib/db';
 import { useNotificationStore } from '@/components/ui/api-notification';
 
 /**
@@ -46,7 +57,10 @@ function notify(message: string, status: 'success' | 'error' = 'error'): void {
 }
 
 /** Export the most recent conversation of a character as a JSON download. */
-export async function exportConversationForCharacter(character: CharacterCard): Promise<void> {
+export async function exportConversationForCharacter(
+    character: CharacterCard,
+    options: { includeBackstage?: boolean } = {}
+): Promise<void> {
     const conversations = useChatStore.getState().conversations;
 
     // Find most recent conversation for this character
@@ -60,10 +74,15 @@ export async function exportConversationForCharacter(character: CharacterCard): 
     }
 
     const latestConv = charConvs[0];
-    const messages = await useChatStore.getState().getConversationMessages(latestConv.id);
+    const messages = await getStoredConversationMessages(latestConv.id);
+    const [storyStates, sceneBeats] = await Promise.all([
+        getStoryStatesByConversation(latestConv.id),
+        getSceneBeatsByConversation(latestConv.id),
+    ]);
 
     const exportData = {
         character: {
+            id: character.id,
             name: character.name,
             description: character.description,
             personality: character.personality,
@@ -78,27 +97,50 @@ export async function exportConversationForCharacter(character: CharacterCard): 
             // Hand-authored data now: bonds are created in the Relations panel, not
             // regenerated from the cast each beat. Dropping them here loses real user work.
             relationships: latestConv.relationships,
+            storyGuidance: latestConv.storyGuidance,
+            arc: latestConv.arc,
+            rpJournal: latestConv.rpJournal,
+            sceneMode: latestConv.sceneMode,
+            sceneRoster: latestConv.sceneRoster,
+            sceneStyle: latestConv.sceneStyle,
+            activeStoryStateRevisionId: latestConv.activeStoryStateRevisionId,
+            sceneCharacterOverrides: latestConv.sceneCharacterOverrides,
             // Same reasoning for the Chronicle: it IS the long-term memory (nothing else
             // remembers what left the context window), it can be edited by hand, and
             // rebuilding it costs dozens of background calls.
             summaries: await getSummariesByConversation(latestConv.id),
         },
         messages: messages.map((m) => ({
+            id: m.id,
+            parentId: m.parentId,
             role: m.role,
             content: m.content,
             thought: m.thought,
             createdAt: m.createdAt,
             isActiveBranch: m.isActiveBranch,
+            messageOrder: m.messageOrder,
+            regenerationIndex: m.regenerationIndex,
             speaker: m.speaker,
             sceneEnsemble: m.sceneEnsemble,
+            sceneBeatId: m.sceneBeatId,
+            sceneTurnIndex: m.sceneTurnIndex,
+            characterRef: m.characterRef,
+            storyStateRevisionId: m.storyStateRevisionId,
         })),
+        storyStates,
+        // Normal/shareable exports omit private intentions. The explicit complete-backup
+        // action preserves them for personal archival and faithful retry restoration.
+        sceneBeats: options.includeBackstage
+            ? sceneBeats
+            : sceneBeats.map((beat) => ({ ...beat, intents: [] })),
+        privateBackstageIncluded: !!options.includeBackstage,
         exportedAt: new Date().toISOString(),
     };
 
     const { exportToJson } = await import('@/lib/export-utils');
     exportToJson(
         exportData,
-        `Conversation_${character.name}_${new Date().toISOString().split('T')[0]}`
+        `Conversation_${character.name}_${options.includeBackstage ? 'Coulisses_' : ''}${new Date().toISOString().split('T')[0]}`
     );
 }
 
@@ -170,32 +212,270 @@ export function importConversationFromFile(): void {
             if (importedRels) {
                 useChatStore.getState().setRelationships(convId, importedRels);
             }
+            const importedConversation = data.conversation as Partial<Conversation>;
+            if (importedConversation.storyGuidance) {
+                useChatStore
+                    .getState()
+                    .updateStoryGuidance(convId, importedConversation.storyGuidance);
+            }
+            if (importedConversation.arc) {
+                useChatStore.getState().updateArc(convId, importedConversation.arc);
+            }
+            if (Array.isArray(importedConversation.sceneRoster)) {
+                useChatStore.getState().setSceneRoster(convId, importedConversation.sceneRoster);
+            }
+            if (
+                importedConversation.sceneStyle === 'turns' ||
+                importedConversation.sceneStyle === 'composed-turns' ||
+                importedConversation.sceneStyle === 'unified'
+            ) {
+                useChatStore.getState().setSceneStyle(convId, importedConversation.sceneStyle);
+            }
+            if (typeof importedConversation.sceneMode === 'boolean') {
+                useChatStore.getState().setSceneMode(convId, importedConversation.sceneMode);
+            }
 
-            // Import messages as ONE chained branch. parentId must link each message to
-            // the previous one: with every message at the root, they'd all be siblings —
-            // addMessage deactivates prior sibling branches, leaving only the last message
-            // visible (and root messages are swipable greeting alternates).
+            // Modern exports preserve the complete message tree and active-branch flags.
+            // Legacy exports had no parentId, so only those are rebuilt as one linear branch.
             let prevId: string | null = null;
-            const messageIds: string[] = [];
+            const messageIds: string[] = data.messages.map(() => crypto.randomUUID());
+            const oldMessageIds: string[] = data.messages.map(
+                (msg: { id?: string }, index: number) =>
+                    typeof msg.id === 'string' ? msg.id : `legacy-message-${index}`
+            );
+            const messageIdMap = new Map<string, string>(
+                oldMessageIds.map((oldId: string, index: number) => [oldId, messageIds[index]])
+            );
+            const importedStates = Array.isArray(data.storyStates)
+                ? (data.storyStates as StoryState[])
+                : [];
+            const importedBeats = Array.isArray(data.sceneBeats)
+                ? (data.sceneBeats as SceneBeatRecord[])
+                : [];
+            const stateIdMap = new Map<string, string>(
+                importedStates.map((state) => [state.id, crypto.randomUUID()])
+            );
+            const beatIdMap = new Map<string, string>(
+                importedBeats.map((beat) => [beat.id, crypto.randomUUID()])
+            );
+            // The imported root card receives a fresh local id. Keep every structured beat
+            // reference aligned with it; otherwise the next beat would see two copies of the
+            // same protagonist (`card:old-id` in state, `card:new-id` from resolution).
+            const characterRefIdMap = new Map<string, string>();
+            if (typeof data.character.id === 'string') {
+                characterRefIdMap.set(`card:${data.character.id}`, `card:${characterId}`);
+            }
+            const remapCharacterRef = (ref: CharacterRef): CharacterRef => {
+                if (ref.source !== 'root-card') return ref;
+                const id = `card:${characterId}`;
+                characterRefIdMap.set(ref.id, id);
+                return { ...ref, id, sourceId: characterId };
+            };
+            for (const state of importedStates) {
+                for (const participant of state.scene.participants) {
+                    remapCharacterRef(participant.character);
+                }
+            }
+            for (const msg of data.messages) {
+                if (msg.characterRef) remapCharacterRef(msg.characterRef as CharacterRef);
+            }
+            const remapRefId = (id: string | undefined) =>
+                id ? (characterRefIdMap.get(id) ?? id) : undefined;
+            const remapTransition = (transition: SceneTransition): SceneTransition => ({
+                ...transition,
+                characterRefId: remapRefId(transition.characterRefId),
+            });
+            for (const [name, ref] of Object.entries(
+                importedConversation.sceneCharacterOverrides ?? {}
+            )) {
+                useChatStore
+                    .getState()
+                    .setSceneCharacterOverride(
+                        convId,
+                        name,
+                        remapCharacterRef(ref as CharacterRef)
+                    );
+            }
+            const remapLocks = (locks: StoryState['locks']): StoryState['locks'] =>
+                Object.fromEntries(
+                    Object.entries(locks).map(([path, enabled]) => {
+                        let nextPath = path;
+                        for (const [oldId, newId] of characterRefIdMap) {
+                            nextPath = nextPath.replace(
+                                `/scene/participants/${oldId}/`,
+                                `/scene/participants/${newId}/`
+                            );
+                        }
+                        return [nextPath, enabled];
+                    })
+                );
             for (let i = 0; i < data.messages.length; i++) {
                 const msg = data.messages[i];
-                const msgId = crypto.randomUUID();
-                messageIds.push(msgId);
-                useChatStore.getState().addMessage({
+                const msgId = messageIds[i];
+                const importedMessage: ChatMessage = {
                     id: msgId,
                     conversationId: convId,
-                    parentId: prevId,
+                    parentId:
+                        typeof msg.parentId === 'string'
+                            ? (messageIdMap.get(msg.parentId) ?? prevId)
+                            : msg.parentId === null
+                              ? null
+                              : prevId,
                     role: msg.role,
                     content: msg.content,
                     thought: msg.thought,
-                    isActiveBranch: true,
+                    isActiveBranch:
+                        typeof msg.isActiveBranch === 'boolean' ? msg.isActiveBranch : true,
                     createdAt: new Date(msg.createdAt || new Date()),
-                    messageOrder: i + 1,
-                    regenerationIndex: 0,
+                    messageOrder: typeof msg.messageOrder === 'number' ? msg.messageOrder : i + 1,
+                    regenerationIndex:
+                        typeof msg.regenerationIndex === 'number' ? msg.regenerationIndex : 0,
                     speaker: msg.speaker,
                     sceneEnsemble: msg.sceneEnsemble,
-                });
+                    sceneBeatId: msg.sceneBeatId
+                        ? (beatIdMap.get(msg.sceneBeatId) ?? msg.sceneBeatId)
+                        : undefined,
+                    sceneTurnIndex: msg.sceneTurnIndex,
+                    characterRef: msg.characterRef
+                        ? remapCharacterRef(msg.characterRef as CharacterRef)
+                        : undefined,
+                    storyStateRevisionId: msg.storyStateRevisionId
+                        ? stateIdMap.get(msg.storyStateRevisionId)
+                        : undefined,
+                };
+                await saveMessage(importedMessage);
                 prevId = msgId;
+            }
+
+            for (const state of importedStates) {
+                await saveStoryState({
+                    ...state,
+                    id: stateIdMap.get(state.id)!,
+                    conversationId: convId,
+                    parentRevisionId: state.parentRevisionId
+                        ? stateIdMap.get(state.parentRevisionId)
+                        : undefined,
+                    anchorMessageId: state.anchorMessageId
+                        ? messageIdMap.get(state.anchorMessageId)
+                        : undefined,
+                    sourceBeatId: state.sourceBeatId
+                        ? beatIdMap.get(state.sourceBeatId)
+                        : undefined,
+                    scene: {
+                        ...state.scene,
+                        participants: state.scene.participants.map((participant) => ({
+                            ...participant,
+                            character: remapCharacterRef(participant.character),
+                        })),
+                    },
+                    knowledge: state.knowledge?.map((fact) => ({
+                        ...fact,
+                        knownBy: fact.knownBy.map((id) => remapRefId(id) ?? id),
+                    })),
+                    locks: remapLocks(state.locks),
+                });
+            }
+            for (const beat of importedBeats) {
+                await saveSceneBeat({
+                    ...beat,
+                    id: beatIdMap.get(beat.id)!,
+                    conversationId: convId,
+                    triggerMessageId: messageIdMap.get(beat.triggerMessageId) ?? messageIds[0],
+                    branchTipId: messageIdMap.get(beat.branchTipId) ?? messageIds[0],
+                    baseStoryStateRevisionId: beat.baseStoryStateRevisionId
+                        ? stateIdMap.get(beat.baseStoryStateRevisionId)
+                        : undefined,
+                    observedStoryStateRevisionId: beat.observedStoryStateRevisionId
+                        ? stateIdMap.get(beat.observedStoryStateRevisionId)
+                        : undefined,
+                    committedStoryStateRevisionId: beat.committedStoryStateRevisionId
+                        ? stateIdMap.get(beat.committedStoryStateRevisionId)
+                        : undefined,
+                    outputMessageIds: beat.outputMessageIds
+                        .map((id) => messageIdMap.get(id))
+                        .filter((id): id is string => !!id),
+                    decision: beat.decision
+                        ? {
+                              ...beat.decision,
+                              participants: beat.decision.participants.map((participant) => ({
+                                  ...participant,
+                                  characterRefId:
+                                      remapRefId(participant.characterRefId) ??
+                                      participant.characterRefId,
+                              })),
+                              observedTransitions:
+                                  beat.decision.observedTransitions.map(remapTransition),
+                              plannedTransitions:
+                                  beat.decision.plannedTransitions.map(remapTransition),
+                          }
+                        : undefined,
+                    composition: beat.composition
+                        ? {
+                              ...beat.composition,
+                              effects: beat.composition.effects?.map(remapTransition),
+                              turns: beat.composition.turns.map((turn) => ({
+                                  ...turn,
+                                  characterRefId:
+                                      remapRefId(turn.characterRefId) ?? turn.characterRefId,
+                                  effects: turn.effects?.map(remapTransition),
+                              })),
+                          }
+                        : undefined,
+                    intents: data.privateBackstageIncluded
+                        ? beat.intents.map((intent) => ({
+                              ...intent,
+                              characterRefId:
+                                  remapRefId(intent.characterRefId) ?? intent.characterRefId,
+                          }))
+                        : [],
+                });
+            }
+
+            const importedActiveStateId = importedConversation.activeStoryStateRevisionId
+                ? stateIdMap.get(importedConversation.activeStoryStateRevisionId)
+                : undefined;
+            if (importedActiveStateId) {
+                const activeState = importedStates.find(
+                    (state) => state.id === importedConversation.activeStoryStateRevisionId
+                );
+                const anchorMessageId = activeState?.anchorMessageId
+                    ? messageIdMap.get(activeState.anchorMessageId)
+                    : undefined;
+                if (activeState && anchorMessageId) {
+                    const restoredState: StoryState = {
+                        ...activeState,
+                        id: importedActiveStateId,
+                        conversationId: convId,
+                        parentRevisionId: activeState.parentRevisionId
+                            ? stateIdMap.get(activeState.parentRevisionId)
+                            : undefined,
+                        anchorMessageId,
+                        sourceBeatId: activeState.sourceBeatId
+                            ? beatIdMap.get(activeState.sourceBeatId)
+                            : undefined,
+                        scene: {
+                            ...activeState.scene,
+                            participants: activeState.scene.participants.map((participant) => ({
+                                ...participant,
+                                character: remapCharacterRef(participant.character),
+                            })),
+                        },
+                        knowledge: activeState.knowledge?.map((fact) => ({
+                            ...fact,
+                            knownBy: fact.knownBy.map((id) => remapRefId(id) ?? id),
+                        })),
+                        locks: remapLocks(activeState.locks),
+                    };
+                    await commitStoryStateRevision(restoredState, anchorMessageId);
+                    useChatStore.getState().applyStoryStateRevision({
+                        conversationId: convId,
+                        messageId: anchorMessageId,
+                        storyStateRevisionId: importedActiveStateId,
+                        roster: restoredState.scene.participants
+                            .filter((participant) => participant.presence !== 'offstage')
+                            .map((participant) => participant.character.displayName),
+                    });
+                }
             }
 
             // Restore the Chronicle. Every id is minted fresh, so `childIds` must be remapped
@@ -226,9 +506,7 @@ export function importConversationFromFile(): void {
 
             notify(
                 `Conversation « ${data.conversation.title} » importée (${data.messages.length} messages` +
-                    (importedSummaries.length > 0
-                        ? `, ${importedSummaries.length} résumés`
-                        : '') +
+                    (importedSummaries.length > 0 ? `, ${importedSummaries.length} résumés` : '') +
                     ').',
                 'success'
             );

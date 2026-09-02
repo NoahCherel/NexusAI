@@ -32,15 +32,8 @@ import {
     saveArcOutline,
 } from '@/lib/db';
 import { useSettingsStore } from '@/stores/settings-store';
-import {
-    fetchCharacterDossier,
-    fetchArcOutline,
-} from '@/lib/ai/canon-retrieval';
-import {
-    populateCanonRoster,
-    createCanonCharacter,
-    proposeScenes,
-} from '@/lib/ai/director';
+import { fetchCharacterDossier, fetchArcOutline } from '@/lib/ai/canon-retrieval';
+import { populateCanonRoster, createCanonCharacter, proposeScenes } from '@/lib/ai/director';
 import { resolveWork } from '@/lib/ai/canon-context';
 import { RelationshipPanel } from '@/components/chat/RelationshipPanel';
 import type { CanonDossier } from '@/types/canon';
@@ -69,7 +62,7 @@ export function CanonEditor({ onClose }: { onClose: () => void }) {
         return () => window.removeEventListener('resize', check);
     }, []);
 
-    const work = (conversation?.arc?.work?.trim() || (character ? resolveWork(character) : '')) || '';
+    const work = conversation?.arc?.work?.trim() || (character ? resolveWork(character) : '') || '';
     const cap = conversation?.arc?.currentPosition?.trim() || 'Start';
 
     const reload = useCallback(async () => {
@@ -94,10 +87,11 @@ export function CanonEditor({ onClose }: { onClose: () => void }) {
         } catch (e) {
             console.error('[Canon] reload failed', e);
         }
-    }, [work]);
+    }, [work, setDossiers, setArcOutlineText]);
 
     useEffect(() => {
-        reload();
+        const timer = window.setTimeout(() => void reload(), 0);
+        return () => window.clearTimeout(timer);
     }, [reload]);
 
     const current = dossiers.find((d) => d.character === selected) || null;
@@ -395,7 +389,11 @@ function CastSidebar({
                         onChange={(e) => onSearch(e.target.value)}
                     />
                 </div>
-                <Button onClick={onAdd} size="sm" className="w-full text-xs gap-2 font-semibold h-9">
+                <Button
+                    onClick={onAdd}
+                    size="sm"
+                    className="w-full text-xs gap-2 font-semibold h-9"
+                >
                     <Plus className="w-3.5 h-3.5" /> Nouveau perso
                 </Button>
             </div>
@@ -467,7 +465,11 @@ function ArcPane({
 }: {
     arc: ArcCompass | undefined;
     work: string;
-    character: ReturnType<typeof useCharacterStore.getState>['getActiveCharacter'] extends () => infer T ? T : never;
+    character: ReturnType<
+        typeof useCharacterStore.getState
+    >['getActiveCharacter'] extends () => infer T
+        ? T
+        : never;
     arcOutlineText: string;
     onUpdateArc: (patch: Partial<ArcCompass>) => void;
     onReload: () => void | Promise<void>;
@@ -524,8 +526,8 @@ function ArcPane({
                 </h3>
                 <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
                     Active la boussole pour que le GM amène subtilement l&apos;histoire vers le
-                    prochain beat canonique. Les personnages restent plafonnés à la position actuelle
-                    (pas de spoiler).
+                    prochain beat canonique. Les personnages restent plafonnés à la position
+                    actuelle (pas de spoiler).
                 </p>
             </div>
 
@@ -599,9 +601,9 @@ function ArcPane({
                     </div>
                 </div>
                 <p className="text-[10px] text-muted-foreground/70">
-                    Format conseillé : un arc par ligne, p. ex. «&nbsp;1. Mon Arc — Résumé court&nbsp;».
-                    Tu peux écrire à la main pour un univers personnel ou éditer ce que le web a
-                    renvoyé.
+                    Format conseillé : un arc par ligne, p. ex. «&nbsp;1. Mon Arc — Résumé
+                    court&nbsp;». Tu peux écrire à la main pour un univers personnel ou éditer ce
+                    que le web a renvoyé.
                 </p>
                 <Textarea
                     value={outlineDraft}
@@ -712,7 +714,9 @@ function CastPane({
                     </h3>
                     {!isNew && dossier && (
                         <p className="text-xs text-muted-foreground mt-0.5">
-                            {dossier.stub ? 'fiche non récupérée' : `canon @ ${dossier.timelineCap || '?'}`}
+                            {dossier.stub
+                                ? 'fiche non récupérée'
+                                : `canon @ ${dossier.timelineCap || '?'}`}
                             {dossier.userEdited ? ' · édité' : ''}
                         </p>
                     )}
@@ -873,7 +877,11 @@ function DirectorPane({
 }: {
     work: string;
     arc: ArcCompass | undefined;
-    character: NonNullable<ReturnType<typeof useCharacterStore.getState>['getActiveCharacter'] extends () => infer T ? T : never>;
+    character: NonNullable<
+        ReturnType<typeof useCharacterStore.getState>['getActiveCharacter'] extends () => infer T
+            ? T
+            : never
+    >;
     onPopulated: () => void | Promise<void>;
     onApplyNextBeat: (beat: string) => void;
     onCreateCharacter: (name: string) => Promise<boolean>;
@@ -920,9 +928,7 @@ function DirectorPane({
         setCreateStatus('Récupération du canon (web)…');
         try {
             const ok = await onCreateCharacter(name.trim());
-            setCreateStatus(
-                ok ? `${name.trim()} ajouté ✓` : 'Échec — vérifie l’œuvre et ta clé.'
-            );
+            setCreateStatus(ok ? `${name.trim()} ajouté ✓` : 'Échec — vérifie l’œuvre et ta clé.');
             if (ok) setName('');
         } finally {
             setCreating(false);
@@ -943,11 +949,13 @@ function DirectorPane({
         <div className="p-5 space-y-6 max-w-3xl">
             {!useCanonAutoFetch && (
                 <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 text-xs">
-                    <strong className="text-amber-400">Canon — Web Auto-Fetch est désactivé.</strong>{' '}
+                    <strong className="text-amber-400">
+                        Canon — Web Auto-Fetch est désactivé.
+                    </strong>{' '}
                     Les outils du Directeur qui font des appels API sont indisponibles. Tu peux
-                    toujours créer/éditer des personnages à la main dans l&apos;onglet Casting, et la
-                    carte des arcs reste éditable dans l&apos;onglet Arc. Tout ce qui existe en DB
-                    sera injecté normalement.
+                    toujours créer/éditer des personnages à la main dans l&apos;onglet Casting, et
+                    la carte des arcs reste éditable dans l&apos;onglet Arc. Tout ce qui existe en
+                    DB sera injecté normalement.
                 </div>
             )}
             {/* Populate cast */}
@@ -998,7 +1006,9 @@ function DirectorPane({
                         )}
                         Plus de persos
                     </Button>
-                    {popStatus && <span className="text-xs text-muted-foreground">{popStatus}</span>}
+                    {popStatus && (
+                        <span className="text-xs text-muted-foreground">{popStatus}</span>
+                    )}
                 </div>
             </section>
 

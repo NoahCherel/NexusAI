@@ -23,8 +23,6 @@ const card: CharacterCard = {
     mes_example: '',
 };
 
-
-
 function userMsg(content: string): Message {
     return {
         id: 'm1',

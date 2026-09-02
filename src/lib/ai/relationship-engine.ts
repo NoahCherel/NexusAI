@@ -20,7 +20,12 @@ import type {
     DirectedRelationship,
 } from '@/types/chat';
 
-export const RELATIONSHIP_AXES: RelationshipAxis[] = ['trust', 'affection', 'respect', 'attraction'];
+export const RELATIONSHIP_AXES: RelationshipAxis[] = [
+    'trust',
+    'affection',
+    'respect',
+    'attraction',
+];
 
 export const NEUTRAL_AXES: RelationshipAxes = {
     trust: 0,

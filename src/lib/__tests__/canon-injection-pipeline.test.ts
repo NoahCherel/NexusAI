@@ -41,8 +41,6 @@ const card: CharacterCard = {
     canonCast: ['Naruto Uzumaki', 'Sasuke Uchiha', 'Sakura Haruno'],
 };
 
-
-
 function msg(content: string): Message {
     return {
         id: crypto.randomUUID(),

@@ -1,8 +1,7 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useEffect } from 'react';
 import {
-    Save,
     Plus,
     Trash2,
     Sparkles,
@@ -12,20 +11,12 @@ import {
     Zap,
     Upload,
     Download,
-    FileJson,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
-import {
-    Select,
-    SelectContent,
-    SelectItem,
-    SelectTrigger,
-    SelectValue,
-} from '@/components/ui/select';
-import { ScrollArea } from '@/components/ui/scroll-area';
+import { Select, SelectContent, SelectItem, SelectTrigger } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useSettingsStore } from '@/stores';
 import { DEFAULT_SYSTEM_PROMPT_TEMPLATE, DEFAULT_PRESETS, type APIPreset } from '@/types/preset';
@@ -167,9 +158,14 @@ export function PresetEditor() {
                         json.assistant_prefill ?? json.assistantPrefill ?? base.assistantPrefill,
 
                     // Misc
-                    enableReasoning: json.enable_reasoning ?? json.enableReasoning ?? base.enableReasoning ?? false,
+                    enableReasoning:
+                        json.enable_reasoning ??
+                        json.enableReasoning ??
+                        base.enableReasoning ??
+                        false,
                     includeNames: json.names_in_completion ?? base.includeNames,
-                    useFlexTier: json.use_flex_tier ?? json.useFlexTier ?? base.useFlexTier ?? false,
+                    useFlexTier:
+                        json.use_flex_tier ?? json.useFlexTier ?? base.useFlexTier ?? false,
 
                     createdAt: new Date(),
                     isDefault: false,
@@ -525,9 +521,9 @@ export function PresetEditor() {
                                     />
                                     {(activePreset.minP ?? 0) > 0.3 && (
                                         <p className="text-xs text-amber-500">
-                                            ⚠️ Min P élevé : proche d&apos;un décodage glouton, tue la
-                                            variété et donne des réponses répétitives. Valeur usuelle
-                                            0–0.1 (1 = quasi déterministe).
+                                            ⚠️ Min P élevé : proche d&apos;un décodage glouton, tue
+                                            la variété et donne des réponses répétitives. Valeur
+                                            usuelle 0–0.1 (1 = quasi déterministe).
                                         </p>
                                     )}
                                 </div>
@@ -553,9 +549,9 @@ export function PresetEditor() {
                                         />
                                         {activePreset.repetitionPenalty < 1 && (
                                             <p className="text-xs text-amber-500">
-                                                ⚠️ Sous 1.0, la repetition penalty <em>encourage</em>{' '}
-                                                la répétition (le neutre est 1.0). Pour pénaliser les
-                                                redites, vise ~1.05–1.15.
+                                                ⚠️ Sous 1.0, la repetition penalty{' '}
+                                                <em>encourage</em> la répétition (le neutre est
+                                                1.0). Pour pénaliser les redites, vise ~1.05–1.15.
                                             </p>
                                         )}
                                     </div>
@@ -784,15 +780,13 @@ export function PresetEditor() {
                                             Palier Flex OpenRouter
                                         </p>
                                         <p className="text-xs text-muted-foreground">
-                                            Route les requêtes via le palier flexible (tarif
-                                            réduit) d&apos;OpenRouter quand il est disponible
+                                            Route les requêtes via le palier flexible (tarif réduit)
+                                            d&apos;OpenRouter quand il est disponible
                                         </p>
                                     </div>
                                     <Button
                                         size="sm"
-                                        variant={
-                                            activePreset.useFlexTier ? 'default' : 'secondary'
-                                        }
+                                        variant={activePreset.useFlexTier ? 'default' : 'secondary'}
                                         onClick={() =>
                                             update({
                                                 useFlexTier: !activePreset.useFlexTier,

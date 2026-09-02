@@ -175,7 +175,12 @@ export function parseDirectorResponse(
             enter: names(sc.enter),
             exit: names(sc.exit),
         };
-        if (!sceneChange.location && !sceneChange.event && !sceneChange.enter?.length && !sceneChange.exit?.length) {
+        if (
+            !sceneChange.location &&
+            !sceneChange.event &&
+            !sceneChange.enter?.length &&
+            !sceneChange.exit?.length
+        ) {
             sceneChange = undefined;
         }
     }

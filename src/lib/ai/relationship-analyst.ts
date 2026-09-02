@@ -183,9 +183,8 @@ export async function analyzeAndUpdateRelationships(
     // beat, not whichever persona is active when the analysis runs.
     const lastUserSpeaker = [...chat.messages]
         .reverse()
-        .find(
-            (m) => m.conversationId === conversationId && m.role === 'user' && m.speaker?.name
-        )?.speaker?.name;
+        .find((m) => m.conversationId === conversationId && m.role === 'user' && m.speaker?.name)
+        ?.speaker?.name;
     const userName = lastUserSpeaker || activePersona?.name || 'the player';
 
     // Candidates: every NPC-origin bond ({{user}}→X is the player's to write, never the AI's).

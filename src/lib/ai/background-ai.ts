@@ -4,22 +4,29 @@
  * Routing (settings.backgroundProvider):
  * - 'auto' (default): NanoGPT subscription quota when a key exists — much better models
  *   (DeepSeek V4, GLM, …) at no marginal cost — falling back to free OpenRouter models.
- * - 'nanogpt': NanoGPT first, free OpenRouter models as an error/quota fallback.
+ * - 'nanogpt': NanoGPT only when resolving a frozen scene route.
  * - 'openrouter-free': legacy behaviour, free OpenRouter rotation only.
  * Web-search calls (canon retrieval) ALWAYS run on OpenRouter — the `web` plugin is
  * OpenRouter-specific.
  *
  * Features:
- * - Model fallback chain: tries multiple models in order
- * - Exponential backoff on 429 rate limits
- * - Global rate limiter to space out requests
+ * - Model fallback chain for non-critical background jobs
+ * - Bounded retry/backoff on transient provider errors
+ * - Provider-aware priority scheduler and concurrency limits
  * - Streaming response reading
  */
 
 import { useSettingsStore } from '@/stores';
+import type { CustomModel } from '@/stores/settings-store';
 import { decryptApiKey } from '@/lib/crypto';
 import { NANOGPT_USAGE_REFRESH_EVENT } from '@/lib/ai/nanogpt-usage';
 import { extractUsageSentinel } from '@/lib/ai/usage-sentinel';
+import type { BackgroundRouteSnapshot } from '@/types/scene';
+import {
+    noteProviderRateLimit,
+    scheduleBackgroundRequest,
+    type BackgroundPriority,
+} from '@/lib/ai/background-scheduler';
 
 // Fallback model chain — tried in order, skips on 429
 const FREE_MODELS = [
@@ -29,20 +36,7 @@ const FREE_MODELS = [
     'qwen/qwen3-8b:free',
 ];
 
-// Global request queue to avoid concurrent rate limit hits
-let lastRequestTime = 0;
-const MIN_REQUEST_INTERVAL_MS = 2000; // Min 2s between background AI calls
-
-async function waitForSlot(): Promise<void> {
-    const now = Date.now();
-    const elapsed = now - lastRequestTime;
-    if (elapsed < MIN_REQUEST_INTERVAL_MS) {
-        await new Promise((r) => setTimeout(r, MIN_REQUEST_INTERVAL_MS - elapsed));
-    }
-    lastRequestTime = Date.now();
-}
-
-interface BackgroundAIOptions {
+export interface BackgroundAIOptions {
     systemPrompt: string;
     userPrompt: string;
     /**
@@ -70,9 +64,15 @@ interface BackgroundAIOptions {
     webMaxResults?: number;
     /** Turn model thinking off (structured/extraction calls). Defaults to true when webSearch. */
     disableReasoning?: boolean;
+    /** Freeze a previously resolved provider/model. No model or provider fallback is used. */
+    route?: BackgroundRouteSnapshot;
+    signal?: AbortSignal;
+    priority?: BackgroundPriority;
+    /** Total deadline for this logical call, including queueing and retries. */
+    timeoutMs?: number;
 }
 
-interface BackgroundAIResult {
+export interface BackgroundAIResult {
     content: string;
     usedModel: string;
     usedProvider: 'nanogpt' | 'openrouter';
@@ -106,6 +106,38 @@ function pickNanogptBackgroundModel(): string | null {
     return nanogptModels[0].modelId;
 }
 
+let lastNanoModelRefresh = 0;
+
+async function refreshNanogptSubscriptionModels(apiKey: string): Promise<void> {
+    const settings = useSettingsStore.getState();
+    if (settings.nanogptModels.length > 0 && Date.now() - lastNanoModelRefresh < 5 * 60_000) {
+        return;
+    }
+    const response = await fetch('/api/nanogpt/models', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ apiKey }),
+    });
+    if (!response.ok) {
+        if (settings.nanogptModels.length > 0) {
+            lastNanoModelRefresh = Date.now();
+            console.warn(
+                `[BackgroundAI] NanoGPT model refresh failed (${response.status}); using the last verified cached list.`
+            );
+            return;
+        }
+        throw new Error(
+            `Impossible de vérifier les modèles inclus dans l’abonnement NanoGPT (${response.status}).`
+        );
+    }
+    const payload = (await response.json()) as { models?: unknown };
+    if (!Array.isArray(payload.models)) {
+        throw new Error('La liste des modèles NanoGPT incluse dans l’abonnement est invalide.');
+    }
+    useSettingsStore.getState().setNanogptModels(payload.models as CustomModel[]);
+    lastNanoModelRefresh = Date.now();
+}
+
 interface ChainAttemptParams {
     provider: 'nanogpt' | 'openrouter';
     apiKey: string;
@@ -119,6 +151,9 @@ interface ChainAttemptParams {
     webSearch: boolean;
     webMaxResults?: number;
     disableReasoning: boolean;
+    billingScope?: 'subscription' | 'free';
+    signal?: AbortSignal;
+    priority?: BackgroundPriority;
 }
 
 /** Try each model in order against /api/chat; returns the first non-empty cleaned response. */
@@ -136,41 +171,66 @@ async function tryModelChain(params: ChainAttemptParams): Promise<BackgroundAIRe
         webSearch,
         webMaxResults,
         disableReasoning,
+        billingScope,
+        signal,
+        priority,
     } = params;
 
     for (const model of models) {
         for (let attempt = 0; attempt <= maxRetries; attempt++) {
             try {
-                // Wait for global rate limit slot
-                await waitForSlot();
-
-                const response = await fetch('/api/chat', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        messages: [{ role: 'user', content: userPrompt }],
-                        provider,
-                        model,
-                        apiKey,
-                        systemPrompt,
-                        temperature,
-                        maxTokens,
-                        // Flex tier + web_search times out (504): the slow flex queue plus the
-                        // server-side search loop exceeds the deadline. Never combine them.
-                        // Flex is OpenRouter-only.
-                        useFlexTier:
-                            provider === 'openrouter' && !webSearch
-                                ? useSettingsStore.getState().useFlexTier
-                                : false,
-                        webSearch: provider === 'openrouter' ? webSearch : false,
-                        webMaxResults,
-                        disableReasoning,
-                    }),
+                const scheduled = await scheduleBackgroundRequest({
+                    provider,
+                    priority,
+                    signal,
+                    // Hold the semaphore until the streamed body is fully consumed. `fetch`
+                    // alone resolves at headers and would make long generations appear done,
+                    // defeating the provider-wide concurrency ceiling.
+                    task: async () => {
+                        const response = await fetch('/api/chat', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                messages: [{ role: 'user', content: userPrompt }],
+                                provider,
+                                model,
+                                apiKey,
+                                systemPrompt,
+                                temperature,
+                                maxTokens,
+                                billingScope:
+                                    provider === 'nanogpt'
+                                        ? (billingScope ?? 'subscription')
+                                        : undefined,
+                                // Flex tier + web_search times out (504): the slow flex queue
+                                // plus the server-side search loop exceeds the deadline.
+                                useFlexTier:
+                                    provider === 'openrouter' && !webSearch
+                                        ? useSettingsStore.getState().useFlexTier
+                                        : false,
+                                webSearch: provider === 'openrouter' ? webSearch : false,
+                                webMaxResults,
+                                disableReasoning,
+                            }),
+                            signal,
+                        });
+                        if (response.ok) {
+                            return { response, text: await readStreamFull(response) };
+                        }
+                        const errorPayload = (await response.json().catch(() => ({}))) as Record<
+                            string,
+                            unknown
+                        >;
+                        return { response, errorPayload };
+                    },
                 });
+                const { response } = scheduled;
 
                 if (response.ok) {
-                    const text = await readStreamFull(response);
-                    const cleaned = normalizeThinkText(text, thinkTagStrategy).trim();
+                    const cleaned = normalizeThinkText(
+                        scheduled.text ?? '',
+                        thinkTagStrategy
+                    ).trim();
                     if (cleaned) {
                         return { content: cleaned, usedModel: model, usedProvider: provider };
                     }
@@ -178,19 +238,29 @@ async function tryModelChain(params: ChainAttemptParams): Promise<BackgroundAIRe
                     break;
                 }
 
-                if (response.status === 429) {
+                const errorPayload = scheduled.errorPayload ?? {};
+                const upstreamStatus =
+                    typeof errorPayload.upstreamStatus === 'number'
+                        ? errorPayload.upstreamStatus
+                        : response.status;
+                const retryable = [408, 429, 500, 503].includes(upstreamStatus);
+                if (upstreamStatus === 429) noteProviderRateLimit(provider);
+
+                if (retryable) {
                     if (attempt < maxRetries) {
-                        // Exponential backoff: 3s, 6s
-                        const delay = 3000 * Math.pow(2, attempt);
+                        const retryAfter = Number(errorPayload.retryAfter);
+                        const delay =
+                            Number.isFinite(retryAfter) && retryAfter > 0
+                                ? retryAfter * 1000
+                                : 1000 * Math.pow(2, attempt) + Math.floor(Math.random() * 250);
                         console.warn(
-                            `[BackgroundAI] 429 on ${provider}/${model}, retrying in ${delay}ms (attempt ${attempt + 1}/${maxRetries})`
+                            `[BackgroundAI] ${upstreamStatus} on ${provider}/${model}, retrying in ${delay}ms (attempt ${attempt + 1}/${maxRetries})`
                         );
-                        await new Promise((r) => setTimeout(r, delay));
+                        await abortableDelay(delay, signal);
                         continue;
                     }
-                    // Exhausted retries for this model, try next
                     console.warn(
-                        `[BackgroundAI] 429 on ${provider}/${model}, exhausted retries, trying next model`
+                        `[BackgroundAI] ${upstreamStatus} on ${provider}/${model}, retries exhausted`
                     );
                     break;
                 }
@@ -207,6 +277,69 @@ async function tryModelChain(params: ChainAttemptParams): Promise<BackgroundAIRe
         }
     }
     return null;
+}
+
+function abortableDelay(ms: number, signal?: AbortSignal): Promise<void> {
+    if (signal?.aborted) return Promise.reject(new DOMException('Aborted', 'AbortError'));
+    return new Promise((resolve, reject) => {
+        const timer = setTimeout(resolve, ms);
+        signal?.addEventListener(
+            'abort',
+            () => {
+                clearTimeout(timer);
+                reject(new DOMException('Aborted', 'AbortError'));
+            },
+            { once: true }
+        );
+    });
+}
+
+/** Resolve the user's background choice once; critical scene calls reuse this snapshot. */
+export async function resolveBackgroundRoute(
+    options: {
+        refreshSubscriptionModels?: boolean;
+    } = {}
+): Promise<BackgroundRouteSnapshot | null> {
+    const settings = useSettingsStore.getState();
+    const routing = settings.backgroundProvider ?? 'auto';
+    if (routing === 'auto' || routing === 'nanogpt') {
+        const key = await resolveKey('nanogpt');
+        if (key && options.refreshSubscriptionModels) {
+            await refreshNanogptSubscriptionModels(key);
+        }
+        const model = key ? pickNanogptBackgroundModel() : null;
+        if (key && model) {
+            const refreshedSettings = useSettingsStore.getState();
+            if (
+                refreshedSettings.nanogptBackgroundModel &&
+                !refreshedSettings.nanogptModels.some(
+                    (candidate) => candidate.modelId === refreshedSettings.nanogptBackgroundModel
+                )
+            ) {
+                throw new Error(
+                    `Le modèle NanoGPT « ${refreshedSettings.nanogptBackgroundModel} » n’est plus inclus dans l’abonnement. Choisissez un autre modèle background.`
+                );
+            }
+            return {
+                provider: 'nanogpt',
+                model,
+                billingScope: 'subscription',
+                routing,
+                resolvedAt: Date.now(),
+            };
+        }
+        if (routing === 'nanogpt') return null;
+    }
+
+    const openRouterKey = await resolveKey('openrouter');
+    if (!openRouterKey) return null;
+    return {
+        provider: 'openrouter',
+        model: settings.backgroundModel || FREE_MODELS[0],
+        billingScope: 'free',
+        routing,
+        resolvedAt: Date.now(),
+    };
 }
 
 /**
@@ -227,71 +360,108 @@ export async function backgroundAICall(
         webSearch = false,
         webMaxResults,
         disableReasoning = webSearch, // canon/extraction calls don't need thinking
+        route,
+        signal,
+        priority = 'background',
+        timeoutMs = 90_000,
     } = options;
+    // Safari < 17.4 has neither AbortSignal.timeout nor AbortSignal.any.
+    const timeoutController = new AbortController();
+    const timeoutId = setTimeout(() => timeoutController.abort(), timeoutMs);
+    const combineController = new AbortController();
+    const abortCombined = () => combineController.abort();
+    signal?.addEventListener('abort', abortCombined, { once: true });
+    timeoutController.signal.addEventListener('abort', abortCombined, { once: true });
+    if (signal?.aborted || timeoutController.signal.aborted) abortCombined();
+    const effectiveSignal = combineController.signal;
 
-    const settings = useSettingsStore.getState();
-    // Persisted stores from before this field existed may miss it despite the default.
-    const routing = settings.backgroundProvider ?? 'auto';
+    try {
+        const settings = useSettingsStore.getState();
+        // Persisted stores from before this field existed may miss it despite the default.
+        const routing = settings.backgroundProvider ?? 'auto';
 
-    const shared = {
-        systemPrompt,
-        userPrompt,
-        temperature,
-        maxTokens,
-        maxRetries,
-        thinkTagStrategy,
-        webSearch,
-        webMaxResults,
-        disableReasoning,
-    };
+        const shared = {
+            systemPrompt,
+            userPrompt,
+            temperature,
+            maxTokens,
+            maxRetries,
+            thinkTagStrategy,
+            webSearch,
+            webMaxResults,
+            disableReasoning,
+            signal: effectiveSignal,
+            priority,
+        };
 
-    // 1. NanoGPT path — never for web search (the `web` plugin is OpenRouter-only).
-    if (!webSearch && (routing === 'auto' || routing === 'nanogpt')) {
-        const nanoKey = await resolveKey('nanogpt');
-        const nanoModel = nanoKey ? pickNanogptBackgroundModel() : null;
-        if (nanoKey && nanoModel) {
-            const result = await tryModelChain({
+        // A critical caller already resolved the route. Try exactly that route/model and return
+        // failure to the caller; never drift to a different provider halfway through a beat.
+        if (route) {
+            const routeKey = await resolveKey(route.provider);
+            if (!routeKey) return null;
+            return tryModelChain({
                 ...shared,
-                provider: 'nanogpt',
-                apiKey: nanoKey,
-                models: [nanoModel],
+                provider: route.provider,
+                apiKey: routeKey,
+                models: [route.model],
+                billingScope: route.billingScope,
+                webSearch: false,
             });
-            if (result) {
-                // Quota was consumed — ask the usage badge to refetch.
-                if (typeof window !== 'undefined') {
-                    window.dispatchEvent(new Event(NANOGPT_USAGE_REFRESH_EVENT));
-                }
-                return result;
-            }
-            console.warn(
-                '[BackgroundAI] NanoGPT background path failed — falling back to OpenRouter'
-            );
         }
+
+        // 1. NanoGPT path — never for web search (the `web` plugin is OpenRouter-only).
+        if (!webSearch && (routing === 'auto' || routing === 'nanogpt')) {
+            const nanoKey = await resolveKey('nanogpt');
+            const nanoModel = nanoKey ? pickNanogptBackgroundModel() : null;
+            if (nanoKey && nanoModel) {
+                const result = await tryModelChain({
+                    ...shared,
+                    provider: 'nanogpt',
+                    apiKey: nanoKey,
+                    models: [nanoModel],
+                    billingScope: 'subscription',
+                });
+                if (result) {
+                    // Quota was consumed — ask the usage badge to refetch.
+                    if (typeof window !== 'undefined') {
+                        window.dispatchEvent(new Event(NANOGPT_USAGE_REFRESH_EVENT));
+                    }
+                    return result;
+                }
+                console.warn(
+                    '[BackgroundAI] NanoGPT background path failed — falling back to OpenRouter'
+                );
+            }
+        }
+
+        // 2. OpenRouter path (free rotation, or the user's OpenRouter background override).
+        const orKey = options.apiKey || (await resolveKey('openrouter'));
+        if (!orKey) {
+            console.error('[BackgroundAI] No usable API key for background call');
+            return null;
+        }
+
+        const fallbackModels = models ?? FREE_MODELS;
+        // An explicit `models` list (e.g. canon retrieval's grounding model) is authoritative —
+        // the settings-level OpenRouter override only reorders the default free chain.
+        const orOverride = models ? null : (options.backgroundModel ?? settings.backgroundModel);
+        const modelChain = orOverride
+            ? [orOverride, ...fallbackModels.filter((m) => m !== orOverride)]
+            : fallbackModels;
+
+        const result = await tryModelChain({
+            ...shared,
+            provider: 'openrouter',
+            apiKey: orKey,
+            models: modelChain,
+        });
+        if (!result) console.error('[BackgroundAI] All models exhausted');
+        return result;
+    } finally {
+        clearTimeout(timeoutId);
+        signal?.removeEventListener('abort', abortCombined);
+        timeoutController.signal.removeEventListener('abort', abortCombined);
     }
-
-    // 2. OpenRouter path (free rotation, or the user's OpenRouter background override).
-    const orKey = options.apiKey || (await resolveKey('openrouter'));
-    if (!orKey) {
-        console.error('[BackgroundAI] No usable API key for background call');
-        return null;
-    }
-
-    const fallbackModels = models ?? FREE_MODELS;
-    // An explicit `models` list (e.g. canon retrieval's grounding model) is authoritative —
-    // the settings-level OpenRouter override only reorders the default free chain.
-    const orOverride = models ? null : (options.backgroundModel ?? settings.backgroundModel);
-    const modelChain = orOverride
-        ? [orOverride, ...fallbackModels.filter((m) => m !== orOverride)]
-        : fallbackModels;
-
-    const result = await tryModelChain({
-        ...shared,
-        provider: 'openrouter',
-        apiKey: orKey,
-        models: modelChain,
-    });
-    if (!result) console.error('[BackgroundAI] All models exhausted');
-    return result;
 }
 
 /**
@@ -299,10 +469,7 @@ export async function backgroundAICall(
  * In remove-blocks mode, if everything is inside <think> tags and result becomes empty,
  * fall back to remove-tags to avoid losing usable structured output.
  */
-function normalizeThinkText(
-    text: string,
-    strategy: 'remove-blocks' | 'remove-tags'
-): string {
+function normalizeThinkText(text: string, strategy: 'remove-blocks' | 'remove-tags'): string {
     if (strategy === 'remove-tags') {
         return text.replace(/<\/?think>/gi, '');
     }

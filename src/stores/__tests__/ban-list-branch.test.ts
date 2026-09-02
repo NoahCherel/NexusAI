@@ -75,16 +75,14 @@ describe('branch-aware Style Guard ban list', () => {
         expect(persisted.id).toBe('a1');
         expect(persisted.banListSnapshot).toEqual(['avoid purple prose']);
 
-        expect(useChatStore.getState().getActiveBranchBanList(CONV)).toEqual(['avoid purple prose']);
+        expect(useChatStore.getState().getActiveBranchBanList(CONV)).toEqual([
+            'avoid purple prose',
+        ]);
     });
 
     it('keeps one branch’s rules out of a sibling branch', () => {
         // u1 -> a1 (branch A), u1 -> a2 (branch B). Start on A.
-        seed([
-            msg('u1', null, 1),
-            msg('a1', 'u1', 2, true),
-            msg('a2', 'u1', 2, false),
-        ]);
+        seed([msg('u1', null, 1), msg('a1', 'u1', 2, true), msg('a2', 'u1', 2, false)]);
         useChatStore.getState().setBanList(CONV, ['rule from A']);
         expect(useChatStore.getState().getActiveBranchBanList(CONV)).toEqual(['rule from A']);
 

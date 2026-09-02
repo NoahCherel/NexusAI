@@ -25,6 +25,7 @@ interface CharacterFolderProps {
     onEdit: (character: CharacterWithMemory) => void;
     onDelete: (id: string) => void;
     onExport?: (character: CharacterWithMemory) => void;
+    onExportBackstage?: (character: CharacterWithMemory) => void;
     onCharacterDragStart?: (
         character: CharacterCardType,
         event: React.PointerEvent<HTMLElement>
@@ -77,6 +78,7 @@ export function CharacterFolder({
     onEdit,
     onDelete,
     onExport,
+    onExportBackstage,
     onCharacterDragStart,
     draggedCharacterId,
     isDropTargetActive = false,
@@ -206,6 +208,9 @@ export function CharacterFolder({
                                     onEdit={() => onEdit(m)}
                                     onDelete={() => onDelete(m.id)}
                                     onExport={onExport ? () => onExport(m) : undefined}
+                                    onExportBackstage={
+                                        onExportBackstage ? () => onExportBackstage(m) : undefined
+                                    }
                                     onDragHandlePointerDown={onCharacterDragStart}
                                     isDragging={draggedCharacterId === m.id}
                                     isCollapsed={false}

@@ -77,7 +77,7 @@ export default function ChatPage() {
     useAppInitialization();
 
     const scrollRef = useRef<HTMLDivElement>(null);
-    const { getActiveCharacter, removeCharacter } = useCharacterStore();
+    const { getActiveCharacter, removeCharacter, characters } = useCharacterStore();
     const {
         conversations,
         activeConversationId,
@@ -97,9 +97,43 @@ export default function ChatPage() {
 
     // Get active messages from store - depends on raw messages for reactivity
     const messages = useMemo(
-        () => (activeConversationId ? getActiveBranchMessages(activeConversationId) : []),
+        () => {
+            void storeMessages;
+            return activeConversationId ? getActiveBranchMessages(activeConversationId) : [];
+        },
         [activeConversationId, getActiveBranchMessages, storeMessages] // storeMessages triggers re-render
     );
+    const activeStoryRevisionId = useMemo(
+        () =>
+            [...messages].reverse().find((message) => message.storyStateRevisionId)
+                ?.storyStateRevisionId,
+        [messages]
+    );
+
+    // Branch navigation restores the roster projected by that branch's nearest immutable
+    // story-state revision. This also self-heals the denormalized conversation cache.
+    useEffect(() => {
+        if (!activeConversationId || !activeStoryRevisionId) return;
+        let cancelled = false;
+        void import('@/lib/db').then(async ({ getStoryState }) => {
+            const state = await getStoryState(activeStoryRevisionId);
+            if (!state || cancelled) return;
+            const roster = state.scene.participants
+                .filter((participant) => participant.presence !== 'offstage')
+                .map((participant) => participant.character.displayName);
+            const current =
+                useChatStore
+                    .getState()
+                    .conversations.find((conversation) => conversation.id === activeConversationId)
+                    ?.sceneRoster ?? [];
+            if (current.join('|') !== roster.join('|')) {
+                useChatStore.getState().setSceneRoster(activeConversationId, roster);
+            }
+        });
+        return () => {
+            cancelled = true;
+        };
+    }, [activeConversationId, activeStoryRevisionId]);
 
     // Sibling info for EVERY message in one pass — the previous per-bubble
     // getMessageSiblingsInfo() call was an O(n log n) filter+sort per bubble per render
@@ -116,12 +150,8 @@ export default function ChatPage() {
         }
         const info = new Map<string, { currentIndex: number; total: number }>();
         for (const group of byParent.values()) {
-            group.sort(
-                (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
-            );
-            group.forEach((m, i) =>
-                info.set(m.id, { currentIndex: i + 1, total: group.length })
-            );
+            group.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+            group.forEach((m, i) => info.set(m.id, { currentIndex: i + 1, total: group.length }));
         }
         return info;
     }, [storeMessages, activeConversationId]);
@@ -161,7 +191,6 @@ export default function ChatPage() {
     useEffect(() => {
         initializeDefaultPresets();
     }, [initializeDefaultPresets]);
-
 
     // Auto-scroll to bottom when switching conversations or loading
     useEffect(() => {
@@ -286,7 +315,6 @@ export default function ChatPage() {
         activeConversationId,
         messages,
         currentApiKey,
-
     });
 
     // Generation flow (send / stop / regenerate / continue / impersonate / retry) —
@@ -294,12 +322,15 @@ export default function ChatPage() {
     const {
         isLoading,
         isSceneRunning,
+        sceneProgress,
+        lastSceneBeat,
         send: handleSend,
         stop: handleStop,
         regenerate: handleRegenerate,
         continueMessage: handleContinue,
         impersonate: handleImpersonate,
         retry: handleRetry,
+        retrySceneBeat,
         runSceneBeat,
     } = useChatGeneration({
         character,
@@ -357,10 +388,8 @@ export default function ChatPage() {
         );
         const maxContextTokens = activePreset?.maxContextTokens ?? 16384;
         const maxOutputTokens = activePreset?.maxOutputTokens ?? 2048;
-        const {
-            enableHierarchicalSummaries: previewMemory,
-            enableScratchpad: previewScratchpad,
-        } = useSettingsStore.getState();
+        const { enableHierarchicalSummaries: previewMemory, enableScratchpad: previewScratchpad } =
+            useSettingsStore.getState();
 
         const {
             systemPrompt,
@@ -482,15 +511,72 @@ export default function ChatPage() {
     const handleEditMessage = useCallback(
         (id: string, newContent: string) => {
             updateMessage(id, { content: newContent });
+            const edited = messages.find((message) => message.id === id);
+            if (edited?.sceneBeatId && character) {
+                void (async () => {
+                    const { getSceneBeat, saveSceneBeat } = await import('@/lib/db');
+                    const { maintainNarrativeAfterBeat } =
+                        await import('@/lib/ai/narrative-maintenance');
+                    const beat = await getSceneBeat(edited.sceneBeatId!);
+                    if (!beat) return;
+                    await saveSceneBeat({
+                        ...beat,
+                        status: 'dirty',
+                        updatedAt: Date.now(),
+                    });
+                    const beatContent = messages
+                        .filter((message) => message.sceneBeatId === edited.sceneBeatId)
+                        .map(
+                            (message) =>
+                                `${message.speaker?.name ?? 'Narrateur'}: ${
+                                    message.id === id ? newContent : message.content
+                                }`
+                        )
+                        .join('\n');
+                    await maintainNarrativeAfterBeat({
+                        character,
+                        conversationId: edited.conversationId,
+                        beatId: edited.sceneBeatId!,
+                        targetMessageId:
+                            messages
+                                .filter((message) => message.sceneBeatId === edited.sceneBeatId)
+                                .at(-1)?.id ?? id,
+                        beatContent,
+                        stalled: false,
+                    });
+                })();
+            }
         },
-        [updateMessage]
+        [updateMessage, messages, character]
     );
 
     const handleDeleteMessage = useCallback(
         (id: string) => {
-            deleteMessage(id);
+            const target = messages.find((message) => message.id === id);
+            const firstBeatMessage = target?.sceneBeatId
+                ? messages.find((message) => message.sceneBeatId === target.sceneBeatId)
+                : undefined;
+            deleteMessage(firstBeatMessage?.id ?? id);
+            if (firstBeatMessage && activeConversationId) {
+                const prior = messages.slice(0, messages.indexOf(firstBeatMessage));
+                const conversation = conversations.find(
+                    (candidate) => candidate.id === activeConversationId
+                );
+                if (conversation) {
+                    void import('@/lib/ai/story-state').then(
+                        async ({ getStoryStateForBranch, storyRoster }) => {
+                            const state = await getStoryStateForBranch(conversation, prior);
+                            if (state) {
+                                useChatStore
+                                    .getState()
+                                    .setSceneRoster(activeConversationId, storyRoster(state));
+                            }
+                        }
+                    );
+                }
+            }
         },
-        [deleteMessage]
+        [deleteMessage, messages, activeConversationId, conversations]
     );
 
     // Branching = regenerate from this point.
@@ -563,7 +649,6 @@ export default function ChatPage() {
                             )}
                         </AnimatePresence>
 
-
                         <div className="flex-1 flex flex-col min-h-0 relative">
                             {/* Messages Area */}
                             <div className="flex-1 overflow-y-auto w-full scroll-smooth">
@@ -627,19 +712,31 @@ export default function ChatPage() {
                                                                 ? // Persona AT SEND TIME (by id,
                                                                   // then name); legacy messages
                                                                   // fall back to the active one.
-                                                                  personas.find(
+                                                                  (personas.find(
                                                                       (p) =>
                                                                           p.id ===
-                                                                          (msg.speaker
-                                                                              ?.personaId ??
+                                                                          (msg.speaker?.personaId ??
                                                                               activePersonaId)
                                                                   )?.avatar ??
                                                                   personas.find(
                                                                       (p) =>
                                                                           p.name ===
                                                                           msg.speaker?.name
-                                                                  )?.avatar
-                                                                : character.avatar
+                                                                  )?.avatar)
+                                                                : msg.speaker?.kind === 'narrator'
+                                                                  ? undefined
+                                                                  : (characters.find(
+                                                                        (candidate) =>
+                                                                            candidate.id ===
+                                                                                msg.characterRef
+                                                                                    ?.sourceId ||
+                                                                            candidate.name.toLowerCase() ===
+                                                                                msg.speaker?.name.toLowerCase()
+                                                                    )?.avatar ??
+                                                                    (msg.speaker?.name ===
+                                                                    character.name
+                                                                        ? character.avatar
+                                                                        : undefined))
                                                         }
                                                         name={
                                                             msg.role === 'user'
@@ -652,9 +749,7 @@ export default function ChatPage() {
                                                                 : msg.speaker?.name ||
                                                                   character.name
                                                         }
-                                                        narrator={
-                                                            msg.speaker?.kind === 'narrator'
-                                                        }
+                                                        narrator={msg.speaker?.kind === 'narrator'}
                                                         showThoughts={showThoughts}
                                                         animateLayout={!isLoading}
                                                         onEdit={handleEditMessage}
@@ -691,17 +786,23 @@ export default function ChatPage() {
                             <div
                                 className={`mx-auto w-full space-y-2 ${immersiveMode ? 'p-4 max-w-3xl' : 'max-w-4xl'}`}
                             >
-                                {enableTroupeMode && !immersiveMode && (
-                                    <SceneBar
-                                        conversation={conversations.find(
-                                            (c) => c.id === activeConversationId
-                                        )}
-                                        character={character}
-                                        messages={messages}
-                                        isSceneRunning={isSceneRunning}
-                                        onAdvanceScene={() => void runSceneBeat()}
-                                    />
-                                )}
+                                {enableTroupeMode &&
+                                    (!immersiveMode ||
+                                        conversations.find((c) => c.id === activeConversationId)
+                                            ?.sceneMode) && (
+                                        <SceneBar
+                                            conversation={conversations.find(
+                                                (c) => c.id === activeConversationId
+                                            )}
+                                            character={character}
+                                            messages={messages}
+                                            isSceneRunning={isSceneRunning}
+                                            sceneProgress={sceneProgress}
+                                            lastSceneBeat={lastSceneBeat}
+                                            onRetrySceneBeat={() => void retrySceneBeat()}
+                                            onAdvanceScene={() => void runSceneBeat()}
+                                        />
+                                    )}
                                 {!immersiveMode && (
                                     <ChatToolbar
                                         onOpenLorebook={() => setIsLorebookOpen(true)}
@@ -722,7 +823,7 @@ export default function ChatPage() {
                                 <ChatInput
                                     onSend={handleSend}
                                     onStop={handleStop}
-                                    isLoading={isLoading}
+                                    isLoading={isLoading || isSceneRunning}
                                     disabled={!currentApiKey}
                                     onImpersonate={handleImpersonate}
                                     onDraftChange={(draft) => {
@@ -833,7 +934,8 @@ export default function ChatPage() {
                         <div className="p-4 border-b">
                             <h2 className="text-lg font-semibold">💞 Relations</h2>
                             <p className="text-sm text-muted-foreground">
-                                Confiance / Affection / Respect / Attirance — dirigées et asymétriques
+                                Confiance / Affection / Respect / Attirance — dirigées et
+                                asymétriques
                             </p>
                         </div>
                         <div className="flex-1 overflow-y-auto p-4">

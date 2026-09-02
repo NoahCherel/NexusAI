@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useLorebookStore, useCharacterStore, useSettingsStore } from '@/stores';
+import { useLorebookStore, useSettingsStore } from '@/stores';
 import { decryptApiKey } from '@/lib/crypto';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -9,7 +9,6 @@ import { Textarea } from '@/components/ui/textarea';
 import {
     Plus,
     Trash2,
-    Save,
     X,
     Search,
     Book,
@@ -61,10 +60,6 @@ export function LorebookEditor({ onClose }: { onClose: () => void }) {
     const [viewMode, setViewMode] = useState<'entries' | 'suggestions'>('entries');
     const [keysRawText, setKeysRawText] = useState('');
 
-    // Character Store Integration
-    const { getActiveCharacter, updateCharacter } = useCharacterStore();
-    const character = getActiveCharacter();
-
     // Check for mobile on mount and resize
     useEffect(() => {
         const checkMobile = () => setIsMobile(window.innerWidth < 1024);
@@ -79,14 +74,6 @@ export function LorebookEditor({ onClose }: { onClose: () => void }) {
             setKeysRawText(activeLorebook.entries[selectedEntryIndex].keys.join(', '));
         }
     }, [selectedEntryIndex, activeLorebook]);
-
-    const handleSaveToCharacter = () => {
-        if (character && activeLorebook) {
-            updateCharacter(character.id, {
-                character_book: activeLorebook,
-            });
-        }
-    };
 
     const handleImport = (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];

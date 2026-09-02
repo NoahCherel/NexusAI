@@ -31,10 +31,13 @@ function useNanoGPTUsage() {
     }, []);
 
     useEffect(() => {
-        void load(false);
+        const timer = window.setTimeout(() => void load(false), 0);
         const onRefresh = () => void load(true);
         window.addEventListener(NANOGPT_USAGE_REFRESH_EVENT, onRefresh);
-        return () => window.removeEventListener(NANOGPT_USAGE_REFRESH_EVENT, onRefresh);
+        return () => {
+            window.clearTimeout(timer);
+            window.removeEventListener(NANOGPT_USAGE_REFRESH_EVENT, onRefresh);
+        };
     }, [load]);
 
     return { usage, loading, refresh: () => load(true) };
@@ -89,7 +92,9 @@ export function NanoGPTUsageBadge() {
             <span className="hidden sm:inline-block whitespace-nowrap">
                 {formatUsageCount(w.remaining, w.unit)} {w.unit} · {w.label}
             </span>
-            <span className="sm:hidden whitespace-nowrap">{formatUsageCount(w.remaining, w.unit)}</span>
+            <span className="sm:hidden whitespace-nowrap">
+                {formatUsageCount(w.remaining, w.unit)}
+            </span>
         </div>
     );
 }

@@ -102,7 +102,10 @@ function buildWindow(
 }
 
 /** Pick the most meaningful usage window from the raw subscription/v1/usage JSON. */
-export function pickUsageWindow(json: unknown): { primary: NanoGPTUsageWindow | null; windows: NanoGPTUsageWindow[] } {
+export function pickUsageWindow(json: unknown): {
+    primary: NanoGPTUsageWindow | null;
+    windows: NanoGPTUsageWindow[];
+} {
     const root = asRecord(json);
     if (!root) return { primary: null, windows: [] };
 
@@ -214,11 +217,7 @@ export function formatUsagePercent(
     percentUsed: number | null
 ): string {
     const p =
-        percentUsed != null
-            ? percentUsed * 100
-            : limit && used != null
-              ? (used / limit) * 100
-              : 0;
+        percentUsed != null ? percentUsed * 100 : limit && used != null ? (used / limit) * 100 : 0;
     if (!Number.isFinite(p) || p <= 0) return '0 %';
     if (p < 0.01) return '< 0,01 %';
     const decimals = p < 1 ? 2 : p < 10 ? 1 : 0;

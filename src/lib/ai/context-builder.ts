@@ -43,7 +43,15 @@ export function getActiveLorebookEntries(
     const entries = lorebook.entries.filter((e) => e.enabled);
     if (entries.length === 0) return [];
 
-    const { scanDepth = 4, tokenBudget = 500, recursive = false, matchWholeWords = false, characterName, userPersonaName, extraScanText } = config;
+    const {
+        scanDepth = 4,
+        tokenBudget = 500,
+        recursive = false,
+        matchWholeWords = false,
+        characterName,
+        userPersonaName,
+        extraScanText,
+    } = config;
 
     // 1. Get text to scan — recent messages plus whatever the other memory systems are
     // injecting this turn (canon dossiers, RP journal, relations).
@@ -107,7 +115,9 @@ export function getActiveLorebookEntries(
 
     // Forcefully include character's entry if characterName is provided
     if (characterName) {
-        const charEntry = entries.find(e => e.keys.some(k => k.toLowerCase() === characterName.toLowerCase()));
+        const charEntry = entries.find((e) =>
+            e.keys.some((k) => k.toLowerCase() === characterName.toLowerCase())
+        );
         if (charEntry && !matchedEntries.has(charEntry)) {
             const contentTokens = estimateTokens(charEntry.content);
             if (currentTokenCount + contentTokens <= tokenBudget) {
@@ -119,7 +129,9 @@ export function getActiveLorebookEntries(
 
     // Forcefully include user persona's entry if userPersonaName is provided
     if (userPersonaName) {
-        const userEntry = entries.find(e => e.keys.some(k => k.toLowerCase() === userPersonaName.toLowerCase()));
+        const userEntry = entries.find((e) =>
+            e.keys.some((k) => k.toLowerCase() === userPersonaName.toLowerCase())
+        );
         if (userEntry && !matchedEntries.has(userEntry)) {
             const contentTokens = estimateTokens(userEntry.content);
             if (currentTokenCount + contentTokens <= tokenBudget) {
@@ -136,13 +148,21 @@ export function getActiveLorebookEntries(
     // 4. Then alphabetically by first key
     const result = Array.from(matchedEntries);
     return result.sort((a, b) => {
-        const aIsUser = userPersonaName ? a.keys.some(k => k.toLowerCase() === userPersonaName.toLowerCase()) : false;
-        const bIsUser = userPersonaName ? b.keys.some(k => k.toLowerCase() === userPersonaName.toLowerCase()) : false;
+        const aIsUser = userPersonaName
+            ? a.keys.some((k) => k.toLowerCase() === userPersonaName.toLowerCase())
+            : false;
+        const bIsUser = userPersonaName
+            ? b.keys.some((k) => k.toLowerCase() === userPersonaName.toLowerCase())
+            : false;
         if (aIsUser && !bIsUser) return -1;
         if (!aIsUser && bIsUser) return 1;
 
-        const aIsChar = characterName ? a.keys.some(k => k.toLowerCase() === characterName.toLowerCase()) : false;
-        const bIsChar = characterName ? b.keys.some(k => k.toLowerCase() === characterName.toLowerCase()) : false;
+        const aIsChar = characterName
+            ? a.keys.some((k) => k.toLowerCase() === characterName.toLowerCase())
+            : false;
+        const bIsChar = characterName
+            ? b.keys.some((k) => k.toLowerCase() === characterName.toLowerCase())
+            : false;
         if (aIsChar && !bIsChar) return -1;
         if (!aIsChar && bIsChar) return 1;
 
@@ -332,7 +352,8 @@ export function buildSystemPrompt(
     // Example dialogues (V2 `mes_example`): the primary voice-anchoring signal. Stable zone
     // (deterministic trim) — appended unless the template already places it itself.
     const templatePlacesExamples =
-        promptTemplate.includes('{{mes_example}}') || promptTemplate.includes('{{example_dialogue}}');
+        promptTemplate.includes('{{mes_example}}') ||
+        promptTemplate.includes('{{example_dialogue}}');
     if (!templatePlacesExamples && character.mes_example?.trim()) {
         const examples = trimExampleDialogue(character.mes_example);
         if (examples) {

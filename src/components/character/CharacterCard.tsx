@@ -1,7 +1,7 @@
 'use client';
 
 import { motion } from 'framer-motion';
-import { MoreVertical, Trash2, Edit, Download, Clock, GripVertical } from 'lucide-react';
+import { MoreVertical, Trash2, Edit, Download, Clock, GripVertical, Archive } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import {
@@ -22,6 +22,7 @@ interface CharacterCardProps {
     onEdit?: () => void;
     onDelete?: () => void;
     onExport?: () => void;
+    onExportBackstage?: () => void;
     onDragHandlePointerDown?: (
         character: CharacterCardType,
         event: React.PointerEvent<HTMLElement>
@@ -38,6 +39,7 @@ export function CharacterCard({
     onEdit,
     onDelete,
     onExport,
+    onExportBackstage,
     onDragHandlePointerDown,
     isDragging = false,
     lastPlayed,
@@ -207,6 +209,17 @@ export function CharacterCard({
                                 >
                                     <Download className="h-4 w-4 mr-2" />
                                     Export JSON
+                                </DropdownMenuItem>
+                            )}
+                            {onExportBackstage && (
+                                <DropdownMenuItem
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        onExportBackstage();
+                                    }}
+                                >
+                                    <Archive className="h-4 w-4 mr-2" />
+                                    Sauvegarde avec Coulisses
                                 </DropdownMenuItem>
                             )}
                         </DropdownMenuContent>

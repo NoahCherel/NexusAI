@@ -1,4 +1,4 @@
-import { Bot, Sparkles, MessageSquare, ArrowRight, Upload } from 'lucide-react';
+import { Bot, Sparkles, MessageSquare, Upload } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { motion } from 'framer-motion';
 
@@ -30,8 +30,8 @@ export function LandingPage({ onImportClick }: { onImportClick?: () => void }) {
                         Bienvenue sur NexusAI
                     </h1>
                     <p className="text-xl text-muted-foreground leading-relaxed max-w-lg mx-auto">
-                        Votre compagnon de roleplay avancé. Sélectionnez un personnage dans la
-                        barre latérale ou importez-en un nouveau pour commencer votre aventure.
+                        Votre compagnon de roleplay avancé. Sélectionnez un personnage dans la barre
+                        latérale ou importez-en un nouveau pour commencer votre aventure.
                     </p>
                 </div>
 

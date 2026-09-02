@@ -73,10 +73,7 @@ describe('parseDirectorResponse', () => {
     });
 
     it('drops an empty sceneChange object', () => {
-        const d = parseDirectorResponse(
-            JSON.stringify({ speakers: [], sceneChange: {} }),
-            roster
-        );
+        const d = parseDirectorResponse(JSON.stringify({ speakers: [], sceneChange: {} }), roster);
         expect(d.sceneChange).toBeUndefined();
     });
 });

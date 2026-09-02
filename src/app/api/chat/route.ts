@@ -11,6 +11,12 @@ type OpenRouterMessage = OpenAI.Chat.Completions.ChatCompletionMessage & {
 
 type OpenRouterRequestBody = Record<string, unknown>;
 
+export function nanogptBaseURL(billingScope?: string): string {
+    return billingScope === 'paygo'
+        ? 'https://nano-gpt.com/api/v1'
+        : 'https://nano-gpt.com/api/subscription/v1';
+}
+
 export async function POST(req: NextRequest) {
     try {
         const {
@@ -34,6 +40,9 @@ export async function POST(req: NextRequest) {
             webSearch,
             webMaxResults,
             disableReasoning,
+            // NanoGPT calls selected from the subscription model list must use the
+            // subscription-only endpoint. `paygo` is reserved for a future explicit UI.
+            billingScope,
             // Number of leading messages forming the cache-stable prefix (system + history).
             // Used to place explicit cache_control breakpoints for Claude models.
             cachePrefixLength,
@@ -196,7 +205,7 @@ export async function POST(req: NextRequest) {
             // MUST be passed through intact — the truncation above (line ~69) only runs for
             // openai/anthropic, so `effectiveModelId` is already the untouched id here.
             client = new OpenAI({
-                baseURL: 'https://nano-gpt.com/api/v1',
+                baseURL: nanogptBaseURL(billingScope),
                 apiKey,
             });
             requestBody = {
@@ -298,7 +307,6 @@ export async function POST(req: NextRequest) {
                                 }
                             }
                         }
-
                     }
                     // Trailing usage sentinel, parsed (and stripped) by the client.
                     if (usageData) {
@@ -330,11 +338,27 @@ export async function POST(req: NextRequest) {
         });
     } catch (error) {
         console.error('Chat API error:', error);
+        const upstream = error as {
+            status?: number;
+            message?: string;
+            headers?: Headers | { get?: (name: string) => string | null };
+        };
+        const upstreamStatus =
+            typeof upstream.status === 'number' && upstream.status >= 400
+                ? upstream.status
+                : undefined;
+        const retryAfterRaw = upstream.headers?.get?.('retry-after');
+        const retryAfter = retryAfterRaw ? Number(retryAfterRaw) : undefined;
         return new Response(
             JSON.stringify({
                 error: error instanceof Error ? error.message : 'Internal server error',
+                upstreamStatus,
+                retryAfter: Number.isFinite(retryAfter) ? retryAfter : undefined,
             }),
-            { status: 500, headers: { 'Content-Type': 'application/json' } }
+            {
+                status: upstreamStatus ?? 500,
+                headers: { 'Content-Type': 'application/json' },
+            }
         );
     }
 }

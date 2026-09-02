@@ -283,9 +283,7 @@ export function MarketplaceBrowser({
                 alt={card.name}
                 loading="lazy"
                 className={`${className} object-cover rounded-lg bg-muted shrink-0`}
-                onError={() =>
-                    setBrokenAvatars((prev) => new Set(prev).add(card.fullPath))
-                }
+                onError={() => setBrokenAvatars((prev) => new Set(prev).add(card.fullPath))}
             />
         ) : (
             <div
@@ -580,9 +578,9 @@ export function MarketplaceBrowser({
 
             {/* Footer — hint hidden on mobile (it lives in the Import tab too) */}
             <p className="text-[10px] text-muted-foreground shrink-0 max-sm:hidden">
-                Catalogue Chub.ai / CharacterHub — cliquez une carte pour la fiche complète.
-                JannyAI n&apos;expose pas de catalogue (Cloudflare) : collez l&apos;URL dans
-                l&apos;onglet Importer.
+                Catalogue Chub.ai / CharacterHub — cliquez une carte pour la fiche complète. JannyAI
+                n&apos;expose pas de catalogue (Cloudflare) : collez l&apos;URL dans l&apos;onglet
+                Importer.
             </p>
         </div>
     );

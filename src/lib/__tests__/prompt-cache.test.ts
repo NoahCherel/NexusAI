@@ -31,8 +31,6 @@ const card: CharacterCard = {
     mes_example: '',
 };
 
-
-
 let counter = 0;
 function msg(content: string, role: 'user' | 'assistant' = 'user'): Message {
     counter++;
@@ -100,7 +98,12 @@ describe('stable/dynamic zone split', () => {
             maxOutputTokens: 1000,
         });
         const last = messagesPayload[messagesPayload.length - 1].content;
-        for (const marker of ['hidden leaf village', 'SCRATCH_PLAN', 'GUIDANCE_MARKER', 'MOMENTUM_MARKER']) {
+        for (const marker of [
+            'hidden leaf village',
+            'SCRATCH_PLAN',
+            'GUIDANCE_MARKER',
+            'MOMENTUM_MARKER',
+        ]) {
             expect(systemPrompt).not.toContain(marker);
             expect(last).toContain(marker);
         }
@@ -265,9 +268,7 @@ describe('history window hysteresis', () => {
         expect(second.stablePrefixLength).toBe(first.stablePrefixLength + 1);
 
         // Window starts at the same anchored message → stable prefix.
-        expect(second.messagesPayload[1].content).toBe(
-            first.messagesPayload[1].content
-        );
+        expect(second.messagesPayload[1].content).toBe(first.messagesPayload[1].content);
         expect(second.includedMessageCount).toBe(first.includedMessageCount + 1);
     });
 
@@ -280,9 +281,7 @@ describe('history window hysteresis', () => {
         // that a regression filling only 36% still passed — which is exactly the class of bug
         // this whole change exists to fix. The window must now stop within one message of its
         // target, or not at all.
-        const maxMsg = Math.max(
-            ...longHistory.map((m) => countMessageTokens(m.id, m.content))
-        );
+        const maxMsg = Math.max(...longHistory.map((m) => countMessageTokens(m.id, m.content)));
         expect(b.history).toBeGreaterThan(b.historyTarget - maxMsg);
         // A margin still exists, but it is a couple of messages, not a quarter of the budget.
         expect(b.historyTarget).toBeLessThan(b.historyBudget);
@@ -317,9 +316,7 @@ describe('history window hysteresis', () => {
         }
 
         expect(last.includedMessageCount).toBeGreaterThan(first.includedMessageCount);
-        expect(last.tokenBreakdown.history).toBeGreaterThan(
-            first.tokenBreakdown.history * 1.3
-        );
+        expect(last.tokenBreakdown.history).toBeGreaterThan(first.tokenBreakdown.history * 1.3);
     });
 
     it('does not thrash when the dynamic zone oscillates turn to turn', () => {

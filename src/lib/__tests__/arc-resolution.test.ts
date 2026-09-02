@@ -10,7 +10,6 @@ import { buildSystemPrompt, buildDynamicContextBlock } from '@/lib/ai/context-bu
 import { resolveActiveArcNames } from '@/lib/ai/canon-context';
 import type { CharacterCard } from '@/types/character';
 
-
 const card: CharacterCard = {
     id: 'c1',
     name: 'NarutoRPG',
@@ -20,7 +19,6 @@ const card: CharacterCard = {
     first_mes: '',
     mes_example: '',
 };
-
 
 const NARUTO_OUTLINE = `1. Kazekage Rescue Mission — Naruto returns to Konoha…
 2. Tenchi Bridge Reconnaissance Mission — A new Team 7…
@@ -44,10 +42,7 @@ describe('resolveActiveArcNames — maps free-form positions to canonical arc na
 
     it('uses an arc name verbatim when the position contains one', () => {
         expect(
-            resolveActiveArcNames(
-                'Itachi Pursuit Mission — episode 142',
-                NARUTO_OUTLINE
-            )
+            resolveActiveArcNames('Itachi Pursuit Mission — episode 142', NARUTO_OUTLINE)
         ).toEqual(['Itachi Pursuit Mission']);
     });
 

@@ -16,17 +16,17 @@ export async function POST(req: NextRequest) {
             });
         }
 
-        const res = await fetch(
-            'https://nano-gpt.com/api/subscription/v1/models?detailed=true',
-            {
-                method: 'GET',
-                headers: { Authorization: `Bearer ${apiKey}` },
-            }
-        );
+        const res = await fetch('https://nano-gpt.com/api/subscription/v1/models?detailed=true', {
+            method: 'GET',
+            headers: { Authorization: `Bearer ${apiKey}` },
+        });
 
         if (!res.ok) {
             return new Response(
-                JSON.stringify({ error: `NanoGPT models fetch failed (${res.status})`, models: [] }),
+                JSON.stringify({
+                    error: `NanoGPT models fetch failed (${res.status})`,
+                    models: [],
+                }),
                 { status: res.status, headers: { 'Content-Type': 'application/json' } }
             );
         }

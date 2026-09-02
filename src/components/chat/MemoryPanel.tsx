@@ -108,14 +108,16 @@ export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
 
     // The active branch's ban list (snapshot on the branch tip, falling back to the
     // conversation-level list). Re-derived whenever messages/conversations change.
-    const activeBanList = useMemo(
-        () => (activeConversationId ? getActiveBranchBanList(activeConversationId) : []),
-        [activeConversationId, getActiveBranchBanList, storeMessages, conversations]
-    );
+    const activeBanList = useMemo(() => {
+        void storeMessages;
+        void conversations;
+        return activeConversationId ? getActiveBranchBanList(activeConversationId) : [];
+    }, [activeConversationId, getActiveBranchBanList, storeMessages, conversations]);
 
     // The id of the active branch tip. A swipe keeps activeConversationId but moves this,
     // so it — not the conversation id — is what scopes a Style Guard analysis to its branch.
     const activeBranchTipId = useMemo(() => {
+        void storeMessages;
         if (!activeConversationId) return null;
         const path = getActiveBranchMessages(activeConversationId);
         return path.length ? path[path.length - 1].id : null;
@@ -210,7 +212,8 @@ export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
                 seen.add(trimmed.toLowerCase());
             }
         }
-        if (additions.length > 0) store.setBanList(activeConversationId, [...current, ...additions]);
+        if (additions.length > 0)
+            store.setBanList(activeConversationId, [...current, ...additions]);
         setStyleSuggestions([]);
     };
 
@@ -317,7 +320,9 @@ export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
 
             const children = summaries.filter((s) => summary.childIds.includes(s.id));
             if (children.length === 0) {
-                setReindexProgress('Impossible de régénérer : les résumés source ont été supprimés.');
+                setReindexProgress(
+                    'Impossible de régénérer : les résumés source ont été supprimés.'
+                );
                 setTimeout(() => setReindexProgress(''), 5000);
                 return;
             }
@@ -791,14 +796,22 @@ export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
                                 Guidage narratif (Note d&apos;auteur)
                             </div>
                             <p className="text-xs text-muted-foreground leading-relaxed">
-                                Rédigez un mémo pour orienter la direction narrative de l&apos;IA. Il sera injecté directement dans le prompt système pour infléchir subtilement (ou ouvertement) l&apos;histoire, le comportement des personnages ou les événements à venir.
+                                Rédigez un mémo pour orienter la direction narrative de l&apos;IA.
+                                Il sera injecté directement dans le prompt système pour infléchir
+                                subtilement (ou ouvertement) l&apos;histoire, le comportement des
+                                personnages ou les événements à venir.
                             </p>
                             <Textarea
                                 placeholder="ex. : « Pousse subtilement le joueur vers la vieille taverne », « Montre-toi plus méfiant envers les motivations du joueur », « Le temps tourne lentement à l'orage… »"
                                 value={conversation?.storyGuidance || ''}
                                 onChange={(e) => {
                                     if (activeConversationId) {
-                                        useChatStore.getState().updateStoryGuidance(activeConversationId, e.target.value);
+                                        useChatStore
+                                            .getState()
+                                            .updateStoryGuidance(
+                                                activeConversationId,
+                                                e.target.value
+                                            );
                                     }
                                 }}
                                 className="flex-1 resize-none text-sm p-3 bg-muted/30 border-border/50 focus-visible:ring-primary/20"
@@ -819,12 +832,15 @@ export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
                             {!scratchpadEnabled && (
                                 <p className="text-xs text-amber-500/90 leading-relaxed">
                                     Le Scratchpad est désactivé (Réglages → Fonctions IA) : ce
-                                    contenu n&apos;est ni injecté ni mis à jour tant qu&apos;il
-                                    est éteint.
+                                    contenu n&apos;est ni injecté ni mis à jour tant qu&apos;il est
+                                    éteint.
                                 </p>
                             )}
                             <p className="text-xs text-muted-foreground leading-relaxed">
-                                C&apos;est la mémoire de travail interne de l&apos;IA issue du tour précédent. Elle s&apos;en sert pour planifier ses prochaines actions, suivre l&apos;état de la scène et maintenir la continuité. Vous pouvez la modifier pour corriger ses suppositions.
+                                C&apos;est la mémoire de travail interne de l&apos;IA issue du tour
+                                précédent. Elle s&apos;en sert pour planifier ses prochaines
+                                actions, suivre l&apos;état de la scène et maintenir la continuité.
+                                Vous pouvez la modifier pour corriger ses suppositions.
                             </p>
                             <Textarea
                                 placeholder="Le scratchpad de l'IA est actuellement vide."
@@ -832,7 +848,9 @@ export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
                                 readOnly={!scratchpadEnabled}
                                 onChange={(e) => {
                                     if (activeConversationId && scratchpadEnabled) {
-                                        useChatStore.getState().updateScratchpad(activeConversationId, e.target.value);
+                                        useChatStore
+                                            .getState()
+                                            .updateScratchpad(activeConversationId, e.target.value);
                                     }
                                 }}
                                 className={`flex-1 resize-none text-sm p-3 bg-muted/30 border-border/50 focus-visible:ring-primary/20 font-mono ${
@@ -851,9 +869,9 @@ export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
                             </div>
                             <p className="text-xs text-muted-foreground leading-relaxed">
                                 Analysez vos dernières réponses IA pour repérer les habitudes
-                                répétitives ou clichées. Gardez les suggestions qui vous
-                                conviennent — elles sont injectées dans le prompt comme motifs à
-                                éviter, pour cette conversation uniquement.
+                                répétitives ou clichées. Gardez les suggestions qui vous conviennent
+                                — elles sont injectées dans le prompt comme motifs à éviter, pour
+                                cette conversation uniquement.
                             </p>
                             <Button
                                 onClick={handleAnalyzeStyle}
@@ -1009,9 +1027,9 @@ export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
                                                 Aucun résumé pour l&apos;instant
                                             </p>
                                             <p className="text-xs text-muted-foreground/70 mt-1">
-                                                La chronique se construit toute seule : un
-                                                Fragment tous les ~10 messages, une Section tous
-                                                les 5 Fragments, un Arc toutes les 3 Sections.
+                                                La chronique se construit toute seule : un Fragment
+                                                tous les ~10 messages, une Section tous les 5
+                                                Fragments, un Arc toutes les 3 Sections.
                                             </p>
                                         </div>
                                     ) : (
@@ -1021,7 +1039,9 @@ export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
                                                 const term = summarySearchTerm.toLowerCase();
                                                 return (
                                                     summary.content.toLowerCase().includes(term) ||
-                                                    summary.keyFacts.some((kf) => kf.toLowerCase().includes(term))
+                                                    summary.keyFacts.some((kf) =>
+                                                        kf.toLowerCase().includes(term)
+                                                    )
                                                 );
                                             })
                                             .sort(
@@ -1286,8 +1306,11 @@ export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
                                 {manuallyEditedCount > 0 && (
                                     <span className="block mt-2 text-amber-400">
                                         ⚠️ {manuallyEditedCount} résumé
-                                        {manuallyEditedCount > 1 ? 's que vous avez modifiés' : ' que vous avez modifié'}{' '}
-                                        à la main {manuallyEditedCount > 1 ? 'seront perdus' : 'sera perdu'}.
+                                        {manuallyEditedCount > 1
+                                            ? 's que vous avez modifiés'
+                                            : ' que vous avez modifié'}{' '}
+                                        à la main{' '}
+                                        {manuallyEditedCount > 1 ? 'seront perdus' : 'sera perdu'}.
                                     </span>
                                 )}
                             </DialogDescription>

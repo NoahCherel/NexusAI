@@ -23,7 +23,7 @@ export const DEFAULT_BAN_LIST: string[] = [
     'little did (they) know',
     'sent shivers (down/through)',
     '(their) heart skipped a beat',
-    "(their) breath hitched / caught",
+    '(their) breath hitched / caught',
     'a small smile played at the corner of (their) lips',
     'time seemed to slow / stand still',
     'stacking two adjectives onto one feeling ("a raw, aching need")',
@@ -89,10 +89,7 @@ export function buildLearnedBanBlock(phrases: string[]): string {
 }
 
 /** The system-section block for an engine: rules + register policy + ban list. */
-export function buildEngineSystemBlock(
-    engine: RPEngine,
-    opts: { userName?: string } = {}
-): string {
+export function buildEngineSystemBlock(engine: RPEngine, opts: { userName?: string } = {}): string {
     const parts = [
         engine.systemBlock,
         `REGISTER: ${registerLine(engine.registerPolicy)}`,

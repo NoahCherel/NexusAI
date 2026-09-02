@@ -27,10 +27,31 @@ import {
 } from '@/lib/ai/hierarchical-summarizer';
 import { extractLorebookEntries, extractRpDevelopments } from '@/lib/lorebook-extractor';
 import { directorDecide, applySceneChange } from '@/lib/ai/scene-orchestrator';
-import { NANOGPT_USAGE_REFRESH_EVENT } from '@/lib/ai/nanogpt-usage';
+import { NANOGPT_USAGE_REFRESH_EVENT, fetchNanoGPTUsage } from '@/lib/ai/nanogpt-usage';
 import { countTokens } from '@/lib/tokenizer';
 import { extractUsageSentinel } from '@/lib/ai/usage-sentinel';
 import type { PostBeatParams } from '@/lib/ai/post-beat';
+import type { SceneBeatRecord, SceneGenerationProgress } from '@/types/scene';
+import { directSceneBeat } from '@/lib/ai/directed-scene';
+import {
+    executeDirectedBeat,
+    type DirectedBeatDeps,
+    type DirectedBeatOutcome,
+} from '@/lib/ai/directed-beat';
+import { resolveBackgroundRoute } from '@/lib/ai/background-ai';
+import {
+    getStoryStateForBranch,
+    resolveSceneCharacters,
+    resolveSceneEntryCandidates,
+    storyRoster,
+} from '@/lib/ai/story-state';
+import {
+    commitSceneBeat,
+    commitStoryStateRevision,
+    getSceneBeatsByConversation,
+    getStoryState,
+    saveSceneBeat,
+} from '@/lib/db';
 
 /** Decrypted key of the ACTIVE provider (null while loading or when none is stored). */
 export function useActiveApiKey(): string | null {
@@ -82,6 +103,58 @@ export function useChatGeneration({
     // a new user message).
     const stopRequestedRef = useRef(false);
     const [isSceneRunning, setIsSceneRunning] = useState(false);
+    const [sceneProgress, setSceneProgress] = useState<SceneGenerationProgress | null>(null);
+    const [lastSceneBeat, setLastSceneBeat] = useState<SceneBeatRecord | null>(null);
+    const activeBranchKey = messages.map((message) => message.id).join('\u0000');
+
+    // Coulisses survive reloads and branch switches. Only surface beats whose trigger or
+    // committed output belongs to the currently selected branch.
+    useEffect(() => {
+        let cancelled = false;
+        if (!activeConversationId) {
+            Promise.resolve().then(() => {
+                if (!cancelled) {
+                    setLastSceneBeat(null);
+                    setSceneProgress(null);
+                }
+            });
+            return () => {
+                cancelled = true;
+            };
+        }
+
+        const activeMessageIds = new Set(activeBranchKey ? activeBranchKey.split('\u0000') : []);
+        void getSceneBeatsByConversation(activeConversationId).then((beats) => {
+            if (cancelled) return;
+            const latest = beats
+                .filter(
+                    (beat) =>
+                        activeMessageIds.has(beat.triggerMessageId) ||
+                        beat.outputMessageIds.some((id) => activeMessageIds.has(id))
+                )
+                .sort((a, b) => b.updatedAt - a.updatedAt)[0];
+            setLastSceneBeat(latest ?? null);
+            setSceneProgress(
+                latest &&
+                    ['directing', 'reflecting', 'composing', 'validating'].includes(latest.status)
+                    ? {
+                          beatId: latest.id,
+                          status: latest.status,
+                          completedReflections: latest.intents.length,
+                          totalReflections:
+                              latest.decision?.participants.filter(
+                                  (participant) =>
+                                      participant.attention !== 'none' &&
+                                      participant.mode !== 'silent'
+                              ).length ?? 0,
+                      }
+                    : null
+            );
+        });
+        return () => {
+            cancelled = true;
+        };
+    }, [activeConversationId, activeBranchKey]);
     // Scene Mode 'turns': the full retrieval stack (canon, hybrid lorebook, Chronicle) barely
     // changes between the speakers of ONE beat — compute it once on the first turn and
     // reuse it for the rest of the beat (keyed by beat id).
@@ -144,13 +217,18 @@ export function useChatGeneration({
             sceneGoal?: string;
             /** Unified scene style: one generation writes the whole directed beat. */
             sceneEnsemble?: import('@/lib/ai/payload-builder').BuildConversationPayloadParams['sceneEnsemble'];
+            /** Directed scene composer contract; response stays buffered until validated. */
+            sceneComposition?: string;
+            bufferedOnly?: boolean;
+            /** Reuse the scene-wide cancellation signal across director/reflection/composer. */
+            requestController?: AbortController;
             /**
              * Scene Mode 'turns': beat id — the retrieval stack (canon/lorebook/RAG) is
              * computed on the first turn of the beat and REUSED for the following ones.
              */
             retrievalCacheKey?: string;
         } = {}
-    ): Promise<{ id: string; content: string } | undefined> => {
+    ): Promise<{ id: string; content: string; usage?: CAMessage['usage'] } | undefined> => {
         if (!currentApiKey || !character) return;
         setIsLoading(true);
 
@@ -158,11 +236,11 @@ export function useChatGeneration({
         // sent back to the model: drop error-flagged messages with no usable content.
         history = history.filter((m) => !(m.error && !m.content.trim()));
 
-        // Stop any previous request
-        if (abortControllerRef.current) {
-            abortControllerRef.current.abort();
-        }
-        abortControllerRef.current = new AbortController();
+        // Ordinary calls supersede the previous request. Directed composition deliberately
+        // reuses the scene-wide controller so moving to the composer does not cancel its own beat.
+        const requestController = options.requestController ?? new AbortController();
+        if (!options.requestController) abortControllerRef.current?.abort();
+        abortControllerRef.current = requestController;
 
         const activePreset = getActivePreset();
         const activePersona = personas.find((p) => p.id === activePersonaId);
@@ -237,64 +315,70 @@ export function useChatGeneration({
             historyWindow,
             tokenBreakdown,
         } = await buildConversationPayload({
-                mode: options.isImpersonation ? 'impersonate' : 'generate',
-                character,
-                        activeEntries,
-                history,
-                recentMessages: history,
-                activePreset,
-                activeEngine,
-                learnedBanList: activeConversationId
-                    ? getActiveBranchBanList(activeConversationId)
+            mode: options.isImpersonation ? 'impersonate' : 'generate',
+            character,
+            activeEntries,
+            history,
+            recentMessages: history,
+            activePreset,
+            activeEngine,
+            learnedBanList: activeConversationId
+                ? getActiveBranchBanList(activeConversationId)
+                : undefined,
+            userPersona: activePersona,
+            longTermMemory: combinedMemory,
+            storyGuidance: currentConv?.storyGuidance,
+            scratchpad: currentConv?.scratchpad,
+            enableScratchpad: options.bufferedOnly ? false : enableScratchpad,
+            canonOptions,
+            assistantPrefill: options.prefill,
+            activeProvider,
+            maxContextTokens,
+            maxOutputTokens,
+            historyCutMessageId: currentConv?.historyCutMessageId,
+            dynamicReserveTokens: currentConv?.dynamicReserveTokens,
+            continueFromAssistant: !!options.continueTargetId,
+            // A unified ensemble beat carries a speaker for attribution ('Scène'), but
+            // its contract is the ENSEMBLE block — never the single-speaker/narrator ones.
+            sceneSpeaker:
+                options.speaker?.kind === 'character' &&
+                !options.sceneEnsemble &&
+                !options.sceneComposition
+                    ? options.speaker.name
                     : undefined,
-                userPersona: activePersona,
-                longTermMemory: combinedMemory,
-                storyGuidance: currentConv?.storyGuidance,
-                scratchpad: currentConv?.scratchpad,
-                enableScratchpad,
-                canonOptions,
-                assistantPrefill: options.prefill,
-                activeProvider,
-                maxContextTokens,
-                maxOutputTokens,
-                historyCutMessageId: currentConv?.historyCutMessageId,
-                dynamicReserveTokens: currentConv?.dynamicReserveTokens,
-                continueFromAssistant: !!options.continueTargetId,
-                // A unified ensemble beat carries a speaker for attribution ('Scène'), but
-                // its contract is the ENSEMBLE block — never the single-speaker/narrator ones.
-                sceneSpeaker:
-                    options.speaker?.kind === 'character' && !options.sceneEnsemble
-                        ? options.speaker.name
-                        : undefined,
-                sceneNarrator: options.speaker?.kind === 'narrator' && !options.sceneEnsemble,
-                sceneDirection: options.sceneDirection,
-                sceneGoal: options.sceneGoal,
-                sceneEnsemble: options.sceneEnsemble,
-                retrieveChronicle: retrievalCache
-                    ? async () => retrievalCache.chronicle
-                    : enableHierarchicalSummaries && activeConversationId
-                        ? async (budget) => {
-                              const chronicle = await buildChronicle(
-                                  activeConversationId,
-                                  budget,
-                                  // The Chronicle only covers what has been EVICTED from the
-                                  // verbatim window (the hysteresis cut position) — anything
-                                  // still in the window would be paid for twice.
-                                  currentConv?.historyCutMessageId
-                                      ? Math.max(
-                                            0,
-                                            history.findIndex(
-                                                (m) => m.id === currentConv.historyCutMessageId
-                                            )
-                                        )
-                                      : 0,
-                                  messages.map((m) => m.id)
-                              );
-                              capturedChronicle = chronicle;
-                              return chronicle;
-                          }
-                        : undefined,
-            });
+            sceneNarrator:
+                options.speaker?.kind === 'narrator' &&
+                !options.sceneEnsemble &&
+                !options.sceneComposition,
+            sceneDirection: options.sceneDirection,
+            sceneGoal: options.sceneGoal,
+            sceneEnsemble: options.sceneEnsemble,
+            sceneComposition: options.sceneComposition,
+            retrieveChronicle: retrievalCache
+                ? async () => retrievalCache.chronicle
+                : enableHierarchicalSummaries && activeConversationId
+                  ? async (budget) => {
+                        const chronicle = await buildChronicle(
+                            activeConversationId,
+                            budget,
+                            // The Chronicle only covers what has been EVICTED from the
+                            // verbatim window (the hysteresis cut position) — anything
+                            // still in the window would be paid for twice.
+                            currentConv?.historyCutMessageId
+                                ? Math.max(
+                                      0,
+                                      history.findIndex(
+                                          (m) => m.id === currentConv.historyCutMessageId
+                                      )
+                                  )
+                                : 0,
+                            messages.map((m) => m.id)
+                        );
+                        capturedChronicle = chronicle;
+                        return chronicle;
+                    }
+                  : undefined,
+        });
 
         // First turn of a scene beat: store the retrieval stack for the beat's next turns.
         if (options.retrievalCacheKey && !retrievalCache) {
@@ -354,7 +438,7 @@ export function useChatGeneration({
         let fullContent = initialContent;
         let assistantThought = '';
 
-        if (activeConversationId && !continuing) {
+        if (activeConversationId && !continuing && !options.bufferedOnly) {
             addMessage({
                 id: targetId,
                 conversationId: activeConversationId,
@@ -397,7 +481,7 @@ export function useChatGeneration({
                     // Cache-stable prefix boundary (system + history) for Claude cache_control.
                     cachePrefixLength: stablePrefixLength,
                 }),
-                signal: abortControllerRef.current.signal,
+                signal: requestController.signal,
             });
 
             if (!response.ok) {
@@ -422,6 +506,7 @@ export function useChatGeneration({
             // (and on the error/abort paths below).
             let lastFlushAt = 0;
             const flushStreamed = (force = false) => {
+                if (options.bufferedOnly) return;
                 const now = Date.now();
                 if (!force && now - lastFlushAt < 50) return;
                 lastFlushAt = now;
@@ -518,15 +603,17 @@ export function useChatGeneration({
                 };
             }
 
-            updateMessage(targetId, {
-                content: finalContent,
-                thought: finalResult.thought || assistantThought || undefined,
-                usage,
-            });
+            if (!options.bufferedOnly) {
+                updateMessage(targetId, {
+                    content: finalContent,
+                    thought: finalResult.thought || assistantThought || undefined,
+                    usage,
+                });
+            }
 
             // Post-beat pipeline: arc capture + canon dossier fetch, momentum, relationship
             // analysis — single background entry point.
-            if (character && activeConversationId) {
+            if (character && activeConversationId && !options.bufferedOnly) {
                 runPostBeat({
                     character,
                     conversationId: activeConversationId,
@@ -556,8 +643,9 @@ export function useChatGeneration({
                 });
             }
 
-            return { id: targetId, content: finalContent };
+            return { id: targetId, content: finalContent, usage };
         } catch (error) {
+            if (options.bufferedOnly) throw error;
             if (error instanceof Error && error.name === 'AbortError') {
                 // Streaming no longer persists per chunk — write the partial content once
                 // so a stopped generation survives a reload.
@@ -598,7 +686,7 @@ export function useChatGeneration({
             }
         } finally {
             setIsLoading(false);
-            abortControllerRef.current = null;
+            if (abortControllerRef.current === requestController) abortControllerRef.current = null;
         }
     };
 
@@ -613,10 +701,147 @@ export function useChatGeneration({
     /** Prefix scene-attributed messages with their speaker so the model knows who spoke. */
     const withSpeakerPrefixes = (history: CAMessage[]): CAMessage[] =>
         history.map((m) =>
-            m.role === 'assistant' && m.speaker
+            m.role === 'assistant' && m.speaker && !m.sceneBeatId
                 ? { ...m, content: `${m.speaker.name}: ${m.content}` }
                 : m
         );
+
+    const runDirectedSceneBeat = async (
+        conv: NonNullable<(typeof conversations)[number]>,
+        beatHistory: CAMessage[],
+        userName: string,
+        retrySource?: SceneBeatRecord,
+        preferStoredRoster = false
+    ) => {
+        if (!activeConversationId || !character || beatHistory.length === 0) return;
+        const triggerMessage = beatHistory[beatHistory.length - 1];
+        const controller = new AbortController();
+        const beatDeadline = window.setTimeout(() => controller.abort(), 4 * 60_000);
+        abortControllerRef.current?.abort();
+        abortControllerRef.current = controller;
+
+        // The orchestrator itself lives in lib/ai/directed-beat.ts so the exact state
+        // machine can be replayed under test; this wrapper only supplies the real world.
+        const deps: DirectedBeatDeps = {
+            resolveRoute: () => resolveBackgroundRoute({ refreshSubscriptionModels: true }),
+            loadStoredState: getStoryStateForBranch,
+            loadState: getStoryState,
+            resolveCharacters: resolveSceneCharacters,
+            resolveEntryCandidates: resolveSceneEntryCandidates,
+            direct: directSceneBeat,
+            compose: async ({ contract, history }) => {
+                const result = await triggerAiReponse(withSpeakerPrefixes(history), {
+                    bufferedOnly: true,
+                    sceneComposition: contract,
+                    skipBeatAnalyses: true,
+                    requestController: controller,
+                });
+                return result ? { content: result.content, usage: result.usage } : null;
+            },
+            fetchRemainingTokens: async () => {
+                const usage = await fetchNanoGPTUsage(false);
+                return usage?.primary?.unit === 'tokens' ? usage.primary.remaining : null;
+            },
+            persistBeat: async (record) => {
+                await saveSceneBeat(record);
+                setLastSceneBeat(record);
+            },
+            commitObservedState: async (state, anchorMessageId) => {
+                await commitStoryStateRevision(state, anchorMessageId);
+                useChatStore.getState().applyStoryStateRevision({
+                    conversationId: conv.id,
+                    messageId: anchorMessageId,
+                    storyStateRevisionId: state.id,
+                    roster: storyRoster(state),
+                });
+            },
+            commitBeat: commitSceneBeat,
+            assertCurrent: () => {
+                const store = useChatStore.getState();
+                const activePath = store.getActiveBranchMessages(conv.id);
+                if (
+                    store.activeConversationId !== conv.id ||
+                    !activePath.some((message) => message.id === triggerMessage.id)
+                ) {
+                    throw new DOMException('Beat obsolète ou annulé.', 'AbortError');
+                }
+            },
+            onProgress: setSceneProgress,
+        };
+
+        let outcome: DirectedBeatOutcome | undefined;
+        try {
+            outcome = await executeDirectedBeat(
+                {
+                    conversation: conv,
+                    character,
+                    beatHistory,
+                    userName,
+                    retrySource,
+                    preferStoredRoster,
+                    maxSpeakers: useSettingsStore.getState().maxSceneSpeakers,
+                    reflectionConcurrency:
+                        useSettingsStore.getState().sceneReflectionConcurrency ?? 4,
+                    composer: { provider: activeProvider, model: activeModel },
+                    signal: controller.signal,
+                },
+                deps
+            );
+        } finally {
+            window.clearTimeout(beatDeadline);
+            if (outcome?.record.backgroundRoute?.provider === 'nanogpt') {
+                window.dispatchEvent(new Event(NANOGPT_USAGE_REFRESH_EVENT));
+            }
+            if (abortControllerRef.current === controller) abortControllerRef.current = null;
+        }
+
+        if (!outcome) return;
+        const { addNotification, updateNotification } = useNotificationStore.getState();
+        switch (outcome.kind) {
+            case 'committed': {
+                useChatStore.getState().applyCommittedSceneBeat({
+                    conversationId: conv.id,
+                    messages: outcome.messages,
+                    storyStateRevisionId: outcome.state.id,
+                    roster: storyRoster(outcome.state),
+                });
+                setLastSceneBeat(outcome.record);
+                const finalMessage = outcome.messages[outcome.messages.length - 1];
+                runPostBeat({
+                    character,
+                    conversationId: conv.id,
+                    finalContent: outcome.beatContent,
+                    targetId: finalMessage.id,
+                    history: beatHistory,
+                    isImpersonation: false,
+                    skipBeatAnalyses: false,
+                    beatContent: outcome.beatContent,
+                    speakerNames: outcome.speakerNames,
+                });
+                return;
+            }
+            case 'awaiting-profile': {
+                const notificationId = addNotification('Choix de personnage requis', 'world');
+                updateNotification(
+                    notificationId,
+                    'error',
+                    `Plusieurs profils correspondent à « ${outcome.ambiguity.name} ».`
+                );
+                return;
+            }
+            case 'failed': {
+                const notificationId = addNotification('Beat dirigé interrompu', 'world');
+                updateNotification(
+                    notificationId,
+                    'error',
+                    outcome.error instanceof Error ? outcome.error.message : 'Erreur inconnue'
+                );
+                return;
+            }
+            case 'cancelled':
+                return;
+        }
+    };
 
     /**
      * Scene Mode beat: one cheap Director call (background AI) decides narration, roster
@@ -626,14 +851,32 @@ export function useChatGeneration({
      * `beatPrefix` carries their lines forward. (Relations used to ignore that and fire per
      * speaker: N background calls, and N × NORMAL_DELTA_CAP of drift for a single beat.)
      */
-    const runSceneBeat = async (historyOverride?: CAMessage[]) => {
+    const runSceneBeat = async (
+        historyOverride?: CAMessage[],
+        retrySource?: SceneBeatRecord,
+        preferStoredRoster = false
+    ) => {
         if (!activeConversationId || !character) return;
         const conv = useChatStore
             .getState()
             .conversations.find((c) => c.id === activeConversationId);
-        if (!conv?.sceneMode) return;
+        if (!conv?.sceneMode) {
+            const { addNotification, updateNotification } = useNotificationStore.getState();
+            const id = addNotification('Mode Troupe requis', 'world');
+            updateNotification(
+                id,
+                'error',
+                'Réactivez le mode Troupe pour régénérer ou reprendre ce beat.'
+            );
+            return;
+        }
         const roster = (conv.sceneRoster ?? []).filter(Boolean);
-        if (roster.length === 0) return;
+        if (roster.length === 0) {
+            const { addNotification, updateNotification } = useNotificationStore.getState();
+            const id = addNotification('Scène sans participant', 'world');
+            updateNotification(id, 'error', 'Ajoutez au moins un personnage à la scène.');
+            return;
+        }
 
         stopRequestedRef.current = false;
         const beatHistory: CAMessage[] = [...(historyOverride ?? messages)];
@@ -642,6 +885,19 @@ export function useChatGeneration({
 
         setIsSceneRunning(true);
         try {
+            if (
+                conv.sceneStyle === 'composed-turns' &&
+                useSettingsStore.getState().enableDirectedSceneMode
+            ) {
+                await runDirectedSceneBeat(
+                    conv,
+                    beatHistory,
+                    userName,
+                    retrySource,
+                    preferStoredRoster
+                );
+                return;
+            }
             // 1. Director decision (never on the paid RP model).
             const decision = await directorDecide({
                 roster,
@@ -717,7 +973,8 @@ export function useChatGeneration({
                     sceneDirection: speakers[i].direction,
                     sceneGoal: i === 0 ? decision.sceneGoal : undefined,
                     skipBeatAnalyses: !isFinalTurn,
-                    beatPrefix: isFinalTurn && beatLines.length > 0 ? beatLines.join('\n') : undefined,
+                    beatPrefix:
+                        isFinalTurn && beatLines.length > 0 ? beatLines.join('\n') : undefined,
                     beatSpeakers: isFinalTurn ? speakers.map((s) => s.name) : undefined,
                     retrievalCacheKey: beatRetrievalKey,
                 });
@@ -863,7 +1120,7 @@ export function useChatGeneration({
             const { messagesPayload } = await buildConversationPayload({
                 mode: 'impersonate',
                 character,
-                        activeEntries,
+                activeEntries,
                 history: messages,
                 recentMessages: messages,
                 activePreset,
@@ -943,23 +1200,30 @@ export function useChatGeneration({
 
         const msgToRegen = messages[msgIndex];
 
+        if (msgToRegen.sceneBeatId) {
+            const firstBeatIndex = messages.findIndex(
+                (message) => message.sceneBeatId === msgToRegen.sceneBeatId
+            );
+            if (firstBeatIndex > 0) {
+                await runSceneBeat(messages.slice(0, firstBeatIndex), undefined, true);
+            }
+            return;
+        }
+
         // Only assistant messages can be regenerated — this creates a sibling. A Scene
         // Mode turn keeps its speaker: same attribution, same voice contract, and the
         // history keeps its 'Name:' prefixes so the model knows who said what.
         if (msgToRegen.role === 'assistant') {
             const history = messages.slice(0, msgIndex);
-            await triggerAiReponse(
-                msgToRegen.speaker ? withSpeakerPrefixes(history) : history,
-                {
-                    // Relationships ARE re-scored on a reroll: the discarded version's deltas
-                    // are rolled back first (see supersedesMessageId), so the beat counts once.
-                    supersedesMessageId: id,
-                    speaker: msgToRegen.speaker,
-                    // Unified beat: replay the SAME Director context — without it the scene
-                    // would collapse into an ordinary single-character reply.
-                    sceneEnsemble: msgToRegen.sceneEnsemble,
-                }
-            );
+            await triggerAiReponse(msgToRegen.speaker ? withSpeakerPrefixes(history) : history, {
+                // Relationships ARE re-scored on a reroll: the discarded version's deltas
+                // are rolled back first (see supersedesMessageId), so the beat counts once.
+                supersedesMessageId: id,
+                speaker: msgToRegen.speaker,
+                // Unified beat: replay the SAME Director context — without it the scene
+                // would collapse into an ordinary single-character reply.
+                sceneEnsemble: msgToRegen.sceneEnsemble,
+            });
         }
     };
 
@@ -974,6 +1238,13 @@ export function useChatGeneration({
         // Only continue assistant messages
         if (msgToContinue.role !== 'assistant') return;
 
+        // A composed bubble is one fragment of an atomic beat. Continuing it in place would
+        // break the scene contract; start a fresh directed beat after the complete group.
+        if (msgToContinue.sceneBeatId) {
+            await runSceneBeat(messages);
+            return;
+        }
+
         const supportsPrefill = activeProvider === 'anthropic' || activeProvider === 'openrouter';
         if (supportsPrefill) {
             // Prefill path: the trailing assistant message makes the model literally keep
@@ -981,17 +1252,14 @@ export function useChatGeneration({
             const prefill = msgToContinue.content + ' ';
             const history = messages.slice(0, msgIndex);
             deleteMessage(id);
-            await triggerAiReponse(
-                msgToContinue.speaker ? withSpeakerPrefixes(history) : history,
-                {
-                    prefill,
-                    // The continuation replaces the message, so its earlier deltas are rolled
-                    // back and the longer text is scored fresh.
-                    supersedesMessageId: id,
-                    speaker: msgToContinue.speaker,
-                    sceneEnsemble: msgToContinue.sceneEnsemble,
-                }
-            );
+            await triggerAiReponse(msgToContinue.speaker ? withSpeakerPrefixes(history) : history, {
+                prefill,
+                // The continuation replaces the message, so its earlier deltas are rolled
+                // back and the longer text is scored fresh.
+                supersedesMessageId: id,
+                speaker: msgToContinue.speaker,
+                sceneEnsemble: msgToContinue.sceneEnsemble,
+            });
         } else {
             // No prefill support (NanoGPT/OpenAI): keep the message in place and in the
             // history, instruct an explicit continuation, append it (overlap-deduped).
@@ -1018,25 +1286,34 @@ export function useChatGeneration({
         const msgToRetry = messages[msgIndex];
         const history = messages.slice(0, msgIndex);
         deleteMessage(id);
-        await triggerAiReponse(
-            msgToRetry.speaker ? withSpeakerPrefixes(history) : history,
-            {
-                supersedesMessageId: id,
-                speaker: msgToRetry.speaker,
-                sceneEnsemble: msgToRetry.sceneEnsemble,
-            }
+        await triggerAiReponse(msgToRetry.speaker ? withSpeakerPrefixes(history) : history, {
+            supersedesMessageId: id,
+            speaker: msgToRetry.speaker,
+            sceneEnsemble: msgToRetry.sceneEnsemble,
+        });
+    };
+
+    const retrySceneBeat = async () => {
+        if (!lastSceneBeat || !activeConversationId) return;
+        const triggerIndex = messages.findIndex(
+            (message) => message.id === lastSceneBeat.triggerMessageId
         );
+        if (triggerIndex === -1) return;
+        await runSceneBeat(messages.slice(0, triggerIndex + 1), lastSceneBeat, true);
     };
 
     return {
         isLoading,
         isSceneRunning,
+        sceneProgress,
+        lastSceneBeat,
         send,
         stop,
         regenerate,
         continueMessage,
         impersonate,
         retry,
+        retrySceneBeat,
         runSceneBeat,
     };
 }

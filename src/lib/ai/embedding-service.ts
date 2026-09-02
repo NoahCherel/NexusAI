@@ -152,7 +152,10 @@ export function isCurrentSpace(embeddingRevision: string | undefined): boolean {
 /**
  * Batch embed multiple texts efficiently.
  */
-export async function embedTexts(texts: string[], kind: EmbedKind = 'passage'): Promise<number[][]> {
+export async function embedTexts(
+    texts: string[],
+    kind: EmbedKind = 'passage'
+): Promise<number[][]> {
     // Process sequentially to avoid OOM
     const results: number[][] = [];
     for (const text of texts) {

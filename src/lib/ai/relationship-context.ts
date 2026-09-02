@@ -24,7 +24,19 @@ export function seedAxesFromNature(nature: string): Partial<RelationshipAxes> {
     const n = nature.toLowerCase();
     const has = (...words: string[]) => words.some((w) => n.includes(w));
 
-    if (has('sister', 'brother', 'sibling', 'family', 'son', 'daughter', 'father', 'mother', 'parent')) {
+    if (
+        has(
+            'sister',
+            'brother',
+            'sibling',
+            'family',
+            'son',
+            'daughter',
+            'father',
+            'mother',
+            'parent'
+        )
+    ) {
         return { trust: 55, affection: 65, respect: 30 };
     }
     if (has('love', 'lover', 'romantic', 'spouse', 'wife', 'husband', 'crush', 'beloved')) {
@@ -117,7 +129,10 @@ export function formatRelationshipBlock(
     userName: string
 ): string {
     if (!relationships || relationships.length === 0) return '';
-    const activeSet = new Set([USER_REL_KEY.toLowerCase(), ...activeNames.map((n) => n.toLowerCase())]);
+    const activeSet = new Set([
+        USER_REL_KEY.toLowerCase(),
+        ...activeNames.map((n) => n.toLowerCase()),
+    ]);
 
     const isUnsetUserOrigin = (r: DirectedRelationship) =>
         r.from === USER_REL_KEY &&

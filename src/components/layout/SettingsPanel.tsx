@@ -120,8 +120,12 @@ export function SettingsPanel({ open, onOpenChange }: SettingsPanelProps) {
         setShowUsageBadge,
         enableTroupeMode,
         setEnableTroupeMode,
+        enableDirectedSceneMode,
+        setEnableDirectedSceneMode,
         maxSceneSpeakers,
         setMaxSceneSpeakers,
+        sceneReflectionConcurrency,
+        setSceneReflectionConcurrency,
         weeklyBudgetUsd,
         setWeeklyBudgetUsd,
         weeklySpend,
@@ -377,10 +381,10 @@ export function SettingsPanel({ open, onOpenChange }: SettingsPanelProps) {
                                         Budget hebdomadaire OpenRouter
                                     </p>
                                     <p className="text-xs text-muted-foreground">
-                                        Cumule les coûts réellement facturés par OpenRouter
-                                        (remis à zéro chaque lundi). Le badge de la barre
-                                        d&apos;outils affiche le restant et l&apos;équivalent en
-                                        tokens au prix du modèle actif. Vide = désactivé.
+                                        Cumule les coûts réellement facturés par OpenRouter (remis à
+                                        zéro chaque lundi). Le badge de la barre d&apos;outils
+                                        affiche le restant et l&apos;équivalent en tokens au prix du
+                                        modèle actif. Vide = désactivé.
                                     </p>
                                     <div className="flex items-center gap-2">
                                         <Input
@@ -443,7 +447,7 @@ export function SettingsPanel({ open, onOpenChange }: SettingsPanelProps) {
                                         </Button>
                                     </div>
                                 </div>
-                                
+
                                 {/* OpenRouter Flex Tier Toggle */}
                                 {activeProvider === 'openrouter' && (
                                     <div className="space-y-4">
@@ -453,8 +457,8 @@ export function SettingsPanel({ open, onOpenChange }: SettingsPanelProps) {
                                                     Palier Flex OpenRouter
                                                 </p>
                                                 <p className="text-xs text-muted-foreground mt-1">
-                                                    Route les requêtes via le palier flexible
-                                                    (tarif réduit) d&apos;OpenRouter quand il est
+                                                    Route les requêtes via le palier flexible (tarif
+                                                    réduit) d&apos;OpenRouter quand il est
                                                     disponible pour les modèles supportés (ex.
                                                     Gemini 3.5 Flash)
                                                 </p>
@@ -548,16 +552,13 @@ export function SettingsPanel({ open, onOpenChange }: SettingsPanelProps) {
                                             <div>
                                                 <p className="text-sm">Mode Troupe (scènes)</p>
                                                 <p className="text-xs text-muted-foreground mt-0.5">
-                                                    Narrateur IA + une réponse par personnage en
-                                                    scène (le Réalisateur tourne sur le quota
-                                                    background, les répliques sur le modèle RP —
-                                                    jusqu&apos;à 3 par beat)
+                                                    Active les scènes multi-personnages. Tours
+                                                    classiques, Tours dirigés et Unifiée restent
+                                                    sélectionnables par conversation.
                                                 </p>
                                             </div>
                                             <Button
-                                                variant={
-                                                    enableTroupeMode ? 'default' : 'secondary'
-                                                }
+                                                variant={enableTroupeMode ? 'default' : 'secondary'}
                                                 size="sm"
                                                 onClick={() =>
                                                     setEnableTroupeMode(!enableTroupeMode)
@@ -569,32 +570,89 @@ export function SettingsPanel({ open, onOpenChange }: SettingsPanelProps) {
                                         </div>
 
                                         {enableTroupeMode && (
-                                            <div className="flex items-center justify-between p-3 border rounded-lg bg-card/50 ml-4">
-                                                <div>
-                                                    <p className="text-sm">
-                                                        Intervenants max par beat
-                                                    </p>
-                                                    <p className="text-xs text-muted-foreground mt-0.5">
-                                                        Le Réalisateur choisit qui répond, jusqu&apos;à
-                                                        cette limite (chaque réplique = une
-                                                        génération sur le modèle RP)
-                                                    </p>
+                                            <div className="space-y-2 ml-4">
+                                                <div className="flex items-center justify-between p-3 border rounded-lg bg-card/50">
+                                                    <div>
+                                                        <p className="text-sm">
+                                                            Tours dirigés (expérimental)
+                                                        </p>
+                                                        <p className="text-xs text-muted-foreground mt-0.5">
+                                                            Directeur, réflexions parallèles puis
+                                                            composition atomique en bulles séparées.
+                                                        </p>
+                                                    </div>
+                                                    <Button
+                                                        variant={
+                                                            enableDirectedSceneMode
+                                                                ? 'default'
+                                                                : 'secondary'
+                                                        }
+                                                        size="sm"
+                                                        onClick={() =>
+                                                            setEnableDirectedSceneMode(
+                                                                !enableDirectedSceneMode
+                                                            )
+                                                        }
+                                                        className="w-16"
+                                                    >
+                                                        {enableDirectedSceneMode ? 'On' : 'Off'}
+                                                    </Button>
                                                 </div>
-                                                <select
-                                                    value={maxSceneSpeakers}
-                                                    onChange={(e) =>
-                                                        setMaxSceneSpeakers(
-                                                            Number(e.target.value)
-                                                        )
-                                                    }
-                                                    className="h-8 rounded-md border border-input bg-background px-2 text-sm shrink-0"
-                                                >
-                                                    {[1, 2, 3, 4, 5, 6, 7, 8].map((n) => (
-                                                        <option key={n} value={n}>
-                                                            {n}
-                                                        </option>
-                                                    ))}
-                                                </select>
+                                                <div className="flex items-center justify-between p-3 border rounded-lg bg-card/50">
+                                                    <div>
+                                                        <p className="text-sm">
+                                                            Intervenants max par beat
+                                                        </p>
+                                                        <p className="text-xs text-muted-foreground mt-0.5">
+                                                            Le directeur peut en sélectionner moins
+                                                            selon la scène.
+                                                        </p>
+                                                    </div>
+                                                    <select
+                                                        value={maxSceneSpeakers}
+                                                        onChange={(e) =>
+                                                            setMaxSceneSpeakers(
+                                                                Number(e.target.value)
+                                                            )
+                                                        }
+                                                        className="h-8 rounded-md border border-input bg-background px-2 text-sm shrink-0"
+                                                    >
+                                                        {[1, 2, 3, 4, 5, 6, 7, 8].map((n) => (
+                                                            <option key={n} value={n}>
+                                                                {n}
+                                                            </option>
+                                                        ))}
+                                                    </select>
+                                                </div>
+                                                {enableDirectedSceneMode && (
+                                                    <div className="flex items-center justify-between p-3 border rounded-lg bg-card/50">
+                                                        <div>
+                                                            <p className="text-sm">
+                                                                Réflexions simultanées
+                                                            </p>
+                                                            <p className="text-xs text-muted-foreground mt-0.5">
+                                                                Quatre par défaut ; le planificateur
+                                                                respecte aussi les limites du
+                                                                fournisseur.
+                                                            </p>
+                                                        </div>
+                                                        <select
+                                                            value={sceneReflectionConcurrency}
+                                                            onChange={(e) =>
+                                                                setSceneReflectionConcurrency(
+                                                                    Number(e.target.value)
+                                                                )
+                                                            }
+                                                            className="h-8 rounded-md border border-input bg-background px-2 text-sm shrink-0"
+                                                        >
+                                                            {[1, 2, 3, 4, 5, 6, 7, 8].map((n) => (
+                                                                <option key={n} value={n}>
+                                                                    {n}
+                                                                </option>
+                                                            ))}
+                                                        </select>
+                                                    </div>
+                                                )}
                                             </div>
                                         )}
 

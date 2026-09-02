@@ -6,12 +6,7 @@
  * de-facto reference for these platforms.
  */
 
-export type ImportPlatform =
-    | 'jannyai'
-    | 'chub'
-    | 'pygmalion'
-    | 'risuai'
-    | 'aicharactercards';
+export type ImportPlatform = 'jannyai' | 'chub' | 'pygmalion' | 'risuai' | 'aicharactercards';
 
 export interface DetectedImport {
     platform: ImportPlatform;
@@ -71,7 +66,11 @@ export function detectImportUrl(rawUrl: string): DetectedImport | null {
         if (segments.length >= 2) {
             const author = segments[segments.length - 2];
             const card = segments[segments.length - 1];
-            return { platform: 'aicharactercards', id: `${author}/${card}`, label: 'AICharacterCards' };
+            return {
+                platform: 'aicharactercards',
+                id: `${author}/${card}`,
+                label: 'AICharacterCards',
+            };
         }
         return null;
     }

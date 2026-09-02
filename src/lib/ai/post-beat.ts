@@ -20,6 +20,7 @@ import { resolveWork, nameMatchesText } from '@/lib/ai/canon-context';
 import { fetchCharacterDossier } from '@/lib/ai/canon-retrieval';
 import { detectStall, buildMomentumNudge } from '@/lib/ai/momentum';
 import { analyzeAndUpdateRelationships } from '@/lib/ai/relationship-analyst';
+import { maintainNarrativeAfterBeat } from '@/lib/ai/narrative-maintenance';
 
 export interface PostBeatParams {
     character: CharacterCard;
@@ -76,6 +77,7 @@ export function runPostBeatAnalyses(params: PostBeatParams): void {
     } = params;
 
     const settings = useSettingsStore.getState();
+    let stalled = false;
 
     // ===== Canon: capture the GM's trailing [timeline …] as the arc cursor (= canon cap),
     // then lazily fetch/refresh dossiers for roster members active this turn. =====
@@ -116,11 +118,9 @@ export function runPostBeatAnalyses(params: PostBeatParams): void {
     // nudge for the next turn. Local analysis, no API call. =====
     if (finalContent && !isImpersonation && (settings.enableMomentum ?? true)) {
         const prevAssistant = [...history].reverse().find((m) => m.role === 'assistant');
-        const { stalled } = detectStall(finalContent, prevAssistant?.content);
+        ({ stalled } = detectStall(finalContent, prevAssistant?.content));
         if (stalled) {
-            const conv = useChatStore
-                .getState()
-                .conversations.find((c) => c.id === conversationId);
+            const conv = useChatStore.getState().conversations.find((c) => c.id === conversationId);
             useChatStore
                 .getState()
                 .setMomentumNudge(conversationId, buildMomentumNudge(conv?.arc?.nextBeat));
@@ -140,5 +140,22 @@ export function runPostBeatAnalyses(params: PostBeatParams): void {
             speakerNames,
             supersededMessageId
         ).catch((e) => console.error('[Relationships] analysis failed', e));
+    }
+
+    // Directed beats get a branch/revision-guarded continuity audit and adaptive story plan.
+    // It is deliberately non-blocking: the committed bubbles are already visible and remain
+    // usable even when the background route is unavailable.
+    const targetMessage = useChatStore
+        .getState()
+        .messages.find((message) => message.id === targetId);
+    if (targetMessage?.sceneBeatId && !isImpersonation && !skipBeatAnalyses) {
+        maintainNarrativeAfterBeat({
+            character,
+            conversationId,
+            beatId: targetMessage.sceneBeatId,
+            targetMessageId: targetId,
+            beatContent: beatContent || finalContent,
+            stalled,
+        }).catch((error) => console.error('[Narrative maintenance] failed', error));
     }
 }

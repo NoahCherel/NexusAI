@@ -32,18 +32,22 @@ describe('nameMatchesText — whole-word only', () => {
     const lc = (s: string) => s.toLowerCase();
 
     it('does NOT match "Ino" inside "shinobi"', () => {
-        expect(nameMatchesText('Ino Yamanaka', lc('They trained as a shinobi all night.'))).toBe(false);
+        expect(nameMatchesText('Ino Yamanaka', lc('They trained as a shinobi all night.'))).toBe(
+            false
+        );
     });
     it('matches "Ino" as a standalone word', () => {
         expect(nameMatchesText('Ino Yamanaka', lc('Ino smiled at the gate.'))).toBe(true);
     });
     it('does NOT match the Raikage "A" against every stray "a"', () => {
-        expect(nameMatchesText('A (Fourth Raikage)', lc('A man walked across a field.'))).toBe(false);
+        expect(nameMatchesText('A (Fourth Raikage)', lc('A man walked across a field.'))).toBe(
+            false
+        );
     });
     it('matches the Raikage via the "Raikage" alias', () => {
-        expect(nameMatchesText('A (Fourth Raikage)', lc('The Raikage slammed his fist down.'))).toBe(
-            true
-        );
+        expect(
+            nameMatchesText('A (Fourth Raikage)', lc('The Raikage slammed his fist down.'))
+        ).toBe(true);
     });
     it('matches a normal single-word name with word boundaries', () => {
         expect(nameMatchesText('Naruto', lc('Then Naruto grinned.'))).toBe(true);

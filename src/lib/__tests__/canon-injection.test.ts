@@ -14,8 +14,6 @@ const card: CharacterCard = {
     mes_example: '',
 };
 
-
-
 const dossier: CanonDossier = {
     work: 'Bleach',
     character: 'Rukia Kuchiki',

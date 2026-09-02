@@ -1,10 +1,17 @@
 import { openDB, DBSchema, IDBPDatabase } from 'idb';
-import type { CharacterCard, Conversation, Message, LorebookEntry } from '@/types';
+import type {
+    CharacterCard,
+    Conversation,
+    Message,
+    LorebookEntry,
+    StoryState,
+    SceneBeatRecord,
+} from '@/types';
 import type { MemorySummary } from '@/types/rag';
 import type { CanonDossier, ArcOutline } from '@/types/canon';
 
 // Database version - increment when schema changes
-const DB_VERSION = 8;
+const DB_VERSION = 9;
 const DB_NAME = 'nexusai-db';
 
 // Lorebook history entry for blockchain-style tracking
@@ -61,6 +68,16 @@ interface NexusAIDB extends DBSchema {
     arcOutlines: {
         key: string; // `work` lowercased
         value: ArcOutline;
+    };
+    storyStates: {
+        key: string;
+        value: StoryState;
+        indexes: { 'by-conversation': string; 'by-anchor': string };
+    };
+    sceneBeats: {
+        key: string;
+        value: SceneBeatRecord;
+        indexes: { 'by-conversation': string; 'by-trigger': string };
     };
 }
 
@@ -232,6 +249,20 @@ export async function initDB(): Promise<IDBPDatabase<NexusAIDB>> {
             if (!db.objectStoreNames.contains('arcOutlines')) {
                 db.createObjectStore('arcOutlines');
             }
+
+            // Directed ensemble mode (v9). Both stores are additive: old conversations are
+            // lazily seeded from `sceneRoster` when the mode is first opened, so the upgrade
+            // never performs a risky full-database rewrite.
+            if (!db.objectStoreNames.contains('storyStates')) {
+                const stateStore = db.createObjectStore('storyStates', { keyPath: 'id' });
+                stateStore.createIndex('by-conversation', 'conversationId');
+                stateStore.createIndex('by-anchor', 'anchorMessageId');
+            }
+            if (!db.objectStoreNames.contains('sceneBeats')) {
+                const beatStore = db.createObjectStore('sceneBeats', { keyPath: 'id' });
+                beatStore.createIndex('by-conversation', 'conversationId');
+                beatStore.createIndex('by-trigger', 'triggerMessageId');
+            }
         },
     });
 
@@ -294,6 +325,22 @@ export async function deleteConversation(id: string): Promise<void> {
     await tx.done;
     // And its Chronicle — these used to survive their conversation forever.
     await deleteSummariesByConversation(id);
+    await deleteIndexedConversationRows('storyStates', id);
+    await deleteIndexedConversationRows('sceneBeats', id);
+}
+
+async function deleteIndexedConversationRows(
+    storeName: 'storyStates' | 'sceneBeats',
+    conversationId: string
+): Promise<void> {
+    const db = await initDB();
+    const tx = db.transaction(storeName, 'readwrite');
+    let cursor = await tx.store.index('by-conversation').openCursor(conversationId);
+    while (cursor) {
+        await cursor.delete();
+        cursor = await cursor.continue();
+    }
+    await tx.done;
 }
 
 // Message operations
@@ -310,6 +357,173 @@ export async function getConversationMessages(conversationId: string): Promise<M
 export async function deleteMessagedb(id: string): Promise<void> {
     const db = await initDB();
     await db.delete('messages', id);
+}
+
+// ============ Directed scene state / beat journal (v9) ============
+
+export async function saveStoryState(state: StoryState): Promise<void> {
+    const db = await initDB();
+    await db.put('storyStates', state);
+}
+
+export async function getStoryState(id: string): Promise<StoryState | undefined> {
+    const db = await initDB();
+    return db.get('storyStates', id);
+}
+
+export async function getStoryStatesByConversation(conversationId: string): Promise<StoryState[]> {
+    const db = await initDB();
+    return db.getAllFromIndex('storyStates', 'by-conversation', conversationId);
+}
+
+export async function saveSceneBeat(beat: SceneBeatRecord): Promise<void> {
+    const db = await initDB();
+    await db.put('sceneBeats', beat);
+}
+
+export async function getSceneBeat(id: string): Promise<SceneBeatRecord | undefined> {
+    const db = await initDB();
+    return db.get('sceneBeats', id);
+}
+
+export async function getSceneBeatsByConversation(
+    conversationId: string
+): Promise<SceneBeatRecord[]> {
+    const db = await initDB();
+    return db.getAllFromIndex('sceneBeats', 'by-conversation', conversationId);
+}
+
+/**
+ * Attach an immutable state revision to its anchor message. Observed user-authored facts use
+ * this before composition, so they survive a later reflection/composer failure without
+ * exposing any partial assistant output.
+ */
+export async function commitStoryStateRevision(
+    state: StoryState,
+    anchorMessageId: string
+): Promise<Message | undefined> {
+    const db = await initDB();
+    const tx = db.transaction(['storyStates', 'messages', 'conversations'], 'readwrite');
+    await tx.objectStore('storyStates').put({ ...state, anchorMessageId });
+    const message = await tx.objectStore('messages').get(anchorMessageId);
+    const updatedMessage = message ? { ...message, storyStateRevisionId: state.id } : undefined;
+    if (updatedMessage) await tx.objectStore('messages').put(updatedMessage);
+    const conversation = await tx.objectStore('conversations').get(state.conversationId);
+    if (conversation) {
+        const activeRoster = state.scene.participants
+            .filter((participant) => participant.presence !== 'offstage')
+            .map((participant) => participant.character.displayName);
+        await tx.objectStore('conversations').put({
+            ...conversation,
+            activeStoryStateRevisionId: state.id,
+            sceneRoster: activeRoster,
+        });
+    }
+    await tx.done;
+    return updatedMessage;
+}
+
+/** All-or-nothing visible beat commit: state, beat journal and transcript share one IDB tx. */
+export async function commitSceneBeat(params: {
+    beat: SceneBeatRecord;
+    storyState: StoryState;
+    messages: Message[];
+}): Promise<void> {
+    const db = await initDB();
+    const tx = db.transaction(
+        ['sceneBeats', 'storyStates', 'messages', 'conversations'],
+        'readwrite'
+    );
+    try {
+        const firstMessage = params.messages[0];
+        const existingMessages = await tx
+            .objectStore('messages')
+            .index('by-conversation')
+            .getAll(params.beat.conversationId);
+        const newIds = new Set(params.messages.map((message) => message.id));
+        const children = new Map<string, Message[]>();
+        for (const message of existingMessages) {
+            if (!message.parentId) continue;
+            const group = children.get(message.parentId) ?? [];
+            group.push(message);
+            children.set(message.parentId, group);
+        }
+        const deactivate = new Set<string>();
+        const queue = existingMessages
+            .filter(
+                (message) => message.parentId === firstMessage.parentId && !newIds.has(message.id)
+            )
+            .map((message) => message.id);
+        while (queue.length > 0) {
+            const id = queue.pop()!;
+            if (deactivate.has(id)) continue;
+            deactivate.add(id);
+            for (const child of children.get(id) ?? []) queue.push(child.id);
+        }
+        for (const message of existingMessages) {
+            if (deactivate.has(message.id) && message.isActiveBranch) {
+                await tx.objectStore('messages').put({ ...message, isActiveBranch: false });
+            }
+        }
+        await tx.objectStore('storyStates').put(params.storyState);
+        await tx.objectStore('sceneBeats').put(params.beat);
+        for (const message of params.messages) await tx.objectStore('messages').put(message);
+        const conversation = await tx.objectStore('conversations').get(params.beat.conversationId);
+        if (conversation) {
+            const activeRoster = params.storyState.scene.participants
+                .filter((p) => p.presence !== 'offstage')
+                .map((p) => p.character.displayName);
+            await tx.objectStore('conversations').put({
+                ...conversation,
+                activeStoryStateRevisionId: params.storyState.id,
+                sceneRoster: activeRoster,
+                updatedAt: new Date(),
+            });
+        }
+        await tx.done;
+    } catch (error) {
+        // Request errors normally abort IDB transactions automatically. Explicitly abort as
+        // well for synchronous structured-clone failures so earlier queued writes cannot commit.
+        try {
+            tx.abort();
+        } catch {
+            // Already committed/aborted by IndexedDB.
+        }
+        try {
+            await tx.done;
+        } catch {
+            // Preserve the original error below.
+        }
+        throw error;
+    }
+}
+
+/** A crashed/reloaded tab cannot resume promises; expose a truthful, retryable state. */
+export async function markRunningSceneBeatsInterrupted(conversationId?: string): Promise<void> {
+    const db = await initDB();
+    const beats = conversationId
+        ? await db.getAllFromIndex('sceneBeats', 'by-conversation', conversationId)
+        : await db.getAll('sceneBeats');
+    const running = new Set(['directing', 'reflecting', 'composing', 'validating']);
+    if (!beats.some((beat) => running.has(beat.status))) return;
+    const tx = db.transaction('sceneBeats', 'readwrite');
+    for (const beat of beats) {
+        if (!running.has(beat.status)) continue;
+        await tx.store.put({
+            ...beat,
+            status: 'interrupted',
+            errors: [
+                ...beat.errors,
+                {
+                    stage: 'commit',
+                    message: 'Génération interrompue par le rechargement.',
+                    retryable: true,
+                },
+            ],
+            updatedAt: Date.now(),
+        });
+    }
+    await tx.done;
 }
 
 // Lorebook history operations (append-only)
@@ -406,10 +620,7 @@ export async function getCanonDossiersByWork(work: string): Promise<CanonDossier
     );
     const tx = db.transaction('canon', 'readwrite');
     for (const d of recovered) {
-        await tx.store.put(
-            { ...d, work: key },
-            canonKey(d.work, d.character)
-        );
+        await tx.store.put({ ...d, work: key }, canonKey(d.work, d.character));
     }
     await tx.done;
     return recovered.map((d) => ({ ...d, work: key }));
@@ -436,6 +647,8 @@ export async function exportAllData(): Promise<{
     conversations: Conversation[];
     messages: Message[];
     lorebookHistory: LorebookHistoryEntry[];
+    storyStates: StoryState[];
+    sceneBeats: SceneBeatRecord[];
 }> {
     const db = await initDB();
     return {
@@ -443,5 +656,7 @@ export async function exportAllData(): Promise<{
         conversations: await db.getAll('conversations'),
         messages: await db.getAll('messages'),
         lorebookHistory: await db.getAll('lorebookHistory'),
+        storyStates: await db.getAll('storyStates'),
+        sceneBeats: await db.getAll('sceneBeats'),
     };
 }

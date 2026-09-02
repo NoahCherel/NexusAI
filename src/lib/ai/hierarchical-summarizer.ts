@@ -619,4 +619,3 @@ function renderChronicle(input: {
 
     return parts.join('\n\n');
 }
-

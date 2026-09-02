@@ -103,7 +103,9 @@ export function normalizeCharacterCard(
         first_mes: (card.first_mes as string) || (card.first_message as string) || '',
         mes_example: (card.mes_example as string) || (card.example_dialogue as string) || '',
         alternate_greetings: Array.isArray(card.alternate_greetings)
-            ? (card.alternate_greetings as string[]).filter((g) => typeof g === 'string' && g.trim())
+            ? (card.alternate_greetings as string[]).filter(
+                  (g) => typeof g === 'string' && g.trim()
+              )
             : undefined,
         system_prompt: (card.system_prompt as string) || '',
         post_history_instructions: (card.post_history_instructions as string) || undefined,

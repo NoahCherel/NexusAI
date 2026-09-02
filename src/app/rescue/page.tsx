@@ -84,7 +84,10 @@ export default function RescuePage() {
                             for (const s of stores) {
                                 counts[s] = await new Promise<number | string>((res) => {
                                     try {
-                                        const c = db.transaction(s, 'readonly').objectStore(s).count();
+                                        const c = db
+                                            .transaction(s, 'readonly')
+                                            .objectStore(s)
+                                            .count();
                                         c.onsuccess = () => res(c.result);
                                         c.onerror = () => res('unreadable');
                                     } catch {
@@ -193,7 +196,9 @@ export default function RescuePage() {
             }
             setPending({ dbName, fileName: file.name, counts, data, missingStores });
         } catch (e) {
-            setNote(`Lecture du fichier impossible : ${e instanceof Error ? e.message : String(e)}`);
+            setNote(
+                `Lecture du fichier impossible : ${e instanceof Error ? e.message : String(e)}`
+            );
         } finally {
             setBusy(false);
         }
@@ -262,16 +267,16 @@ export default function RescuePage() {
                 <h1 className="text-xl font-bold">Sauvegarde & restauration</h1>
                 <p className="text-sm text-muted-foreground">
                     Cette page ne supprime jamais rien. La restauration ajoute et met à jour par
-                    identifiant ; ce qui existe déjà et n&apos;est pas dans la sauvegarde reste
-                    en place.
+                    identifiant ; ce qui existe déjà et n&apos;est pas dans la sauvegarde reste en
+                    place.
                 </p>
                 <p className="text-xs font-mono text-muted-foreground break-all">
                     Origine : {origin || '…'}
                 </p>
                 <p className="text-xs text-amber-400">
                     L&apos;origine compte : les données d&apos;une adresse ne sont pas visibles
-                    depuis une autre. Ouvrez cette page à l&apos;adresse EXACTE que vous
-                    utilisiez d&apos;habitude.
+                    depuis une autre. Ouvrez cette page à l&apos;adresse EXACTE que vous utilisiez
+                    d&apos;habitude.
                 </p>
             </header>
 
@@ -352,7 +357,8 @@ export default function RescuePage() {
             ) : (
                 <div className="space-y-3">
                     {reports.map((r) => {
-                        const conv = typeof r.counts.conversations === 'number' ? r.counts.conversations : 0;
+                        const conv =
+                            typeof r.counts.conversations === 'number' ? r.counts.conversations : 0;
                         const msgs = typeof r.counts.messages === 'number' ? r.counts.messages : 0;
                         const hasData = conv > 0 || msgs > 0;
                         return (
@@ -381,7 +387,10 @@ export default function RescuePage() {
                                     <>
                                         <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
                                             {Object.entries(r.counts).map(([store, n]) => (
-                                                <div key={store} className="flex justify-between gap-2">
+                                                <div
+                                                    key={store}
+                                                    className="flex justify-between gap-2"
+                                                >
                                                     <span className="text-muted-foreground truncate">
                                                         {store}
                                                     </span>
@@ -392,8 +401,8 @@ export default function RescuePage() {
 
                                         {hasData ? (
                                             <p className="text-sm text-green-400">
-                                                Vos données sont là : {conv} conversation(s),{' '}
-                                                {msgs} message(s).
+                                                Vos données sont là : {conv} conversation(s), {msgs}{' '}
+                                                message(s).
                                             </p>
                                         ) : (
                                             <p className="text-sm text-muted-foreground">

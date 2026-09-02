@@ -15,7 +15,7 @@ import {
     DialogFooter,
 } from '@/components/ui/dialog';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { ChevronUp, Plus, Trash2, Edit2, Search, User, Check, X, ChevronLeft } from 'lucide-react';
+import { ChevronUp, Plus, Trash2, Search, User, Check, X, ChevronLeft } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useNotificationStore } from '@/components/ui/api-notification';
 
@@ -73,22 +73,25 @@ export function PersonaSelector() {
 
     // Keep the editor state in sync with the selected persona
     useEffect(() => {
-        if (selectedPersonaId) {
-            const persona = personas.find((p) => p.id === selectedPersonaId);
-            if (persona) {
-                setEditingPersona({
-                    id: persona.id,
-                    name: persona.name,
-                    displayName: persona.displayName || '',
-                    bio: persona.bio || '',
-                    avatar: persona.avatar || '',
-                });
+        const timer = window.setTimeout(() => {
+            if (selectedPersonaId) {
+                const persona = personas.find((p) => p.id === selectedPersonaId);
+                if (persona) {
+                    setEditingPersona({
+                        id: persona.id,
+                        name: persona.name,
+                        displayName: persona.displayName || '',
+                        bio: persona.bio || '',
+                        avatar: persona.avatar || '',
+                    });
+                } else {
+                    setEditingPersona(null);
+                }
             } else {
                 setEditingPersona(null);
             }
-        } else {
-            setEditingPersona(null);
-        }
+        }, 0);
+        return () => window.clearTimeout(timer);
     }, [selectedPersonaId, personas]);
 
     const handleCreateNew = () => {
@@ -162,7 +165,10 @@ export function PersonaSelector() {
             </Button>
 
             <Dialog open={open} onOpenChange={handleOpenChange}>
-                <DialogContent showCloseButton={false} className="max-w-4xl h-[80vh] p-0 flex flex-col overflow-hidden glass-heavy border-primary/20">
+                <DialogContent
+                    showCloseButton={false}
+                    className="max-w-4xl h-[80vh] p-0 flex flex-col overflow-hidden glass-heavy border-primary/20"
+                >
                     <DialogTitle className="sr-only">Sélecteur de persona</DialogTitle>
 
                     {/* Header */}
@@ -325,8 +331,9 @@ export function PersonaSelector() {
                                                     onClick={() => {
                                                         setActivePersonaId(currentPersona.id);
                                                         notify(
-                                                            `Persona actif : ${currentPersona.displayName ||
-                                                            currentPersona.name
+                                                            `Persona actif : ${
+                                                                currentPersona.displayName ||
+                                                                currentPersona.name
                                                             }`
                                                         );
                                                     }}
@@ -358,9 +365,9 @@ export function PersonaSelector() {
                                                         setEditingPersona((prev) =>
                                                             prev
                                                                 ? {
-                                                                    ...prev,
-                                                                    name: e.target.value,
-                                                                }
+                                                                      ...prev,
+                                                                      name: e.target.value,
+                                                                  }
                                                                 : null
                                                         )
                                                     }
@@ -368,7 +375,8 @@ export function PersonaSelector() {
                                                     placeholder="ex. : IA Système"
                                                 />
                                                 <p className="text-[10px] text-muted-foreground mt-1">
-                                                    Le nom que l&apos;IA comprend comme votre identité.
+                                                    Le nom que l&apos;IA comprend comme votre
+                                                    identité.
                                                 </p>
                                             </div>
                                             <div className="space-y-2">
@@ -382,9 +390,9 @@ export function PersonaSelector() {
                                                         setEditingPersona((prev) =>
                                                             prev
                                                                 ? {
-                                                                    ...prev,
-                                                                    displayName: e.target.value,
-                                                                }
+                                                                      ...prev,
+                                                                      displayName: e.target.value,
+                                                                  }
                                                                 : null
                                                         )
                                                     }
@@ -392,7 +400,8 @@ export function PersonaSelector() {
                                                     placeholder="ex. : Mode Assistant serviable"
                                                 />
                                                 <p className="text-[10px] text-muted-foreground mt-1">
-                                                    Affiché dans l&apos;interface, remplace le nom du personnage.
+                                                    Affiché dans l&apos;interface, remplace le nom
+                                                    du personnage.
                                                 </p>
                                             </div>
                                         </div>
@@ -408,9 +417,9 @@ export function PersonaSelector() {
                                                     setEditingPersona((prev) =>
                                                         prev
                                                             ? {
-                                                                ...prev,
-                                                                avatar: e.target.value,
-                                                            }
+                                                                  ...prev,
+                                                                  avatar: e.target.value,
+                                                              }
                                                             : null
                                                     )
                                                 }
@@ -458,7 +467,8 @@ export function PersonaSelector() {
                                         <div className="space-y-1">
                                             <h3 className="font-bold">Aucun persona sélectionné</h3>
                                             <p className="text-xs text-muted-foreground leading-relaxed">
-                                                Sélectionnez un persona dans la liste ou créez-en un nouveau.
+                                                Sélectionnez un persona dans la liste ou créez-en un
+                                                nouveau.
                                             </p>
                                         </div>
                                     </div>

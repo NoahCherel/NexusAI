@@ -54,7 +54,6 @@ interface UseBackgroundPipelineParams {
     messages: Message[];
     /** Gate: no background work without a usable foreground key (historical behaviour). */
     currentApiKey: string | null;
-
 }
 
 export function useBackgroundPipeline({

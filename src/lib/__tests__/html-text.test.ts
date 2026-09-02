@@ -24,9 +24,9 @@ describe('htmlToPlainText', () => {
     });
 
     it('decodes numeric and named entities (accents, apostrophes)', () => {
-        expect(htmlToPlainText('C&#39;est l&#x27;&eacute;t&eacute; &agrave; No&euml;l&hellip;')).toBe(
-            "C'est l'été à Noël…"
-        );
+        expect(
+            htmlToPlainText('C&#39;est l&#x27;&eacute;t&eacute; &agrave; No&euml;l&hellip;')
+        ).toBe("C'est l'été à Noël…");
         expect(htmlToPlainText('&laquo;&nbsp;Bonjour&nbsp;&raquo; &amp; bienvenue')).toBe(
             '« Bonjour » & bienvenue'
         );

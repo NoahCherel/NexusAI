@@ -12,7 +12,6 @@ import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
 import { Search, Plus, Users, Upload, ArrowUpDown, Clock, SortAsc } from 'lucide-react';
-import { exportToJson } from '@/lib/export-utils';
 import {
     DropdownMenu,
     DropdownMenuContent,
@@ -21,7 +20,6 @@ import {
     DropdownMenuSeparator,
     DropdownMenuLabel,
 } from '@/components/ui/dropdown-menu';
-import { useChatStore } from '@/stores/chat-store';
 import { useCharacterFolderDrag } from '@/hooks/useCharacterFolderDrag';
 import { getConversationsByCharacter } from '@/lib/db';
 import type { CharacterCard as CharacterCardType } from '@/types';
@@ -42,10 +40,9 @@ export function CharacterPanel({ trigger }: CharacterPanelProps) {
     const { DragOverlay, draggedCharacterId, isDragging, startCharacterDrag, targetFolder } =
         useCharacterFolderDrag();
 
-    const { getConversationMessages, conversations: allConversations } = useChatStore();
-
     // Cache of last activity timestamps per character (loaded from DB for all characters)
     const [lastActivityMap, setLastActivityMap] = useState<Record<string, number>>({});
+    const [relativeTimeNow, setRelativeTimeNow] = useState(0);
 
     const loadLastActivities = useCallback(async () => {
         const map: Record<string, number> = {};
@@ -67,9 +64,9 @@ export function CharacterPanel({ trigger }: CharacterPanelProps) {
     }, [characters]);
 
     useEffect(() => {
-        if (isOpen) {
-            loadLastActivities();
-        }
+        if (!isOpen) return;
+        const timer = window.setTimeout(() => void loadLastActivities(), 0);
+        return () => window.clearTimeout(timer);
     }, [isOpen, loadLastActivities]);
 
     // Helper to get last activity time for a character
@@ -81,8 +78,7 @@ export function CharacterPanel({ trigger }: CharacterPanelProps) {
     const formatLastPlayed = (characterId: string): string | null => {
         const ts = getLastActivity(characterId);
         if (!ts) return null;
-        const now = Date.now();
-        const diff = now - ts;
+        const diff = relativeTimeNow - ts;
         const minutes = Math.floor(diff / 60000);
         const hours = Math.floor(diff / 3600000);
         const days = Math.floor(diff / 86400000);
@@ -130,6 +126,10 @@ export function CharacterPanel({ trigger }: CharacterPanelProps) {
         await exportConversationForCharacter(character);
     };
 
+    const handleExportBackstage = async (character: CharacterCardType) => {
+        await exportConversationForCharacter(character, { includeBackstage: true });
+    };
+
     const defaultTrigger = (
         <Button variant="ghost" size="icon" className="h-9 w-9">
             <Users className="w-5 h-5" />
@@ -138,7 +138,13 @@ export function CharacterPanel({ trigger }: CharacterPanelProps) {
 
     return (
         <>
-            <Sheet open={isOpen} onOpenChange={setIsOpen}>
+            <Sheet
+                open={isOpen}
+                onOpenChange={(open) => {
+                    setIsOpen(open);
+                    if (open) setRelativeTimeNow(Date.now());
+                }}
+            >
                 <SheetTrigger asChild>{trigger || defaultTrigger}</SheetTrigger>
                 <SheetContent
                     side="left"
@@ -238,6 +244,7 @@ export function CharacterPanel({ trigger }: CharacterPanelProps) {
                                                 onEdit={handleEdit}
                                                 onDelete={removeCharacter}
                                                 onExport={handleExport}
+                                                onExportBackstage={handleExportBackstage}
                                                 onCharacterDragStart={startCharacterDrag}
                                                 draggedCharacterId={draggedCharacterId}
                                                 isDropTargetActive={isDragging}
@@ -254,6 +261,9 @@ export function CharacterPanel({ trigger }: CharacterPanelProps) {
                                                 onEdit={() => handleEdit(group.character)}
                                                 onDelete={() => removeCharacter(group.character.id)}
                                                 onExport={() => handleExport(group.character)}
+                                                onExportBackstage={() =>
+                                                    handleExportBackstage(group.character)
+                                                }
                                                 onDragHandlePointerDown={startCharacterDrag}
                                                 isDragging={
                                                     draggedCharacterId === group.character.id

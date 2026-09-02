@@ -13,7 +13,8 @@ const card: CharacterCard = {
     personality: 'gruff but fair',
     scenario: 'a dusty trade road',
     first_mes: '',
-    mes_example: '<START>\n{{user}}: Any trouble on the road?\nMara: EXAMPLE_MARKER "Trouble finds us, not the other way round."',
+    mes_example:
+        '<START>\n{{user}}: Any trouble on the road?\nMara: EXAMPLE_MARKER "Trouble finds us, not the other way round."',
 };
 
 function userMsg(content: string, id = 'm1'): Message {

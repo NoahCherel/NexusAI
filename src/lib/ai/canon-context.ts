@@ -208,8 +208,7 @@ export async function buildCanonOptions(
             getActiveCanonNames(card, conversation, recentMessages, SCAN_DEPTH)
         );
         return {
-            relationshipBlock:
-                formatRelationshipBlock(rels, onStage, userName) || undefined,
+            relationshipBlock: formatRelationshipBlock(rels, onStage, userName) || undefined,
             momentumNudge: conversation?.momentumNudge,
         };
     };
@@ -226,7 +225,14 @@ export async function buildCanonOptions(
     // Sticky cast: mentioned-now names refresh their timestamp; names mentioned within the
     // window stay on stage even if they dropped out of the last SCAN_DEPTH messages.
     const historyLength = recentMessages.length;
-    const mentionedNow = getActiveCanonNames(card, conversation, recentMessages, SCAN_DEPTH);
+    // An explicit SceneBar roster is stronger evidence than textual mention: a character
+    // manually put on stage needs their dossier even if the latest line never says their name.
+    const mentionedNow = Array.from(
+        new Set([
+            ...getActiveCanonNames(card, conversation, recentMessages, SCAN_DEPTH),
+            ...(conversation?.sceneMode ? (conversation.sceneRoster ?? []) : []),
+        ])
+    );
     const sticky: Record<string, number> = {};
     for (const [name, lastSeen] of Object.entries(conversation?.stickyCast || {})) {
         if (historyLength - lastSeen <= STICKY_WINDOW) sticky[name] = lastSeen;
@@ -287,9 +293,7 @@ export async function buildCanonOptions(
     // Synthesize a default-enabled arc when the conversation has none, so the Director block
     // appears without the user having to toggle anything. The work falls back to the resolved
     // one so the prompt still names the franchise.
-    const arc = arcEnabled
-        ? conversation?.arc || { enabled: true, work }
-        : conversation?.arc;
+    const arc = arcEnabled ? conversation?.arc || { enabled: true, work } : conversation?.arc;
 
     // Relationships (Phase 2): inject the directional bonds among the characters on stage.
     // `activeNameList` itself is left alone — it also drives dossier injection, and widening

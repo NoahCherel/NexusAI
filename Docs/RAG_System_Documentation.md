@@ -35,7 +35,7 @@ A roleplay conversation outgrows any context window. Two mechanisms keep it cohe
 
 - **The history window** — the most recent messages, verbatim. Truth, but finite.
 - **The Chronicle** — a hierarchical summary of everything that fell out of that window.
-  Compressed, and the *only* thing that remembers it.
+  Compressed, and the _only_ thing that remembers it.
 
 Both compete for the same budget, so the arbitration between them is the heart of this
 document. The design constraint throughout is **prompt caching**: providers only cache a
@@ -45,15 +45,15 @@ how that tension is resolved and where the dial sits.
 
 **Key files**
 
-| Concern | File |
-|---|---|
-| Prompt assembly (single entry point) | `src/lib/ai/payload-builder.ts` |
-| Zones, history window, dynamic block | `src/lib/ai/context-builder.ts` |
+| Concern                               | File                                    |
+| ------------------------------------- | --------------------------------------- |
+| Prompt assembly (single entry point)  | `src/lib/ai/payload-builder.ts`         |
+| Zones, history window, dynamic block  | `src/lib/ai/context-builder.ts`         |
 | Chronicle: levels, prompts, rendering | `src/lib/ai/hierarchical-summarizer.ts` |
-| Budget fitting helper | `src/lib/ai/rag-budget.ts` |
-| Background summarization | `src/hooks/useBackgroundPipeline.ts` |
-| Lorebook + context preview | `src/lib/ai/rag-service.ts` |
-| Storage | `src/lib/db.ts` |
+| Budget fitting helper                 | `src/lib/ai/rag-budget.ts`              |
+| Background summarization              | `src/hooks/useBackgroundPipeline.ts`    |
+| Lorebook + context preview            | `src/lib/ai/rag-service.ts`             |
+| Storage                               | `src/lib/db.ts`                         |
 
 ---
 
@@ -91,11 +91,11 @@ Priority of truth: CANON > IN THIS RP > Chronique > Lorebook. On conflict, the h
 
 Three levels, each compressing the one below.
 
-| Level | Name (UI) | Covers | Built from | Threshold |
-|---|---|---|---|---|
-| 0 | Fragment (L0) | ~10 messages (6–15, adaptive) | raw messages | `shouldCreateL0Summary` |
-| 1 | Section (L1) | 5 Fragments ≈ 50 messages | its L0s | `L1_THRESHOLD = 5` |
-| 2 | Arc (L2) | 3 Sections ≈ 150 messages | its L1s | `L2_THRESHOLD = 3` |
+| Level | Name (UI)     | Covers                        | Built from   | Threshold               |
+| ----- | ------------- | ----------------------------- | ------------ | ----------------------- |
+| 0     | Fragment (L0) | ~10 messages (6–15, adaptive) | raw messages | `shouldCreateL0Summary` |
+| 1     | Section (L1)  | 5 Fragments ≈ 50 messages     | its L0s      | `L1_THRESHOLD = 5`      |
+| 2     | Arc (L2)      | 3 Sections ≈ 150 messages     | its L1s      | `L2_THRESHOLD = 3`      |
 
 ### Storage shape
 
@@ -106,11 +106,11 @@ interface MemorySummary {
     level: 0 | 1 | 2;
     messageRange: [number, number]; // 0-based, END EXCLUSIVE: [0,50] is the first 50
     content: string;
-    keyFacts: string[];             // shown in the panel, never injected
-    childIds: string[];             // L1 → its L0s, L2 → its L1s. No upward link.
+    keyFacts: string[]; // shown in the panel, never injected
+    childIds: string[]; // L1 → its L0s, L2 → its L1s. No upward link.
     createdAt: number;
-    branchPath?: string[];          // branch lineage at creation time
-    isManuallyEdited?: boolean;     // hand-rewritten in the memory panel
+    branchPath?: string[]; // branch lineage at creation time
+    isManuallyEdited?: boolean; // hand-rewritten in the memory panel
     editedAt?: number;
 }
 ```
@@ -139,8 +139,8 @@ Fragments per run instead of one, and `buildChronicle` reports the gap as
 ### Prompts
 
 `SUMMARIZATION_PROMPT_L1` / `_L2` ask for real substance — 150–250 words for a Section,
-250–350 for an Arc — and say why: *once the raw messages scroll out of the context window,
-this text is all that remains of them*. They used to be capped at "Max 2-3 sentences", which
+250–350 for an Arc — and say why: _once the raw messages scroll out of the context window,
+this text is all that remains of them_. They used to be capped at "Max 2-3 sentences", which
 is what made long roleplays feel amnesiac: 50 messages compressed into two lines.
 
 All three levels carry `Write in the SAME LANGUAGE as the source material`. Without it a
@@ -235,33 +235,33 @@ momentum nudge injected once cost history permanently. Measured fill on a 16k pr
 ### The fix: two budgets
 
 ```ts
-const room             = maxContextTokens - systemTokens - maxOutputTokens;
+const room = maxContextTokens - systemTokens - maxOutputTokens;
 const reserveForSizing = min(dynamicReserveTokens ?? postHistoryTokens, room * 0.45);
-const availableSized   = room - reserveForSizing;   // CHOOSES the window
-const availableActual  = room - postHistoryTokens;  // hard constraint: must fit
+const availableSized = room - reserveForSizing; // CHOOSES the window
+const availableActual = room - postHistoryTokens; // hard constraint: must fit
 ```
 
 `dynamicReserveTokens` is a **measured, smoothed** size of the dynamic zone, persisted on the
 conversation and updated as an exponential moving average (`RESERVE_ADAPT_RATE = 0.35`).
 
-Deliberately *not* a high-water mark: jumping straight to a spike's size would let one fat turn
+Deliberately _not_ a high-water mark: jumping straight to a spike's size would let one fat turn
 shrink the window for the ~30 turns it took to decay back — a slower version of the very
-ratchet this replaces. Deliberately *not* predicted either (summing granted budgets):
+ratchet this replaces. Deliberately _not_ predicted either (summing granted budgets):
 the dynamic zone almost never spends what it is allowed, so a predicted reserve over-reserves
 massively.
 
 ### Three cases
 
-| Case | Condition | Action | Anchor persisted |
-|---|---|---|---|
-| Structural overflow | `total > availableSized` | refit to `historyTarget` | **yes** |
-| Transient spike | fits `availableSized`, not `availableActual` | trim just enough for this request | **no** |
-| Fits | otherwise | unchanged, or expand if the trigger is crossed | yes if expanded |
+| Case                | Condition                                    | Action                                         | Anchor persisted |
+| ------------------- | -------------------------------------------- | ---------------------------------------------- | ---------------- |
+| Structural overflow | `total > availableSized`                     | refit to `historyTarget`                       | **yes**          |
+| Transient spike     | fits `availableSized`, not `availableActual` | trim just enough for this request              | **no**           |
+| Fits                | otherwise                                    | unchanged, or expand if the trigger is crossed | yes if expanded  |
 
 **The transient case is what kills the ratchet.** A one-off spike is absorbed without ever
 anchoring the window low; the next normal turn gets the full window back.
 
-**Expansion** reaches back into the past by a *block* when room opens up durably. It is what
+**Expansion** reaches back into the past by a _block_ when room opens up durably. It is what
 repairs conversations whose anchor was cut under the old rule — they carry no stored reserve,
 so the first turn after the upgrade sizes against a full budget and reclaims history in one
 step (one cache miss, once).
@@ -274,7 +274,7 @@ below it would re-expand on the very next turn and thrash the cache prefix forev
 ```ts
 const expandTrigger = Math.max(
     availableSized * EXPAND_TRIGGER_RATIO,
-    growthHeadroom + avgMsg * MIN_EXPAND_MESSAGES   // > growthHeadroom, always
+    growthHeadroom + avgMsg * MIN_EXPAND_MESSAGES // > growthHeadroom, always
 );
 ```
 
@@ -291,11 +291,11 @@ absorb ~600 tokens of growth. It is now `avgMsg × HEADROOM_MESSAGES`, clamped b
 
 120 simulated turns, 16k context, volatile dynamic zone (900–1700 tk, periodic 2200 tk spikes):
 
-| Profile | History fill (steady) | Worst turn | Prefix breaks / 120 turns |
-|---|---|---|---|
-| **Max fill** (`HEADROOM_MESSAGES: 4`) — current | **94.4%** | 88.9% | 42 (~1 per 2.9 turns) |
-| Cache-friendly (`HEADROOM_MESSAGES: 8`) | 90.7% | 80.9% | 24 (~1 per 5 turns) |
-| Before this change | ~69% | — | rare, but permanently degraded |
+| Profile                                         | History fill (steady) | Worst turn | Prefix breaks / 120 turns      |
+| ----------------------------------------------- | --------------------- | ---------- | ------------------------------ |
+| **Max fill** (`HEADROOM_MESSAGES: 4`) — current | **94.4%**             | 88.9%      | 42 (~1 per 2.9 turns)          |
+| Cache-friendly (`HEADROOM_MESSAGES: 8`)         | 90.7%                 | 80.9%      | 24 (~1 per 5 turns)            |
+| Before this change                              | ~69%                  | —          | rare, but permanently degraded |
 
 Total context engagement under the current profile: **95.4%** steady state, 89.9% worst turn.
 
@@ -338,11 +338,11 @@ is joined, because BPE merges across joins.
 
 Sizing figures, Sections ≈ 280 tk and Arcs ≈ 420 tk:
 
-| Context | `available` | Chronicle budget | Roughly |
-|---|---|---|---|
-| 8k | ~4100 | ~1240 | 2 Arcs + 1 Section |
-| 16k | ~12300 | ~3700 | 3 Arcs + 8 Sections |
-| 32k | ~28000 | ~8400 | full pyramid |
+| Context | `available` | Chronicle budget | Roughly             |
+| ------- | ----------- | ---------------- | ------------------- |
+| 8k      | ~4100       | ~1240            | 2 Arcs + 1 Section  |
+| 16k     | ~12300      | ~3700            | 3 Arcs + 8 Sections |
+| 32k     | ~28000      | ~8400            | full pyramid        |
 
 ---
 
@@ -350,16 +350,16 @@ Sizing figures, Sections ≈ 280 tk and Arcs ≈ 420 tk:
 
 Database `nexusai-db`, **version 8**.
 
-| Store | Key | Indexes |
-|---|---|---|
-| `characters` | `id` | `by-name` |
-| `conversations` | `id` | `by-character` |
-| `messages` | `id` | `by-conversation` |
-| `summaries` | `id` | `by-conversation`, `by-level` |
-| `lorebookHistory` | `id` | `by-character`, `by-timestamp` |
-| `settings` | `key` | — |
-| `canon` | `work::character` | `by-work` |
-| `arcOutlines` | `work` | — |
+| Store             | Key               | Indexes                        |
+| ----------------- | ----------------- | ------------------------------ |
+| `characters`      | `id`              | `by-name`                      |
+| `conversations`   | `id`              | `by-character`                 |
+| `messages`        | `id`              | `by-conversation`              |
+| `summaries`       | `id`              | `by-conversation`, `by-level`  |
+| `lorebookHistory` | `id`              | `by-character`, `by-timestamp` |
+| `settings`        | `key`             | —                              |
+| `canon`           | `work::character` | `by-work`                      |
+| `arcOutlines`     | `work`            | —                              |
 
 **v8 migration is destructive and intentional.** It calls `deleteObjectStore` on `facts` and
 `vectors`. Neither has a reader any more, and their embeddings (hundreds of floats per row)
@@ -376,7 +376,7 @@ Summary API: `saveSummary` (upsert — also the update path: read, patch, write 
 
 ## 8. Embeddings, tokenizer, lorebook
 
-**Embeddings** (`embedding-service.ts`) are still used, but *only* by the hybrid lorebook
+**Embeddings** (`embedding-service.ts`) are still used, but _only_ by the hybrid lorebook
 search, which embeds lorebook entries and the query. It never touched the message-vector
 store, so removing that store did not affect it. Summaries no longer carry an `embedding`
 field — it was computed and persisted on every summary and never once read.
@@ -399,12 +399,12 @@ preview needs this to know where those tokens are already counted.
 
 ## 9. Settings
 
-| Setting | Default | Effect |
-|---|---|---|
-| `enableHierarchicalSummaries` | `true` | **The whole long-term memory.** Off = the model is amnesiac about anything that leaves the window. |
-| `enableScratchpad` | `false` | Per-response `<scratchpad>`; costs output tokens and invalidates caching. |
-| `maxContextTokens` / `maxOutputTokens` | per preset (8192 / 2048 for *Balanced*) | The budget. |
-| `lorebookTokenBudget` | 2000 (generation) | Lorebook share of the dynamic zone. |
+| Setting                                | Default                                 | Effect                                                                                             |
+| -------------------------------------- | --------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| `enableHierarchicalSummaries`          | `true`                                  | **The whole long-term memory.** Off = the model is amnesiac about anything that leaves the window. |
+| `enableScratchpad`                     | `false`                                 | Per-response `<scratchpad>`; costs output tokens and invalidates caching.                          |
+| `maxContextTokens` / `maxOutputTokens` | per preset (8192 / 2048 for _Balanced_) | The budget.                                                                                        |
+| `lorebookTokenBudget`                  | 2000 (generation)                       | Lorebook share of the dynamic zone.                                                                |
 
 `enableRAGRetrieval` and `enableFactExtraction` were removed. The first was redundant — with
 no summaries the Chronicle is empty, and without injection it is useless, so two switches
@@ -451,7 +451,7 @@ Shows every section with its token cost, plus:
 Three separate double-counts inflated the total:
 
 - The canon section re-counted `[CANON — …]` blocks already inside the system prompt.
-- The Chronicle was counted as its own section *and* inside the post-history block containing
+- The Chronicle was counted as its own section _and_ inside the post-history block containing
   it.
 - History was counted on a display transcript decorated with localized role labels, while the
   payload builder counted raw content per message.
@@ -470,7 +470,7 @@ always lower than the panel claimed.
 `exportConversationForCharacter` bundles the card subset, the conversation (including
 `relationships` and `summaries`), and the messages.
 
-The Chronicle is exported because it *is* the long-term memory, it can be edited by hand, and
+The Chronicle is exported because it _is_ the long-term memory, it can be edited by hand, and
 rebuilding it costs dozens of background calls.
 
 On import, `remapSummariesForImport` mints a new id for every summary and rewrites `childIds`
@@ -499,9 +499,9 @@ L0 summaries were also written into a `vectors` store and retrieved by similarit
 
 ### The trade-off, honestly
 
-Facts and chunks gave *similarity-targeted* recall: a precise detail from 400 messages ago
-could resurface if the current message happened to match it. The Chronicle gives *narrative
-continuity*. Substantial Sections cover the second use well and the first adequately — but a
+Facts and chunks gave _similarity-targeted_ recall: a precise detail from 400 messages ago
+could resurface if the current message happened to match it. The Chronicle gives _narrative
+continuity_. Substantial Sections cover the second use well and the first adequately — but a
 minor detail the chronicler chose not to keep is gone for good.
 
 What was gained: memory that is predictable, fully readable, editable by hand, exportable, and
@@ -515,14 +515,14 @@ This is reversible — nothing about the Chronicle prevents reintroducing a vect
 
 `npx vitest run`
 
-| File | Covers |
-|---|---|
-| `prompt-cache.test.ts` | Zone layout, **the cache-prefix contract**, window refit/expand/spike/starvation |
-| `chronicle.test.ts` | Nesting, ranges, degradation, budget ceiling, branch filter, coverage gap |
-| `rag-budget.test.ts` | `fitRankedBlock`: tail-dropping, one-token overshoot, hard ceiling |
-| `conversation-transfer.test.ts` | `childIds` remapping, hand-edit flag, empty Chronicle |
-| `card-fields.test.ts` | Chronicle budget vs history starvation |
-| `post-beat-analyses.test.ts` | One relationship pass per beat (`skipBeatAnalyses`) |
+| File                            | Covers                                                                           |
+| ------------------------------- | -------------------------------------------------------------------------------- |
+| `prompt-cache.test.ts`          | Zone layout, **the cache-prefix contract**, window refit/expand/spike/starvation |
+| `chronicle.test.ts`             | Nesting, ranges, degradation, budget ceiling, branch filter, coverage gap        |
+| `rag-budget.test.ts`            | `fitRankedBlock`: tail-dropping, one-token overshoot, hard ceiling               |
+| `conversation-transfer.test.ts` | `childIds` remapping, hand-edit flag, empty Chronicle                            |
+| `card-fields.test.ts`           | Chronicle budget vs history starvation                                           |
+| `post-beat-analyses.test.ts`    | One relationship pass per beat (`skipBeatAnalyses`)                              |
 
 Two assertions matter more than the rest:
 
@@ -542,8 +542,8 @@ its target.
 
 ## 14. Tuning & troubleshooting
 
-**"The context still isn't full."** Open the context preview and read the *Fenêtre
-d'historique* panel: `Utilisé / budget` is the real fill. If the budget itself is small, the
+**"The context still isn't full."** Open the context preview and read the _Fenêtre
+d'historique_ panel: `Utilisé / budget` is the real fill. If the budget itself is small, the
 dynamic zone is eating it — check `réserve dynamique` against the 45% cap and reduce
 `lorebookTokenBudget`. If fill is low but free space is large, the panel says whether the
 window will widen next turn.
@@ -562,14 +562,14 @@ them).
 
 **Constants worth knowing**
 
-| Constant | Value | File |
-|---|---|---|
-| `RESERVE_MAX_RATIO` | 0.45 | `context-builder.ts` |
-| `RESERVE_ADAPT_RATE` | 0.35 | `context-builder.ts` |
-| `HEADROOM_MESSAGES` | 4 | `context-builder.ts` |
-| Chronicle budget share | 0.30 of `available` | `payload-builder.ts` |
-| `L1_THRESHOLD` / `L2_THRESHOLD` | 5 / 3 | `hierarchical-summarizer.ts` |
-| `CATCHUP_L0_PER_RUN` | 3 | `useBackgroundPipeline.ts` |
+| Constant                        | Value               | File                         |
+| ------------------------------- | ------------------- | ---------------------------- |
+| `RESERVE_MAX_RATIO`             | 0.45                | `context-builder.ts`         |
+| `RESERVE_ADAPT_RATE`            | 0.35                | `context-builder.ts`         |
+| `HEADROOM_MESSAGES`             | 4                   | `context-builder.ts`         |
+| Chronicle budget share          | 0.30 of `available` | `payload-builder.ts`         |
+| `L1_THRESHOLD` / `L2_THRESHOLD` | 5 / 3               | `hierarchical-summarizer.ts` |
+| `CATCHUP_L0_PER_RUN`            | 3                   | `useBackgroundPipeline.ts`   |
 
 ---
 

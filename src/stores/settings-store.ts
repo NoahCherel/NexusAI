@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { APIPreset } from '@/types/preset';
-import { DEFAULT_PRESETS, DEFAULT_SYSTEM_PROMPT_TEMPLATE } from '@/types/preset';
+import { DEFAULT_PRESETS } from '@/types/preset';
 import type { RPEngine } from '@/types/engine';
 import { IMMERSIVE_NEXUS_KEY, getEngineById } from '@/lib/ai/rp-engine';
 import type { Provider } from '@/lib/ai/providers';
@@ -201,8 +201,12 @@ interface SettingsState {
     // Scene Mode (Troupe): AI narrator + one reply per on-stage character. Global gate;
     // each conversation opts in via its own 🎬 toggle.
     enableTroupeMode: boolean;
+    // Feature gate for the new atomic, multi-agent scene pipeline.
+    enableDirectedSceneMode: boolean;
     // Max character turns per scene beat (the Director may pick fewer). 1..8.
     maxSceneSpeakers: number;
+    // Number of character-intent calls allowed to run at once. 1..8.
+    sceneReflectionConcurrency: number;
     // Directional relationship analyst (one background call per beat).
     enableRelationshipAnalyst: boolean;
     // Anti-stall detection + one-shot momentum nudge.
@@ -245,7 +249,9 @@ interface SettingsState {
     setWeeklyBudgetUsd: (usd: number | null) => void;
     addWeeklySpend: (cost: number) => void;
     setEnableTroupeMode: (enabled: boolean) => void;
+    setEnableDirectedSceneMode: (enabled: boolean) => void;
     setMaxSceneSpeakers: (max: number) => void;
+    setSceneReflectionConcurrency: (max: number) => void;
     setEnableRelationshipAnalyst: (enabled: boolean) => void;
     setEnableMomentum: (enabled: boolean) => void;
     setEnableHierarchicalSummaries: (enabled: boolean) => void;
@@ -297,7 +303,10 @@ export const useSettingsStore = create<SettingsState>()(
             weeklyBudgetUsd: null,
             weeklySpend: { weekStart: '', cost: 0 },
             enableTroupeMode: true,
+            // Experimental until the deterministic and human evaluation gates are complete.
+            enableDirectedSceneMode: false,
             maxSceneSpeakers: 5,
+            sceneReflectionConcurrency: 4,
             enableRelationshipAnalyst: true,
             enableMomentum: true,
             enableHierarchicalSummaries: true,
@@ -360,13 +369,21 @@ export const useSettingsStore = create<SettingsState>()(
             addWeeklySpend: (cost) =>
                 set((state) => {
                     const week = currentWeekStart();
-                    const prev =
-                        state.weeklySpend.weekStart === week ? state.weeklySpend.cost : 0;
+                    const prev = state.weeklySpend.weekStart === week ? state.weeklySpend.cost : 0;
                     return { weeklySpend: { weekStart: week, cost: prev + cost } };
                 }),
             setEnableTroupeMode: (enableTroupeMode) => set({ enableTroupeMode }),
+            setEnableDirectedSceneMode: (enableDirectedSceneMode) =>
+                set({ enableDirectedSceneMode }),
             setMaxSceneSpeakers: (maxSceneSpeakers) =>
                 set({ maxSceneSpeakers: Math.max(1, Math.min(8, Math.round(maxSceneSpeakers))) }),
+            setSceneReflectionConcurrency: (sceneReflectionConcurrency) =>
+                set({
+                    sceneReflectionConcurrency: Math.max(
+                        1,
+                        Math.min(8, Math.round(sceneReflectionConcurrency))
+                    ),
+                }),
             setEnableRelationshipAnalyst: (enableRelationshipAnalyst) =>
                 set({ enableRelationshipAnalyst }),
             setEnableMomentum: (enableMomentum) => set({ enableMomentum }),
@@ -387,7 +404,11 @@ export const useSettingsStore = create<SettingsState>()(
                         p.id === id
                             ? // Editing a built-in marks it userModified so the reconciler
                               // never silently overwrites the user's changes on a version bump.
-                              { ...p, ...updates, userModified: p.builtinKey ? true : p.userModified }
+                              {
+                                  ...p,
+                                  ...updates,
+                                  userModified: p.builtinKey ? true : p.userModified,
+                              }
                             : p
                     ),
                 })),

@@ -105,6 +105,8 @@ export interface BuildConversationPayloadParams {
         narrationHint?: string;
         userName?: string;
     };
+    /** Atomic directed mode: final structured composer contract placed after history. */
+    sceneComposition?: string;
     /**
      * Optional Chronicle retrieval (long-term memory). Invoked with a budget once the system
      * prompt size is known. Omit — as impersonation does — to skip memory entirely.
@@ -154,6 +156,47 @@ export interface BuildConversationPayloadResult {
     };
 }
 
+/**
+ * Separate UI bubbles from one atomic beat must look like one assistant turn to the next
+ * model. Otherwise consecutive assistant messages can be mistaken for independent answers.
+ */
+export function projectSceneBeatsForContext(history: Message[]): Message[] {
+    const projected: Message[] = [];
+    for (let index = 0; index < history.length; ) {
+        const first = history[index];
+        if (first.role !== 'assistant' || !first.sceneBeatId) {
+            projected.push(first);
+            index++;
+            continue;
+        }
+        const group: Message[] = [];
+        while (
+            index < history.length &&
+            history[index].role === 'assistant' &&
+            history[index].sceneBeatId === first.sceneBeatId
+        ) {
+            group.push(history[index++]);
+        }
+        projected.push({
+            ...first,
+            content: group
+                .map((message) => {
+                    const speaker = message.speaker?.name ?? 'Narrateur';
+                    const escaped = speaker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                    const content = message.content.replace(
+                        new RegExp(`^\\s*${escaped}\\s*:\\s*`, 'i'),
+                        ''
+                    );
+                    return `[${speaker}]\n${content}`;
+                })
+                .join('\n\n'),
+            // Keep the state snapshot carried by the final bubble on the projected beat.
+            storyStateRevisionId: group[group.length - 1].storyStateRevisionId,
+        });
+    }
+    return projected;
+}
+
 export async function buildConversationPayload(
     params: BuildConversationPayloadParams
 ): Promise<BuildConversationPayloadResult> {
@@ -174,6 +217,21 @@ export async function buildConversationPayload(
         maxOutputTokens,
         retrieveChronicle,
     } = params;
+    const projectedHistory = projectSceneBeatsForContext(history);
+    let projectedCutMessageId = params.historyCutMessageId;
+    if (
+        projectedCutMessageId &&
+        !projectedHistory.some((message) => message.id === projectedCutMessageId)
+    ) {
+        const sourceBeatId = history.find(
+            (message) => message.id === projectedCutMessageId
+        )?.sceneBeatId;
+        if (sourceBeatId) {
+            projectedCutMessageId = projectedHistory.find(
+                (message) => message.sceneBeatId === sourceBeatId
+            )?.id;
+        }
+    }
 
     const recentMessages = params.recentMessages ?? history;
     const isImpersonation = mode === 'impersonate';
@@ -372,6 +430,7 @@ export async function buildConversationPayload(
               ']',
           ].join('')
         : undefined;
+    const sceneCompositionBlock = params.sceneComposition;
     // Card-level post-history (V2 `post_history_instructions`) — imported cards ship their
     // own "jailbreak"/behavioural closer. `{{original}}` splices the preset's post-history
     // in; otherwise the card's block follows the preset's. Never for impersonation (the
@@ -386,8 +445,7 @@ export async function buildConversationPayload(
     const presetPostHistory = activePreset?.postHistoryInstructions;
     const mergedPostHistory = cardSplicesOriginal
         ? resolvedCardPostHistory.replace(/\{\{original\}\}/gi, presetPostHistory || '')
-        : [presetPostHistory, resolvedCardPostHistory].filter(Boolean).join('\n\n') ||
-          undefined;
+        : [presetPostHistory, resolvedCardPostHistory].filter(Boolean).join('\n\n') || undefined;
 
     const effectivePostHistory =
         (isImpersonation
@@ -399,6 +457,7 @@ export async function buildConversationPayload(
                   sceneSpeakerBlock,
                   sceneNarratorBlock,
                   sceneEnsembleBlock,
+                  sceneCompositionBlock,
                   continueBlock,
               ]
         )
@@ -414,7 +473,7 @@ export async function buildConversationPayload(
         nextDynamicReserve,
         historyWindow,
         tokenBreakdown,
-    } = buildRAGEnhancedPayload(systemPrompt, ragSections, history, {
+    } = buildRAGEnhancedPayload(systemPrompt, ragSections, projectedHistory, {
         maxContextTokens,
         maxOutputTokens,
         postHistoryInstructions: effectivePostHistory,
@@ -423,7 +482,7 @@ export async function buildConversationPayload(
         postHistoryRole: isImpersonation ? 'user' : 'system',
         assistantPrefill,
         activeProvider,
-        historyCutMessageId: params.historyCutMessageId,
+        historyCutMessageId: projectedCutMessageId,
         dynamicReserveTokens: params.dynamicReserveTokens,
     });
 

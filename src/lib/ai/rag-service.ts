@@ -118,7 +118,14 @@ export async function hybridLorebookSearch(
         extraScanText?: string;
     } = {}
 ): Promise<LorebookEntry[]> {
-    const { scanDepth = 4, tokenBudget = 500, matchWholeWords = false, characterName, userPersonaName, extraScanText } = config;
+    const {
+        scanDepth = 4,
+        tokenBudget = 500,
+        matchWholeWords = false,
+        characterName,
+        userPersonaName,
+        extraScanText,
+    } = config;
 
     if (!entries || entries.length === 0) return [];
 
@@ -183,15 +190,23 @@ export async function hybridLorebookSearch(
     scored.sort((a, b) => {
         // User Persona entry always first
         if (userPersonaName) {
-            const aIsUser = a.entry.keys.some(k => k.toLowerCase() === userPersonaName.toLowerCase());
-            const bIsUser = b.entry.keys.some(k => k.toLowerCase() === userPersonaName.toLowerCase());
+            const aIsUser = a.entry.keys.some(
+                (k) => k.toLowerCase() === userPersonaName.toLowerCase()
+            );
+            const bIsUser = b.entry.keys.some(
+                (k) => k.toLowerCase() === userPersonaName.toLowerCase()
+            );
             if (aIsUser && !bIsUser) return -1;
             if (!aIsUser && bIsUser) return 1;
         }
         // Character entry second
         if (characterName) {
-            const aIsChar = a.entry.keys.some(k => k.toLowerCase() === characterName.toLowerCase());
-            const bIsChar = b.entry.keys.some(k => k.toLowerCase() === characterName.toLowerCase());
+            const aIsChar = a.entry.keys.some(
+                (k) => k.toLowerCase() === characterName.toLowerCase()
+            );
+            const bIsChar = b.entry.keys.some(
+                (k) => k.toLowerCase() === characterName.toLowerCase()
+            );
             if (aIsChar && !bIsChar) return -1;
             if (!aIsChar && bIsChar) return 1;
         }
@@ -207,9 +222,13 @@ export async function hybridLorebookSearch(
 
     for (const { entry, score } of scored) {
         // Always include User Persona and AI Character if they exist
-        const isUser = userPersonaName && entry.keys.some(k => k.toLowerCase() === userPersonaName.toLowerCase());
-        const isChar = characterName && entry.keys.some(k => k.toLowerCase() === characterName.toLowerCase());
-        
+        const isUser =
+            userPersonaName &&
+            entry.keys.some((k) => k.toLowerCase() === userPersonaName.toLowerCase());
+        const isChar =
+            characterName &&
+            entry.keys.some((k) => k.toLowerCase() === characterName.toLowerCase());
+
         // Skip low semantic scores (unless keyword matched — score > 1.0 means keyword
         // match, or it's a core character). The "strong semantic" bar depends on the
         // embedding space: e5 similarities are compressed high (~0.8 = strong), the
@@ -471,7 +490,11 @@ export async function buildContextPreview(input: ContextPreviewInput): Promise<{
         );
     }
 
-    if (tb && tb.historyBudget > 0 && tb.dynamicReserve >= (tb.historyBudget + tb.dynamicReserve) * 0.45) {
+    if (
+        tb &&
+        tb.historyBudget > 0 &&
+        tb.dynamicReserve >= (tb.historyBudget + tb.dynamicReserve) * 0.45
+    ) {
         warnings.push(
             `⚠️ La zone dynamique (chronique, lorebook, canon) sature sa réserve — réduisez le budget lorebook pour rendre de la place à l'historique.`
         );
@@ -484,4 +507,3 @@ export async function buildContextPreview(input: ContextPreviewInput): Promise<{
         warnings,
     };
 }
-

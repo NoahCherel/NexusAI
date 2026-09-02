@@ -154,7 +154,9 @@ export function CharacterEditor({ isOpen, onClose, character }: CharacterEditorP
             // Auto pre-fill the canon cast roster when the Work is set/changed (one cheap web call).
             if (workNow && workChanged) {
                 populateCanonRoster(savedCard)
-                    .then((n) => console.log(`[Canon] Roster pre-filled: ${n} characters for ${workNow}`))
+                    .then((n) =>
+                        console.log(`[Canon] Roster pre-filled: ${n} characters for ${workNow}`)
+                    )
                     .catch((e) => console.error('[Canon] Roster pre-fill failed:', e));
             }
 

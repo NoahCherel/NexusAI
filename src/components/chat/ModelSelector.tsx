@@ -105,7 +105,10 @@ export function ModelSelector() {
             const customModel = customModels.find((m) => m.id === selectedModelId);
             if (customModel) {
                 removeCustomModel(customModel.id);
-                if (activeModel === customModel.modelId && activeProvider === customModel.provider) {
+                if (
+                    activeModel === customModel.modelId &&
+                    activeProvider === customModel.provider
+                ) {
                     setActiveModel(DEFAULT_MODELS[0].modelId);
                     setActiveProvider(DEFAULT_MODELS[0].provider);
                 }
@@ -159,17 +162,36 @@ export function ModelSelector() {
                     >
                         <div className="flex items-center gap-2 min-w-0 flex-1 pl-1">
                             {model.isFree ? (
-                                <Sparkles className={cn("w-4 h-4 shrink-0", selectedModelId === model.id && !isCreatingModel ? "text-primary-foreground" : "text-green-500")} />
+                                <Sparkles
+                                    className={cn(
+                                        'w-4 h-4 shrink-0',
+                                        selectedModelId === model.id && !isCreatingModel
+                                            ? 'text-primary-foreground'
+                                            : 'text-green-500'
+                                    )}
+                                />
                             ) : (
-                                <Zap className={cn("w-4 h-4 shrink-0", selectedModelId === model.id && !isCreatingModel ? "text-primary-foreground" : "text-yellow-500")} />
+                                <Zap
+                                    className={cn(
+                                        'w-4 h-4 shrink-0',
+                                        selectedModelId === model.id && !isCreatingModel
+                                            ? 'text-primary-foreground'
+                                            : 'text-yellow-500'
+                                    )}
+                                />
                             )}
-                            <span className="font-semibold truncate">
-                                {model.name}
-                            </span>
+                            <span className="font-semibold truncate">{model.name}</span>
                         </div>
                         {isActiveModel(model) && (
                             <div className="shrink-0 flex items-center mr-2">
-                                <Check className={cn("w-4 h-4", selectedModelId === model.id && !isCreatingModel ? "text-primary-foreground" : "text-primary")} />
+                                <Check
+                                    className={cn(
+                                        'w-4 h-4',
+                                        selectedModelId === model.id && !isCreatingModel
+                                            ? 'text-primary-foreground'
+                                            : 'text-primary'
+                                    )}
+                                />
                             </div>
                         )}
                     </div>
@@ -198,7 +220,10 @@ export function ModelSelector() {
             </Button>
 
             <Dialog open={open} onOpenChange={handleOpenChange}>
-                <DialogContent showCloseButton={false} className="max-w-4xl h-[80vh] p-0 flex flex-col overflow-hidden glass-heavy border-primary/20">
+                <DialogContent
+                    showCloseButton={false}
+                    className="max-w-4xl h-[80vh] p-0 flex flex-col overflow-hidden glass-heavy border-primary/20"
+                >
                     <DialogTitle className="sr-only">Sélecteur de modèle</DialogTitle>
 
                     {/* Header */}
@@ -222,8 +247,8 @@ export function ModelSelector() {
                                 {isMobile && autoSelectedModel
                                     ? autoSelectedModel.name
                                     : isMobile && isCreatingModel
-                                        ? 'Ajouter un modèle'
-                                        : 'Gestionnaire de modèles'}
+                                      ? 'Ajouter un modèle'
+                                      : 'Gestionnaire de modèles'}
                             </h2>
                         </div>
                         <Button
@@ -259,8 +284,8 @@ export function ModelSelector() {
                                     size="sm"
                                     variant={isCreatingModel ? 'default' : 'outline'}
                                     className={cn(
-                                        "w-full text-xs gap-2 font-semibold h-9 shadow-sm",
-                                        isCreatingModel && "bg-primary text-primary-foreground"
+                                        'w-full text-xs gap-2 font-semibold h-9 shadow-sm',
+                                        isCreatingModel && 'bg-primary text-primary-foreground'
                                     )}
                                 >
                                     <Plus className="w-3.5 h-3.5" /> Ajouter un modèle
@@ -269,10 +294,34 @@ export function ModelSelector() {
 
                             <ScrollArea className="flex-1 min-h-0 custom-scrollbar">
                                 <div className="flex flex-col p-2 gap-1.5 pt-3 pb-8">
-                                    {renderModelGroup('Modèles gratuits', filteredModels.filter(m => m.isFree && m.provider !== 'nanogpt'))}
-                                    {renderModelGroup('Modèles premium', filteredModels.filter(m => !m.isFree && !isCustomModel(m.modelId) && m.provider !== 'nanogpt'))}
-                                    {renderModelGroup('NanoGPT (Abonnement)', filteredModels.filter(m => m.provider === 'nanogpt'))}
-                                    {renderModelGroup('Modèles personnalisés', filteredModels.filter(m => isCustomModel(m.modelId) && !m.isFree && m.provider !== 'nanogpt'))}
+                                    {renderModelGroup(
+                                        'Modèles gratuits',
+                                        filteredModels.filter(
+                                            (m) => m.isFree && m.provider !== 'nanogpt'
+                                        )
+                                    )}
+                                    {renderModelGroup(
+                                        'Modèles premium',
+                                        filteredModels.filter(
+                                            (m) =>
+                                                !m.isFree &&
+                                                !isCustomModel(m.modelId) &&
+                                                m.provider !== 'nanogpt'
+                                        )
+                                    )}
+                                    {renderModelGroup(
+                                        'NanoGPT (Abonnement)',
+                                        filteredModels.filter((m) => m.provider === 'nanogpt')
+                                    )}
+                                    {renderModelGroup(
+                                        'Modèles personnalisés',
+                                        filteredModels.filter(
+                                            (m) =>
+                                                isCustomModel(m.modelId) &&
+                                                !m.isFree &&
+                                                m.provider !== 'nanogpt'
+                                        )
+                                    )}
 
                                     {filteredModels.length === 0 && (
                                         <div className="text-center py-12 px-6">
@@ -306,7 +355,8 @@ export function ModelSelector() {
                                                 Ajouter un modèle
                                             </h3>
                                             <p className="text-xs text-muted-foreground">
-                                                Ajoutez n&apos;importe quel modèle disponible dans l&apos;API OpenRouter
+                                                Ajoutez n&apos;importe quel modèle disponible dans
+                                                l&apos;API OpenRouter
                                             </p>
                                         </div>
                                     </div>
@@ -333,19 +383,31 @@ export function ModelSelector() {
                                             <Input
                                                 className="bg-muted/5 focus-visible:ring-primary/20 h-10 font-mono text-sm"
                                                 value={newModelConfigId}
-                                                onChange={(e) => setNewModelConfigId(e.target.value)}
+                                                onChange={(e) =>
+                                                    setNewModelConfigId(e.target.value)
+                                                }
                                                 placeholder="ex. openai/gpt-4-turbo"
                                             />
                                             <p className="text-[10px] text-muted-foreground mt-1 gap-1 flex flex-col">
-                                                <span>Utilisez le slug exact d&apos;OpenRouter (ex. <code className="bg-muted/50 px-1 py-0.5 rounded">anthropic/claude-3-opus</code>).</span>
-                                                <span className="text-yellow-500/80">Les modèles premium consomment vos crédits API.</span>
+                                                <span>
+                                                    Utilisez le slug exact d&apos;OpenRouter (ex.{' '}
+                                                    <code className="bg-muted/50 px-1 py-0.5 rounded">
+                                                        anthropic/claude-3-opus
+                                                    </code>
+                                                    ).
+                                                </span>
+                                                <span className="text-yellow-500/80">
+                                                    Les modèles premium consomment vos crédits API.
+                                                </span>
                                             </p>
                                         </div>
 
                                         <div className="pt-4">
                                             <Button
                                                 onClick={handleSaveNewModel}
-                                                disabled={!newModelName.trim() || !newModelConfigId.trim()}
+                                                disabled={
+                                                    !newModelName.trim() || !newModelConfigId.trim()
+                                                }
                                                 className="w-full sm:w-auto"
                                             >
                                                 Enregistrer le modèle
@@ -379,7 +441,9 @@ export function ModelSelector() {
                                                     onClick={() => {
                                                         // Keep provider in sync with the model, else a
                                                         // NanoGPT model would be sent to OpenRouter.
-                                                        setActiveProvider(autoSelectedModel.provider);
+                                                        setActiveProvider(
+                                                            autoSelectedModel.provider
+                                                        );
                                                         setActiveModel(autoSelectedModel.modelId);
                                                         toast.success(
                                                             `Modèle actif : ${autoSelectedModel.name}`
@@ -397,12 +461,18 @@ export function ModelSelector() {
                                                     )}
                                                 </Button>
                                                 {autoSelectedModel.isFree ? (
-                                                    <span className="text-[10px] font-bold text-green-500 bg-green-500/10 px-2 py-1 rounded">GRATUIT</span>
+                                                    <span className="text-[10px] font-bold text-green-500 bg-green-500/10 px-2 py-1 rounded">
+                                                        GRATUIT
+                                                    </span>
                                                 ) : (
-                                                    <span className="text-[10px] font-bold text-yellow-500 bg-yellow-500/10 px-2 py-1 rounded">PREMIUM</span>
+                                                    <span className="text-[10px] font-bold text-yellow-500 bg-yellow-500/10 px-2 py-1 rounded">
+                                                        PREMIUM
+                                                    </span>
                                                 )}
                                                 {isCustomModel(autoSelectedModel.modelId) && (
-                                                    <span className="text-[10px] font-bold text-blue-500 bg-blue-500/10 px-2 py-1 rounded hidden sm:inline-block">PERSO</span>
+                                                    <span className="text-[10px] font-bold text-blue-500 bg-blue-500/10 px-2 py-1 rounded hidden sm:inline-block">
+                                                        PERSO
+                                                    </span>
                                                 )}
                                             </div>
                                         </div>
@@ -424,7 +494,8 @@ export function ModelSelector() {
                                             </label>
                                             <div className="bg-muted/30 rounded-md px-3 py-2 text-sm border border-border/50 capitalize text-foreground/80">
                                                 {autoSelectedModel.provider}
-                                                {autoSelectedModel.provider === 'openrouter' && ' (API)'}
+                                                {autoSelectedModel.provider === 'openrouter' &&
+                                                    ' (API)'}
                                             </div>
                                         </div>
                                     </div>
@@ -452,7 +523,8 @@ export function ModelSelector() {
                                         <div className="space-y-1">
                                             <h3 className="font-bold">Aucun modèle sélectionné</h3>
                                             <p className="text-xs text-muted-foreground leading-relaxed">
-                                                Choisissez un modèle dans la liste pour voir ses détails, ou ajoutez-en un nouveau.
+                                                Choisissez un modèle dans la liste pour voir ses
+                                                détails, ou ajoutez-en un nouveau.
                                             </p>
                                         </div>
                                     </div>
