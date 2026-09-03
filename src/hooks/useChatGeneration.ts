@@ -18,7 +18,8 @@ import { useNotificationStore } from '@/components/ui/api-notification';
 import { decryptApiKey } from '@/lib/crypto';
 import { parseStreamingChunk, normalizeCoT } from '@/lib/ai/cot-middleware';
 import { buildConversationPayload, type CanonPayloadOptions } from '@/lib/ai/payload-builder';
-import { buildCanonOptions } from '@/lib/ai/canon-context';
+import { buildCanonOptions, nameMatchesText, resolveWork } from '@/lib/ai/canon-context';
+import { fetchCharacterDossier } from '@/lib/ai/canon-retrieval';
 import { resolveActiveLorebookEntries } from '@/lib/ai/rag-service';
 import {
     buildChronicle,
@@ -31,7 +32,7 @@ import { NANOGPT_USAGE_REFRESH_EVENT, fetchNanoGPTUsage } from '@/lib/ai/nanogpt
 import { countTokens } from '@/lib/tokenizer';
 import { extractUsageSentinel } from '@/lib/ai/usage-sentinel';
 import type { PostBeatParams } from '@/lib/ai/post-beat';
-import type { SceneBeatRecord, SceneGenerationProgress } from '@/types/scene';
+import type { DirectedTriggerKind, SceneBeatRecord, SceneGenerationProgress } from '@/types/scene';
 import { directSceneBeat } from '@/lib/ai/directed-scene';
 import {
     executeDirectedBeat,
@@ -55,10 +56,12 @@ import {
 import {
     commitSceneBeat,
     commitStoryStateRevision,
+    getSceneBeat,
     getSceneBeatsByConversation,
     getStoryState,
     saveSceneBeat,
 } from '@/lib/db';
+import { invalidateNarrativeMaintenance } from '@/lib/ai/narrative-maintenance';
 
 /** Decrypted key of the ACTIVE provider (null while loading or when none is stored). */
 export function useActiveApiKey(): string | null {
@@ -714,7 +717,8 @@ export function useChatGeneration({
         beatHistory: CAMessage[],
         userName: string,
         retrySource?: SceneBeatRecord,
-        preferStoredRoster = false
+        preferStoredRoster = false,
+        triggerKind: DirectedTriggerKind = 'player-message'
     ) => {
         if (!activeConversationId || !character || beatHistory.length === 0) return;
         const triggerMessage = beatHistory[beatHistory.length - 1];
@@ -729,6 +733,9 @@ export function useChatGeneration({
         const beatDeadline = window.setTimeout(() => controller.abort(), beatDeadlineMs);
         abortControllerRef.current?.abort();
         abortControllerRef.current = controller;
+        // The visible beat outranks background bookkeeping: a maintenance pass still running
+        // for the previous beat must not land a revision under this one's guarded commit.
+        invalidateNarrativeMaintenance(conv.id);
 
         const activePreset = getActivePreset();
         const activePersona = personas.find((p) => p.id === activePersonaId);
@@ -766,6 +773,60 @@ export function useChatGeneration({
             loadState: getStoryState,
             resolveCharacters: resolveSceneCharacters,
             resolveEntryCandidates: resolveSceneEntryCandidates,
+            // The casting ladder: a planned need already filled → an existing card or a
+            // complete dossier of the named character → a canon/library character whose name
+            // the request mentions → hydration of a canon stub → (caller) original creation.
+            resolveCastingProfile: async ({ request, state }) => {
+                const lowerRole = `${request.role} ${request.reason}`.toLocaleLowerCase();
+                const filledNeed = (state.plot.castingNeeds ?? []).find(
+                    (need) =>
+                        need.characterRefId &&
+                        need.role.trim() &&
+                        (need.role.toLocaleLowerCase() === request.role.toLocaleLowerCase() ||
+                            lowerRole.includes(need.role.trim().toLocaleLowerCase()))
+                );
+                const persisted = filledNeed?.characterRefId
+                    ? state.characters?.[filledNeed.characterRefId]
+                    : undefined;
+                let name = request.preferredName?.trim() || persisted?.ref.displayName;
+                if (!name) {
+                    // No name from the Director: an expected canon character or library card
+                    // whose name appears in the dramatic role/reason is preferred to inventing.
+                    const candidates = await resolveSceneEntryCandidates(character);
+                    const expected = candidates.find((candidate) =>
+                        [candidate.ref.displayName, ...(candidate.ref.aliases ?? [])].some(
+                            (alias) => alias && nameMatchesText(alias, lowerRole)
+                        )
+                    );
+                    name = expected?.ref.displayName;
+                }
+                if (!name) return undefined;
+                let [profile] = await resolveSceneCharacters(
+                    [name],
+                    character,
+                    conv.sceneCharacterOverrides,
+                    state.characters
+                );
+                if (profile?.ref.readiness === 'ready') return profile;
+                if (profile?.ref.source !== 'canon-dossier') return undefined;
+                const work = resolveWork(character);
+                if (!work) return undefined;
+                const dossier = await fetchCharacterDossier(
+                    work,
+                    profile.ref.displayName,
+                    state.plot.canonPosition ?? conv.arc?.currentPosition ?? 'Start'
+                );
+                if (!dossier || dossier.stub) {
+                    throw new Error('Le dossier canonique demandé n’a pas pu être hydraté.');
+                }
+                [profile] = await resolveSceneCharacters(
+                    [name],
+                    character,
+                    conv.sceneCharacterOverrides,
+                    state.characters
+                );
+                return profile?.ref.readiness === 'ready' ? profile : undefined;
+            },
             buildAgentPayload: async ({ contract, frozenWindow }) =>
                 buildAgentPayload({
                     stack: await getStack(),
@@ -855,6 +916,8 @@ export function useChatGeneration({
                     rpJournal: (await getStack()).canonOptions.rpJournal,
                     composer: { provider: activeProvider, model: activeModel },
                     signal: controller.signal,
+                    triggerKind,
+                    auditMode: settings.directedAuditMode ?? 'shadow',
                 },
                 deps
             );
@@ -937,7 +1000,14 @@ export function useChatGeneration({
     const runSceneBeat = async (
         historyOverride?: CAMessage[],
         retrySource?: SceneBeatRecord,
-        preferStoredRoster = false
+        preferStoredRoster = false,
+        // "Advance the scene" on an UNANSWERED player message (the previous beat failed or
+        // was cancelled) is that message's beat: its facts must still be observed.
+        triggerKind: DirectedTriggerKind = historyOverride
+            ? 'player-message'
+            : messages[messages.length - 1]?.role === 'user'
+              ? 'player-message'
+              : 'advance-scene'
     ) => {
         if (!activeConversationId || !character) return;
         const conv = useChatStore
@@ -954,7 +1024,11 @@ export function useChatGeneration({
             return;
         }
         const roster = (conv.sceneRoster ?? []).filter(Boolean);
-        if (roster.length === 0) {
+        const isDirectedV2 =
+            conv.sceneStyle === 'composed-turns' &&
+            conv.directedNarrativeVersion === 2 &&
+            useSettingsStore.getState().enableDirectedSceneMode;
+        if (roster.length === 0 && !isDirectedV2) {
             const { addNotification, updateNotification } = useNotificationStore.getState();
             const id = addNotification('Scène sans participant', 'world');
             updateNotification(id, 'error', 'Ajoutez au moins un personnage à la scène.');
@@ -977,7 +1051,8 @@ export function useChatGeneration({
                     beatHistory,
                     userName,
                     retrySource,
-                    preferStoredRoster
+                    preferStoredRoster,
+                    triggerKind
                 );
                 return;
             }
@@ -1207,12 +1282,16 @@ export function useChatGeneration({
         // user message always cancels any still-running beat first.
         stopRequestedRef.current = true;
         const convForSend = conversations.find((c) => c.id === activeConversationId);
+        const directedSolo =
+            convForSend?.sceneStyle === 'composed-turns' &&
+            convForSend.directedNarrativeVersion === 2 &&
+            useSettingsStore.getState().enableDirectedSceneMode;
         if (
             convForSend?.sceneMode &&
-            (convForSend.sceneRoster?.length ?? 0) > 0 &&
+            ((convForSend.sceneRoster?.length ?? 0) > 0 || directedSolo) &&
             useSettingsStore.getState().enableTroupeMode
         ) {
-            await runSceneBeat(history);
+            await runSceneBeat(history, undefined, false, 'player-message');
             return;
         }
 
@@ -1341,7 +1420,14 @@ export function useChatGeneration({
                 (message) => message.sceneBeatId === msgToRegen.sceneBeatId
             );
             if (firstBeatIndex > 0) {
-                await runSceneBeat(messages.slice(0, firstBeatIndex), undefined, true);
+                // A regenerate replays the ORIGINAL trigger: a beat born from "advance the
+                // scene" must not reread the last player message as a fresh action.
+                const original = await getSceneBeat(msgToRegen.sceneBeatId).catch(() => undefined);
+                const replayKind: DirectedTriggerKind =
+                    original?.triggerKind && original.triggerKind !== 'retry'
+                        ? original.triggerKind
+                        : 'retry';
+                await runSceneBeat(messages.slice(0, firstBeatIndex), undefined, true, replayKind);
             }
             return;
         }
@@ -1377,7 +1463,7 @@ export function useChatGeneration({
         // A composed bubble is one fragment of an atomic beat. Continuing it in place would
         // break the scene contract; start a fresh directed beat after the complete group.
         if (msgToContinue.sceneBeatId) {
-            await runSceneBeat(messages);
+            await runSceneBeat(messages, undefined, false, 'advance-scene');
             return;
         }
 
@@ -1435,7 +1521,7 @@ export function useChatGeneration({
             (message) => message.id === lastSceneBeat.triggerMessageId
         );
         if (triggerIndex === -1) return;
-        await runSceneBeat(messages.slice(0, triggerIndex + 1), lastSceneBeat, true);
+        await runSceneBeat(messages.slice(0, triggerIndex + 1), lastSceneBeat, true, 'retry');
     };
 
     return {

@@ -6,12 +6,17 @@
 
 import { describe, it, expect, vi } from 'vitest';
 import type { MemorySummary } from '@/types/rag';
+import type { SceneBeatRecord, StoryState } from '@/types';
 
 vi.mock('@/stores', () => ({ useChatStore: {}, useCharacterStore: {} }));
 vi.mock('@/lib/db', () => ({ getSummariesByConversation: vi.fn(), saveSummary: vi.fn() }));
 vi.mock('@/components/ui/api-notification', () => ({ useNotificationStore: {} }));
 
-import { remapSummariesForImport } from '@/lib/conversation-transfer';
+import {
+    redactSceneBeatForSharing,
+    redactStoryStateForSharing,
+    remapSummariesForImport,
+} from '@/lib/conversation-transfer';
 
 function summary(
     id: string,
@@ -113,5 +118,83 @@ describe('remapSummariesForImport', () => {
 
     it('handles an empty Chronicle without throwing', () => {
         expect(remapSummariesForImport([], NEW_CONV, NEW_MESSAGES)).toEqual([]);
+    });
+});
+
+describe('directed V2 sharing privacy', () => {
+    it('keeps generated public identity but removes private motivation', () => {
+        const state = {
+            id: 'state',
+            conversationId: 'conversation',
+            revision: 1,
+            source: 'generated',
+            scene: { participants: [] },
+            plot: { openThreads: [], nextMoves: [] },
+            characters: {
+                'generated:iris': {
+                    ref: {
+                        id: 'generated:iris',
+                        source: 'generated',
+                        displayName: 'Iris',
+                        readiness: 'ready',
+                    },
+                    publicProfile: { description: 'Une messagère.' },
+                    privateGoal: 'Voler la clef.',
+                    stance: 'Méfiance',
+                    commitments: ['Mentir'],
+                },
+            },
+            locks: {},
+            createdAt: 0,
+        } satisfies StoryState;
+        const shared = redactStoryStateForSharing(state);
+        expect(shared.characters?.['generated:iris'].publicProfile?.description).toBe(
+            'Une messagère.'
+        );
+        expect(shared.characters?.['generated:iris'].privateGoal).toBeUndefined();
+        expect(shared.characters?.['generated:iris'].stance).toBeUndefined();
+        expect(shared.characters?.['generated:iris'].commitments).toEqual([]);
+    });
+
+    it('removes intentions, provisional casting and detailed judge reasons', () => {
+        const beat = {
+            id: 'beat',
+            conversationId: 'conversation',
+            triggerMessageId: 'message',
+            branchTipId: 'message',
+            generationId: 'generation',
+            status: 'failed',
+            intents: [
+                {
+                    characterRefId: 'generated:iris',
+                    name: 'Iris',
+                    attention: 'full',
+                    privateGoal: 'Secret',
+                },
+            ],
+            provisionalProfiles: [],
+            outputMessageIds: [],
+            errors: [],
+            timings: {},
+            audit: {
+                status: 'warning',
+                source: 'local+llm',
+                issues: [
+                    {
+                        code: 'positivity-bias',
+                        severity: 'warning',
+                        message: 'Detailed private rationale',
+                    },
+                ],
+                rewritten: false,
+                createdAt: 0,
+            },
+            createdAt: 0,
+            updatedAt: 0,
+        } satisfies SceneBeatRecord;
+        const shared = redactSceneBeatForSharing(beat);
+        expect(shared.intents).toEqual([]);
+        expect(shared.provisionalProfiles).toEqual([]);
+        expect(shared.audit?.issues[0].message).toBe('positivity-bias');
     });
 });

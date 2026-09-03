@@ -56,6 +56,57 @@ function notify(message: string, status: 'success' | 'error' = 'error'): void {
     updateNotification(id, status, message);
 }
 
+export function redactStoryStateForSharing(state: StoryState): StoryState {
+    return {
+        ...state,
+        // Private facts are the secrets the auditor guards; they never leave with a share.
+        knowledge: state.knowledge?.filter((fact) => fact.visibility !== 'private'),
+        characters: state.characters
+            ? Object.fromEntries(
+                  Object.entries(state.characters).map(([id, character]) => [
+                      id,
+                      {
+                          ref: character.ref,
+                          publicProfile: character.publicProfile,
+                          commitments: [],
+                          status: character.status,
+                          meaningfulAppearances: character.meaningfulAppearances,
+                          pinned: character.pinned,
+                      },
+                  ])
+              )
+            : undefined,
+    };
+}
+
+export function redactSceneBeatForSharing(beat: SceneBeatRecord): SceneBeatRecord {
+    return {
+        ...beat,
+        intents: [],
+        provisionalProfiles: [],
+        // The casting draft and the Director's private directions are backstage material.
+        decision: beat.decision
+            ? {
+                  ...beat.decision,
+                  castingRequest: undefined,
+                  participants: beat.decision.participants.map((participant) => ({
+                      ...participant,
+                      direction: undefined,
+                  })),
+              }
+            : undefined,
+        audit: beat.audit
+            ? {
+                  ...beat.audit,
+                  issues: beat.audit.issues.map((issue) => ({
+                      ...issue,
+                      message: issue.code,
+                  })),
+              }
+            : undefined,
+    };
+}
+
 /** Export the most recent conversation of a character as a JSON download. */
 export async function exportConversationForCharacter(
     character: CharacterCard,
@@ -103,6 +154,8 @@ export async function exportConversationForCharacter(
             sceneMode: latestConv.sceneMode,
             sceneRoster: latestConv.sceneRoster,
             sceneStyle: latestConv.sceneStyle,
+            directedNarrativeVersion: latestConv.directedNarrativeVersion,
+            arcRevision: latestConv.arcRevision,
             activeStoryStateRevisionId: latestConv.activeStoryStateRevisionId,
             sceneCharacterOverrides: latestConv.sceneCharacterOverrides,
             // Same reasoning for the Chronicle: it IS the long-term memory (nothing else
@@ -127,12 +180,14 @@ export async function exportConversationForCharacter(
             characterRef: m.characterRef,
             storyStateRevisionId: m.storyStateRevisionId,
         })),
-        storyStates,
+        storyStates: options.includeBackstage
+            ? storyStates
+            : storyStates.map(redactStoryStateForSharing),
         // Normal/shareable exports omit private intentions. The explicit complete-backup
         // action preserves them for personal archival and faithful retry restoration.
         sceneBeats: options.includeBackstage
             ? sceneBeats
-            : sceneBeats.map((beat) => ({ ...beat, intents: [] })),
+            : sceneBeats.map(redactSceneBeatForSharing),
         privateBackstageIncluded: !!options.includeBackstage,
         exportedAt: new Date().toISOString(),
     };
@@ -234,6 +289,17 @@ export function importConversationFromFile(): void {
             if (typeof importedConversation.sceneMode === 'boolean') {
                 useChatStore.getState().setSceneMode(convId, importedConversation.sceneMode);
             }
+            if (
+                importedConversation.directedNarrativeVersion === 1 ||
+                importedConversation.directedNarrativeVersion === 2
+            ) {
+                useChatStore
+                    .getState()
+                    .setDirectedNarrativeVersion(
+                        convId,
+                        importedConversation.directedNarrativeVersion
+                    );
+            }
 
             // Modern exports preserve the complete message tree and active-branch flags.
             // Legacy exports had no parentId, so only those are rebuilt as one linear branch.
@@ -258,6 +324,21 @@ export function importConversationFromFile(): void {
             const beatIdMap = new Map<string, string>(
                 importedBeats.map((beat) => [beat.id, crypto.randomUUID()])
             );
+            const stepIdMap = new Map<string, string>();
+            const castingIdMap = new Map<string, string>();
+            const knowledgeIdMap = new Map<string, string>();
+            for (const state of importedStates) {
+                for (const step of state.plot.steps ?? []) {
+                    if (!stepIdMap.has(step.id)) stepIdMap.set(step.id, crypto.randomUUID());
+                }
+                for (const need of state.plot.castingNeeds ?? []) {
+                    if (!castingIdMap.has(need.id)) castingIdMap.set(need.id, crypto.randomUUID());
+                }
+                for (const fact of state.knowledge ?? []) {
+                    if (!knowledgeIdMap.has(fact.id))
+                        knowledgeIdMap.set(fact.id, crypto.randomUUID());
+                }
+            }
             // The imported root card receives a fresh local id. Keep every structured beat
             // reference aligned with it; otherwise the next beat would see two copies of the
             // same protagonist (`card:old-id` in state, `card:new-id` from resolution).
@@ -266,14 +347,24 @@ export function importConversationFromFile(): void {
                 characterRefIdMap.set(`card:${data.character.id}`, `card:${characterId}`);
             }
             const remapCharacterRef = (ref: CharacterRef): CharacterRef => {
-                if (ref.source !== 'root-card') return ref;
-                const id = `card:${characterId}`;
-                characterRefIdMap.set(ref.id, id);
-                return { ...ref, id, sourceId: characterId };
+                if (ref.source === 'root-card') {
+                    const id = `card:${characterId}`;
+                    characterRefIdMap.set(ref.id, id);
+                    return { ...ref, id, sourceId: characterId };
+                }
+                if (ref.source === 'generated') {
+                    const id = characterRefIdMap.get(ref.id) ?? `generated:${crypto.randomUUID()}`;
+                    characterRefIdMap.set(ref.id, id);
+                    return { ...ref, id };
+                }
+                return ref;
             };
             for (const state of importedStates) {
                 for (const participant of state.scene.participants) {
                     remapCharacterRef(participant.character);
+                }
+                for (const character of Object.values(state.characters ?? {})) {
+                    remapCharacterRef(character.ref);
                 }
             }
             for (const msg of data.messages) {
@@ -301,11 +392,12 @@ export function importConversationFromFile(): void {
                     Object.entries(locks).map(([path, enabled]) => {
                         let nextPath = path;
                         for (const [oldId, newId] of characterRefIdMap) {
-                            nextPath = nextPath.replace(
-                                `/scene/participants/${oldId}/`,
-                                `/scene/participants/${newId}/`
-                            );
+                            nextPath = nextPath.replaceAll(oldId, newId);
                         }
+                        for (const [oldId, newId] of stepIdMap)
+                            nextPath = nextPath.replaceAll(oldId, newId);
+                        for (const [oldId, newId] of castingIdMap)
+                            nextPath = nextPath.replaceAll(oldId, newId);
                         return [nextPath, enabled];
                     })
                 );
@@ -368,8 +460,36 @@ export function importConversationFromFile(): void {
                             character: remapCharacterRef(participant.character),
                         })),
                     },
+                    plot: {
+                        ...state.plot,
+                        activeStepId: state.plot.activeStepId
+                            ? stepIdMap.get(state.plot.activeStepId)
+                            : undefined,
+                        steps: state.plot.steps?.map((step) => ({
+                            ...step,
+                            id: stepIdMap.get(step.id) ?? step.id,
+                            prerequisites: step.prerequisites.map((id) => stepIdMap.get(id) ?? id),
+                        })),
+                        castingNeeds: state.plot.castingNeeds?.map((need) => ({
+                            ...need,
+                            id: castingIdMap.get(need.id) ?? need.id,
+                            characterRefId: remapRefId(need.characterRefId),
+                        })),
+                        recentInitiativeOwners: state.plot.recentInitiativeOwners?.map((id) =>
+                            id === 'world' ? id : (remapRefId(id) ?? id)
+                        ),
+                    },
+                    characters: state.characters
+                        ? Object.fromEntries(
+                              Object.values(state.characters).map((character) => {
+                                  const ref = remapCharacterRef(character.ref);
+                                  return [ref.id, { ...character, ref }];
+                              })
+                          )
+                        : undefined,
                     knowledge: state.knowledge?.map((fact) => ({
                         ...fact,
+                        id: knowledgeIdMap.get(fact.id) ?? fact.id,
                         knownBy: fact.knownBy.map((id) => remapRefId(id) ?? id),
                     })),
                     locks: remapLocks(state.locks),
@@ -381,6 +501,9 @@ export function importConversationFromFile(): void {
                     id: beatIdMap.get(beat.id)!,
                     conversationId: convId,
                     triggerMessageId: messageIdMap.get(beat.triggerMessageId) ?? messageIds[0],
+                    inputMessageId: beat.inputMessageId
+                        ? messageIdMap.get(beat.inputMessageId)
+                        : undefined,
                     branchTipId: messageIdMap.get(beat.branchTipId) ?? messageIds[0],
                     baseStoryStateRevisionId: beat.baseStoryStateRevisionId
                         ? stateIdMap.get(beat.baseStoryStateRevisionId)
@@ -397,6 +520,13 @@ export function importConversationFromFile(): void {
                     decision: beat.decision
                         ? {
                               ...beat.decision,
+                              initiativeOwner:
+                                  beat.decision.initiativeOwner === 'world'
+                                      ? 'world'
+                                      : remapRefId(beat.decision.initiativeOwner),
+                              servedStepId: beat.decision.servedStepId
+                                  ? stepIdMap.get(beat.decision.servedStepId)
+                                  : undefined,
                               participants: beat.decision.participants.map((participant) => ({
                                   ...participant,
                                   characterRefId:
@@ -412,6 +542,10 @@ export function importConversationFromFile(): void {
                     composition: beat.composition
                         ? {
                               ...beat.composition,
+                              stepSignals: beat.composition.stepSignals?.map((signal) => ({
+                                  ...signal,
+                                  stepId: stepIdMap.get(signal.stepId) ?? signal.stepId,
+                              })),
                               effects: beat.composition.effects?.map(remapTransition),
                               turns: beat.composition.turns.map((turn) => ({
                                   ...turn,
@@ -427,6 +561,12 @@ export function importConversationFromFile(): void {
                               characterRefId:
                                   remapRefId(intent.characterRefId) ?? intent.characterRefId,
                           }))
+                        : [],
+                    provisionalProfiles: data.privateBackstageIncluded
+                        ? beat.provisionalProfiles?.map((profile) => {
+                              const ref = remapCharacterRef(profile.ref);
+                              return { ...profile, ref };
+                          })
                         : [],
                 });
             }
@@ -460,8 +600,38 @@ export function importConversationFromFile(): void {
                                 character: remapCharacterRef(participant.character),
                             })),
                         },
+                        plot: {
+                            ...activeState.plot,
+                            activeStepId: activeState.plot.activeStepId
+                                ? stepIdMap.get(activeState.plot.activeStepId)
+                                : undefined,
+                            steps: activeState.plot.steps?.map((step) => ({
+                                ...step,
+                                id: stepIdMap.get(step.id) ?? step.id,
+                                prerequisites: step.prerequisites.map(
+                                    (id) => stepIdMap.get(id) ?? id
+                                ),
+                            })),
+                            castingNeeds: activeState.plot.castingNeeds?.map((need) => ({
+                                ...need,
+                                id: castingIdMap.get(need.id) ?? need.id,
+                                characterRefId: remapRefId(need.characterRefId),
+                            })),
+                            recentInitiativeOwners: activeState.plot.recentInitiativeOwners?.map(
+                                (id) => (id === 'world' ? id : (remapRefId(id) ?? id))
+                            ),
+                        },
+                        characters: activeState.characters
+                            ? Object.fromEntries(
+                                  Object.values(activeState.characters).map((character) => {
+                                      const ref = remapCharacterRef(character.ref);
+                                      return [ref.id, { ...character, ref }];
+                                  })
+                              )
+                            : undefined,
                         knowledge: activeState.knowledge?.map((fact) => ({
                             ...fact,
+                            id: knowledgeIdMap.get(fact.id) ?? fact.id,
                             knownBy: fact.knownBy.map((id) => remapRefId(id) ?? id),
                         })),
                         locks: remapLocks(activeState.locks),

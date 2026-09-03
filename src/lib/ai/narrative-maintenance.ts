@@ -1,6 +1,14 @@
 'use client';
 
-import type { CharacterCard, Conversation, Message, SceneTransition, StoryState } from '@/types';
+import type {
+    CastingNeed,
+    CharacterCard,
+    Conversation,
+    Message,
+    NarrativeStep,
+    SceneTransition,
+    StoryState,
+} from '@/types';
 import type { APIPreset } from '@/types/preset';
 import type { RPEngine } from '@/types/engine';
 import {
@@ -31,11 +39,26 @@ const MAINTENANCE_PREAMBLE = [
 const text = (value: unknown) =>
     typeof value === 'string' && value.trim() ? value.trim() : undefined;
 
+/**
+ * A beat that starts generating invalidates every maintenance pass still in flight for its
+ * conversation. Otherwise the planner could land a new active revision between the beat's
+ * read and its guarded commit, and the visible beat would lose to background bookkeeping.
+ */
+const maintenanceEpochs = new Map<string, number>();
+
+export function invalidateNarrativeMaintenance(conversationId: string): void {
+    maintenanceEpochs.set(conversationId, (maintenanceEpochs.get(conversationId) ?? 0) + 1);
+}
+
+const maintenanceEpoch = (conversationId: string) => maintenanceEpochs.get(conversationId) ?? 0;
+
 export function stillCurrent(
     conversationId: string,
     targetMessageId: string,
-    revisionId: string
+    revisionId: string,
+    epoch?: number
 ): boolean {
+    if (epoch != null && epoch !== maintenanceEpoch(conversationId)) return false;
     const store = useChatStore.getState();
     const path = store.getActiveBranchMessages(conversationId);
     if (!path.some((message) => message.id === targetMessageId)) return false;
@@ -50,9 +73,10 @@ async function commitMaintenanceState(
     next: StoryState,
     source: 'auditor' | 'planner',
     targetMessageId: string,
-    sourceBeatId: string
+    sourceBeatId: string,
+    epoch: number
 ): Promise<StoryState | null> {
-    if (!stillCurrent(previous.conversationId, targetMessageId, previous.id)) return null;
+    if (!stillCurrent(previous.conversationId, targetMessageId, previous.id, epoch)) return null;
     const revision = createStoryStateRevision({
         previous,
         next,
@@ -60,7 +84,7 @@ async function commitMaintenanceState(
         anchorMessageId: targetMessageId,
         sourceBeatId,
     });
-    await commitStoryStateRevision(revision, targetMessageId);
+    await commitStoryStateRevision(revision, targetMessageId, previous.id);
     useChatStore.getState().applyStoryStateRevision({
         conversationId: previous.conversationId,
         messageId: targetMessageId,
@@ -93,6 +117,7 @@ export async function maintainNarrativeAfterBeat(params: {
     history?: Message[];
     sceneContext?: DirectedMaintenanceContext;
 }): Promise<void> {
+    const epoch = maintenanceEpoch(params.conversationId);
     const beat = await getSceneBeat(params.beatId);
     if (
         !beat?.committedStoryStateRevisionId ||
@@ -156,7 +181,16 @@ export async function maintainNarrativeAfterBeat(params: {
         });
     };
 
-    const auditorSchema = `Return exactly one JSON object: {"sceneSummary":"one sentence","pressure":"current dramatic pressure","openThreads":["still unresolved"],"transitions":[{"type":"exit|enter|presence|agency|location|event","characterRefId":"known id","presence":"onstage|remote|offstage","agency":"active|limited|none","value":"observable value","evidence":"short quote"}]}`;
+    // The version comes from the conversation itself, not from whether the caller could hand
+    // over a scene context: a V2 beat without one must never run the V1 continuity auditor.
+    const storeConversation = useChatStore
+        .getState()
+        .conversations.find((candidate) => candidate.id === params.conversationId);
+    const v2 =
+        (storeConversation?.directedNarrativeVersion ??
+            params.sceneContext?.conversation.directedNarrativeVersion) === 2;
+    const arcRevisionAtStart = storeConversation?.arcRevision ?? 0;
+    const auditorSchema = `Return exactly one JSON object: {"sceneSummary":"one sentence","pressure":"current dramatic pressure","openThreads":["still unresolved"],"transitions":[{"type":"exit|enter|presence|agency|location|time|event","characterRefId":"known id","presence":"onstage|remote|offstage","agency":"active|limited|none","value":"observable value","evidence":"short quote"}]}`;
     const auditorState = JSON.stringify({
         state,
         allowedCharacterIds: state.scene.participants.map((participant) => ({
@@ -167,8 +201,10 @@ export async function maintainNarrativeAfterBeat(params: {
     });
 
     // Auditor: extract only consequences that are demonstrably visible in the committed beat.
-    const audit = await runMaintenanceAgent(
-        `${MAINTENANCE_PREAMBLE}
+    const audit = v2
+        ? null
+        : await runMaintenanceAgent(
+              `${MAINTENANCE_PREAMBLE}
 
 [CONTINUITY AUDITOR]
 Read the beat that just happened and update the scene state from what is VISIBLE in it. Never invent motives, off-screen events or future beats. A change only counts when the text shows it.
@@ -180,13 +216,13 @@ Current state and the only ids you may use:
 ${auditorState}
 
 ${auditorSchema}`,
-        {
-            system: `You are a continuity AUDITOR. Read the committed roleplay beat and update state only from visible facts. Never invent motives or future events. ${auditorSchema}`,
-            user: auditorState,
-            temperature: 0.2,
-            maxTokens: 650,
-        }
-    );
+              {
+                  system: `You are a continuity AUDITOR. Read the committed roleplay beat and update state only from visible facts. Never invent motives or future events. ${auditorSchema}`,
+                  user: auditorState,
+                  temperature: 0.2,
+                  maxTokens: 650,
+              }
+          );
     if (audit) {
         try {
             const parsed = parseSceneJson(audit.content);
@@ -199,9 +235,15 @@ ${auditorSchema}`,
                       const characterRefId = text(item.characterRefId);
                       if (
                           !type ||
-                          !['exit', 'enter', 'presence', 'agency', 'location', 'event'].includes(
-                              type
-                          ) ||
+                          ![
+                              'exit',
+                              'enter',
+                              'presence',
+                              'agency',
+                              'location',
+                              'time',
+                              'event',
+                          ].includes(type) ||
                           (characterRefId && !allowed.has(characterRefId))
                       )
                           return [];
@@ -257,7 +299,8 @@ ${auditorSchema}`,
                     audited,
                     'auditor',
                     params.targetMessageId,
-                    params.beatId
+                    params.beatId,
+                    epoch
                 )) ?? state;
         } catch (error) {
             console.warn('[Scene Auditor] Invalid response:', error);
@@ -266,18 +309,37 @@ ${auditorSchema}`,
 
     const allBeats = await getSceneBeatsByConversation(params.conversationId);
     const committed = allBeats.filter((candidate) => candidate.status === 'committed');
-    const majorTransition = [
-        ...(beat.decision?.observedTransitions ?? []),
-        ...(beat.decision?.plannedTransitions ?? []),
-    ].some((transition) => transition.type === 'location' || transition.type === 'event');
-    const shouldPlan =
-        committed.length === 1 || committed.length % 4 === 0 || majorTransition || params.stalled;
-    if (!shouldPlan || !stillCurrent(params.conversationId, params.targetMessageId, state.id))
+    const majorTransition =
+        [
+            ...(beat.decision?.observedTransitions ?? []),
+            ...(beat.decision?.plannedTransitions ?? []),
+        ].some(
+            (transition) =>
+                transition.type === 'location' ||
+                transition.type === 'time' ||
+                transition.type === 'event'
+        ) ||
+        beat.decision?.beatKind === 'payoff' ||
+        beat.decision?.beatKind === 'transition';
+    const branchBeatCount = v2 ? (state.plot.committedBeatCount ?? 0) : committed.length;
+    const shouldPlan = planningDue({
+        v2,
+        committedBeatCount: state.plot.committedBeatCount,
+        committedTotal: committed.length,
+        majorTransition,
+        stalled: params.stalled,
+    });
+    if (
+        !shouldPlan ||
+        !stillCurrent(params.conversationId, params.targetMessageId, state.id, epoch)
+    )
         return;
 
     const work = resolveWork(params.character);
     const outline = work ? (await getArcOutline(work))?.outline : undefined;
-    const plannerSchema = `Return exactly one JSON object: {"objective":"current dramatic objective","pressure":"tension to build","openThreads":["unresolved thread"],"nextMoves":["possible next beat"]}`;
+    const plannerSchema = v2
+        ? `Return exactly one JSON object: {"canonPosition":"where the playthrough now stands on the canon timeline, only if it moved","dramaticQuestion":"central unresolved question","objective":"current dramatic objective","pressure":"tension to build","openThreads":["unresolved thread"],"steps":[{"id":"stable short id","premise":"future dramatic step","prerequisites":["prior step id"],"seeds":["setup to plant"],"intendedPayoff":"observable payoff","canonAnchor":"optional","status":"planned|active"}],"castingNeeds":[{"id":"stable short id","role":"dramatic function","reason":"why needed","status":"open"}]}`
+        : `Return exactly one JSON object: {"objective":"current dramatic objective","pressure":"tension to build","openThreads":["unresolved thread"],"nextMoves":["possible next beat"]}`;
     const plannerState = JSON.stringify({
         work,
         arcOutline: outline?.slice(0, 6_000),
@@ -305,6 +367,89 @@ ${plannerSchema}`,
     if (!planning) return;
     try {
         const parsed = parseSceneJson(planning.content);
+        let v2Steps = state.plot.steps;
+        if (v2 && !state.locks['/plot/steps'] && Array.isArray(parsed.steps)) {
+            const proposals = parsed.steps.slice(0, 8).flatMap((entry, index): NarrativeStep[] => {
+                if (!entry || typeof entry !== 'object') return [];
+                const item = entry as Record<string, unknown>;
+                const premise = text(item.premise);
+                const intendedPayoff = text(item.intendedPayoff);
+                if (!premise || !intendedPayoff) return [];
+                return [
+                    {
+                        id: text(item.id) ?? `step-${branchBeatCount}-${index + 1}`,
+                        premise,
+                        prerequisites: Array.isArray(item.prerequisites)
+                            ? item.prerequisites
+                                  .map(text)
+                                  .filter((value): value is string => !!value)
+                            : [],
+                        seeds: Array.isArray(item.seeds)
+                            ? item.seeds.map(text).filter((value): value is string => !!value)
+                            : [],
+                        intendedPayoff,
+                        canonAnchor: text(item.canonAnchor),
+                        status: item.status === 'active' ? 'active' : 'planned',
+                        visibleEvidence: [],
+                    },
+                ];
+            });
+            const proposedById = new Map(proposals.map((step) => [step.id, step]));
+            // A motivated detour: the planner replaces the active step with a different one
+            // while the old step has no visible evidence. It is marked detoured (never
+            // silently dropped), and planRevision below records the change of course.
+            const proposesOtherActive = proposals.some(
+                (step) => step.status === 'active' && step.id !== state.plot.activeStepId
+            );
+            const preserved = (state.plot.steps ?? []).map((step) => {
+                const proposal = proposedById.get(step.id);
+                proposedById.delete(step.id);
+                if (['resolved', 'detoured', 'abandoned'].includes(step.status)) return step;
+                if (!proposal) {
+                    return step.status === 'active' &&
+                        proposesOtherActive &&
+                        step.visibleEvidence.length === 0
+                        ? { ...step, status: 'detoured' as const }
+                        : step;
+                }
+                return { ...proposal, visibleEvidence: step.visibleEvidence };
+            });
+            v2Steps = [...preserved, ...proposedById.values()].slice(0, 12);
+            let claimedActive = false;
+            v2Steps = v2Steps.map((step) => {
+                if (step.status !== 'active') return step;
+                if (claimedActive) return { ...step, status: 'planned' as const };
+                claimedActive = true;
+                return step;
+            });
+        }
+        let v2CastingNeeds = state.plot.castingNeeds;
+        if (v2 && !state.locks['/plot/castingNeeds'] && Array.isArray(parsed.castingNeeds)) {
+            const proposals = parsed.castingNeeds
+                .slice(0, 6)
+                .flatMap((entry, index): CastingNeed[] => {
+                    if (!entry || typeof entry !== 'object') return [];
+                    const item = entry as Record<string, unknown>;
+                    const role = text(item.role);
+                    const reason = text(item.reason);
+                    if (!role || !reason) return [];
+                    return [
+                        {
+                            id: text(item.id) ?? `casting-${branchBeatCount}-${index + 1}`,
+                            role,
+                            reason,
+                            status: 'open',
+                        },
+                    ];
+                });
+            const existing = new Map(
+                (state.plot.castingNeeds ?? []).map((need) => [need.id, need])
+            );
+            for (const proposal of proposals) {
+                if (!existing.has(proposal.id)) existing.set(proposal.id, proposal);
+            }
+            v2CastingNeeds = [...existing.values()].slice(0, 12);
+        }
         const planned: StoryState = {
             ...state,
             plot: {
@@ -328,18 +473,72 @@ ${plannerSchema}`,
                           .filter((item): item is string => !!item)
                           .slice(0, 4)
                     : state.plot.nextMoves,
-                lastPlannedBeat: committed.length,
+                // The canon compass moves here and nowhere else in V2; the beat commit only
+                // mirrors it to the Arc Compass when no user edit happened meanwhile.
+                canonPosition:
+                    v2 && !state.locks['/plot/canonPosition']
+                        ? (text(parsed.canonPosition) ?? state.plot.canonPosition)
+                        : state.plot.canonPosition,
+                dramaticQuestion:
+                    v2 && !state.locks['/plot/dramaticQuestion']
+                        ? (text(parsed.dramaticQuestion) ?? state.plot.dramaticQuestion)
+                        : state.plot.dramaticQuestion,
+                steps: v2Steps,
+                activeStepId: v2
+                    ? v2Steps?.find((step) => step.status === 'active')?.id
+                    : state.plot.activeStepId,
+                castingNeeds: v2CastingNeeds,
+                planRevision: v2 ? (state.plot.planRevision ?? 0) + 1 : state.plot.planRevision,
+                lastPlannedBeat: branchBeatCount,
                 updatedAt: Date.now(),
             },
         };
-        await commitMaintenanceState(
+        const landed = await commitMaintenanceState(
             state,
             planned,
             'planner',
             params.targetMessageId,
-            params.beatId
+            params.beatId,
+            epoch
         );
+        // The planner is the only agent that moves the canon compass. It reaches the Arc
+        // Compass here, and only if the user did not edit the arc while the planner ran.
+        const movedTo = landed?.plot.canonPosition;
+        if (v2 && landed && movedTo && movedTo !== state.plot.canonPosition) {
+            const store = useChatStore.getState();
+            const current = store.conversations.find(
+                (candidate) => candidate.id === params.conversationId
+            );
+            if (
+                current &&
+                (current.arcRevision ?? 0) === arcRevisionAtStart &&
+                current.arc?.currentPosition !== movedTo
+            ) {
+                store.updateArc(params.conversationId, {
+                    ...current.arc,
+                    currentPosition: movedTo,
+                });
+            }
+        }
     } catch (error) {
         console.warn('[Story Director] Invalid response:', error);
     }
+}
+
+/**
+ * When the Story Director plans: after the first committed beat of a branch, every fourth
+ * beat, after a major transition, or when the writer stalled. V2 counts beats on the branch
+ * (`committedBeatCount`); V1 keeps its historical count of committed beat records.
+ */
+export function planningDue(params: {
+    v2: boolean;
+    committedBeatCount?: number;
+    committedTotal: number;
+    majorTransition: boolean;
+    stalled: boolean;
+}): boolean {
+    const count = params.v2 ? (params.committedBeatCount ?? 0) : params.committedTotal;
+    return (
+        count === 1 || (count > 0 && count % 4 === 0) || params.majorTransition || params.stalled
+    );
 }

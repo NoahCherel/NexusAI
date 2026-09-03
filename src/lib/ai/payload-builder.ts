@@ -523,7 +523,10 @@ export async function buildConversationPayload(
         postHistoryInstructions: effectivePostHistory,
         // A second system message after history is not portable across OpenAI-compatible
         // providers. A final user drafting request is both valid chat structure and explicit.
-        postHistoryRole: isImpersonation ? 'user' : 'system',
+        // An agent contract goes the same way: measured on a real replay, a trailing SYSTEM
+        // block after a long roleplay history is ignored by DeepSeek V4, which answers with
+        // the next prose turn instead of the JSON the Director, judge and planner require.
+        postHistoryRole: isImpersonation || params.agentContract ? 'user' : 'system',
         assistantPrefill,
         activeProvider,
         historyCutMessageId: projectedCutMessageId,

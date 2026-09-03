@@ -87,6 +87,7 @@ interface ChatState {
         character: CharacterRef
     ) => void;
     setSceneStyle: (conversationId: string, style: 'turns' | 'composed-turns' | 'unified') => void;
+    setDirectedNarrativeVersion: (conversationId: string, version: 1 | 2) => void;
     setDirectedSceneSuggestionDismissed: (conversationId: string, dismissed: boolean) => void;
     setBanList: (conversationId: string, banList: string[]) => void;
     getActiveBranchBanList: (conversationId: string) => string[];
@@ -575,7 +576,12 @@ export const useChatStore = create<ChatState>()((set, get) => ({
         set((state) => ({
             conversations: state.conversations.map((c) => {
                 if (c.id === conversationId) {
-                    conversationToUpdate = { ...c, arc, updatedAt: new Date() };
+                    conversationToUpdate = {
+                        ...c,
+                        arc,
+                        arcRevision: (c.arcRevision ?? 0) + 1,
+                        updatedAt: new Date(),
+                    };
                     return conversationToUpdate;
                 }
                 return c;
@@ -721,6 +727,22 @@ export const useChatStore = create<ChatState>()((set, get) => ({
                     return conversationToUpdate;
                 }
                 return c;
+            }),
+        }));
+        if (conversationToUpdate) saveConversation(conversationToUpdate).catch(console.error);
+    },
+
+    setDirectedNarrativeVersion: (conversationId, directedNarrativeVersion) => {
+        let conversationToUpdate: Conversation | undefined;
+        set((state) => ({
+            conversations: state.conversations.map((conversation) => {
+                if (conversation.id !== conversationId) return conversation;
+                conversationToUpdate = {
+                    ...conversation,
+                    directedNarrativeVersion,
+                    updatedAt: new Date(),
+                };
+                return conversationToUpdate;
             }),
         }));
         if (conversationToUpdate) saveConversation(conversationToUpdate).catch(console.error);

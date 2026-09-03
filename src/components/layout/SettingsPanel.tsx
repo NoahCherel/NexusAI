@@ -122,6 +122,8 @@ export function SettingsPanel({ open, onOpenChange }: SettingsPanelProps) {
         setEnableTroupeMode,
         enableDirectedSceneMode,
         setEnableDirectedSceneMode,
+        directedAuditMode,
+        setDirectedAuditMode,
         maxSceneSpeakers,
         setMaxSceneSpeakers,
         sceneReflectionConcurrency,
@@ -625,33 +627,66 @@ export function SettingsPanel({ open, onOpenChange }: SettingsPanelProps) {
                                                     </select>
                                                 </div>
                                                 {enableDirectedSceneMode && (
-                                                    <div className="flex items-center justify-between p-3 border rounded-lg bg-card/50">
-                                                        <div>
-                                                            <p className="text-sm">
-                                                                Réflexions simultanées
-                                                            </p>
-                                                            <p className="text-xs text-muted-foreground mt-0.5">
-                                                                Quatre par défaut ; le planificateur
-                                                                respecte aussi les limites du
-                                                                fournisseur.
-                                                            </p>
+                                                    <>
+                                                        <div className="flex items-center justify-between p-3 border rounded-lg bg-card/50">
+                                                            <div>
+                                                                <p className="text-sm">
+                                                                    Réflexions simultanées
+                                                                </p>
+                                                                <p className="text-xs text-muted-foreground mt-0.5">
+                                                                    Quatre par défaut ; le
+                                                                    planificateur respecte aussi les
+                                                                    limites du fournisseur.
+                                                                </p>
+                                                            </div>
+                                                            <select
+                                                                value={sceneReflectionConcurrency}
+                                                                onChange={(e) =>
+                                                                    setSceneReflectionConcurrency(
+                                                                        Number(e.target.value)
+                                                                    )
+                                                                }
+                                                                className="h-8 rounded-md border border-input bg-background px-2 text-sm shrink-0"
+                                                            >
+                                                                {[1, 2, 3, 4, 5, 6, 7, 8].map(
+                                                                    (n) => (
+                                                                        <option key={n} value={n}>
+                                                                            {n}
+                                                                        </option>
+                                                                    )
+                                                                )}
+                                                            </select>
                                                         </div>
-                                                        <select
-                                                            value={sceneReflectionConcurrency}
-                                                            onChange={(e) =>
-                                                                setSceneReflectionConcurrency(
-                                                                    Number(e.target.value)
-                                                                )
-                                                            }
-                                                            className="h-8 rounded-md border border-input bg-background px-2 text-sm shrink-0"
-                                                        >
-                                                            {[1, 2, 3, 4, 5, 6, 7, 8].map((n) => (
-                                                                <option key={n} value={n}>
-                                                                    {n}
+                                                        <div className="flex items-center justify-between p-3 border rounded-lg bg-card/50">
+                                                            <div>
+                                                                <p className="text-sm">
+                                                                    Audit narratif V2
+                                                                </p>
+                                                                <p className="text-xs text-muted-foreground mt-0.5">
+                                                                    Shadow observe seulement ; Actif
+                                                                    autorise une réécriture qualité.
+                                                                </p>
+                                                            </div>
+                                                            <select
+                                                                value={directedAuditMode}
+                                                                onChange={(event) =>
+                                                                    setDirectedAuditMode(
+                                                                        event.target.value as
+                                                                            | 'shadow'
+                                                                            | 'enforce'
+                                                                    )
+                                                                }
+                                                                className="h-8 rounded-md border border-input bg-background px-2 text-sm shrink-0"
+                                                            >
+                                                                <option value="shadow">
+                                                                    Shadow
                                                                 </option>
-                                                            ))}
-                                                        </select>
-                                                    </div>
+                                                                <option value="enforce">
+                                                                    Actif
+                                                                </option>
+                                                            </select>
+                                                        </div>
+                                                    </>
                                                 )}
                                             </div>
                                         )}

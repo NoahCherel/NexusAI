@@ -398,12 +398,45 @@ export async function getSceneBeatsByConversation(
  * this before composition, so they survive a later reflection/composer failure without
  * exposing any partial assistant output.
  */
+/**
+ * The revision the ACTIVE BRANCH carries: the newest active message holding one, ignoring an
+ * atomic beat tail the caller is about to replace. This, not the conversation's denormalised
+ * `activeStoryStateRevisionId`, is what a guarded commit compares against — that cache still
+ * points at the regenerated beat's revision on a regenerate, and at another branch's revision
+ * after a branch switch, and neither is a conflict.
+ */
+function branchRevisionId(activeMessages: Message[], excludeIds: Set<string>): string | undefined {
+    return [...activeMessages]
+        .filter((message) => !excludeIds.has(message.id) && message.storyStateRevisionId)
+        .sort(
+            (left, right) =>
+                right.messageOrder - left.messageOrder ||
+                new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime()
+        )[0]?.storyStateRevisionId;
+}
+
 export async function commitStoryStateRevision(
     state: StoryState,
-    anchorMessageId: string
+    anchorMessageId: string,
+    expectedActiveRevisionId?: string
 ): Promise<Message | undefined> {
     const db = await initDB();
     const tx = db.transaction(['storyStates', 'messages', 'conversations'], 'readwrite');
+    if (expectedActiveRevisionId) {
+        const active = (
+            await tx.objectStore('messages').index('by-conversation').getAll(state.conversationId)
+        ).filter((message) => message.isActiveBranch);
+        const current = branchRevisionId(active, new Set());
+        if (current !== expectedActiveRevisionId) {
+            // Nothing queued yet: aborting only silences the AbortError of tx.done.
+            tx.abort();
+            tx.done.catch(() => {});
+            throw new DOMException(
+                'L’état narratif a changé avant le commit de maintenance.',
+                'StaleBeatError'
+            );
+        }
+    }
     await tx.objectStore('storyStates').put({ ...state, anchorMessageId });
     const message = await tx.objectStore('messages').get(anchorMessageId);
     const updatedMessage = message ? { ...message, storyStateRevisionId: state.id } : undefined;
@@ -428,6 +461,9 @@ export async function commitSceneBeat(params: {
     beat: SceneBeatRecord;
     storyState: StoryState;
     messages: Message[];
+    expectedBranchTipId?: string;
+    /** The branch revision the beat was generated from; `undefined` means "none yet". */
+    expectedStoryStateRevisionId?: string;
 }): Promise<void> {
     const db = await initDB();
     const tx = db.transaction(
@@ -441,6 +477,46 @@ export async function commitSceneBeat(params: {
             .index('by-conversation')
             .getAll(params.beat.conversationId);
         const newIds = new Set(params.messages.map((message) => message.id));
+        const activeMessages = existingMessages.filter((message) => message.isActiveBranch);
+        const currentTip = activeMessages.sort(
+            (left, right) =>
+                right.messageOrder - left.messageOrder ||
+                new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime()
+        )[0];
+        let replaceableBeatTail: Message[] = [];
+        if (params.expectedBranchTipId && currentTip?.id !== params.expectedBranchTipId) {
+            const expected = activeMessages.find(
+                (message) => message.id === params.expectedBranchTipId
+            );
+            replaceableBeatTail = expected
+                ? activeMessages.filter((message) => message.messageOrder > expected.messageOrder)
+                : [];
+            const replaceableBeatId = replaceableBeatTail[0]?.sceneBeatId;
+            const canReplaceAtomicBeat =
+                !!replaceableBeatId &&
+                replaceableBeatTail.every(
+                    (message) =>
+                        message.role === 'assistant' && message.sceneBeatId === replaceableBeatId
+                );
+            if (!canReplaceAtomicBeat) {
+                throw new DOMException(
+                    'La branche active a changé pendant la génération.',
+                    'StaleBeatError'
+                );
+            }
+        }
+        // The branch's own revision, minus the beat being replaced: a user edit or a planner
+        // pass that landed during generation shows up here; a regenerate does not.
+        const currentRevision = branchRevisionId(
+            activeMessages,
+            new Set(replaceableBeatTail.map((message) => message.id))
+        );
+        if (currentRevision !== params.expectedStoryStateRevisionId) {
+            throw new DOMException(
+                'L’état narratif a changé pendant la génération.',
+                'StaleBeatError'
+            );
+        }
         const children = new Map<string, Message[]>();
         for (const message of existingMessages) {
             if (!message.parentId) continue;
@@ -473,6 +549,7 @@ export async function commitSceneBeat(params: {
             const activeRoster = params.storyState.scene.participants
                 .filter((p) => p.presence !== 'offstage')
                 .map((p) => p.character.displayName);
+            // The Arc Compass is the user's and the planner's; a beat commit never writes it.
             await tx.objectStore('conversations').put({
                 ...conversation,
                 activeStoryStateRevisionId: params.storyState.id,

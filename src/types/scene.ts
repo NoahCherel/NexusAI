@@ -6,7 +6,12 @@
  * out of the visible transcript while still making failures and retries inspectable.
  */
 
-export type CharacterRefSource = 'root-card' | 'character-card' | 'canon-dossier' | 'ad-hoc';
+export type CharacterRefSource =
+    | 'root-card'
+    | 'character-card'
+    | 'canon-dossier'
+    | 'generated'
+    | 'ad-hoc';
 
 export interface CharacterRef {
     id: string;
@@ -24,6 +29,56 @@ export interface StoryParticipant {
     character: CharacterRef;
     presence: ScenePresence;
     agency: SceneAgency;
+}
+
+export type GeneratedCharacterStatus = 'cameo' | 'recurring' | 'retired';
+
+/** Persisted final state, never raw model reasoning. */
+export interface StoryCharacterState {
+    ref: CharacterRef;
+    publicProfile?: {
+        description: string;
+        personality?: string;
+        scenario?: string;
+    };
+    stance?: string;
+    privateGoal?: string;
+    commitments: string[];
+    lastInitiative?: string;
+    status?: GeneratedCharacterStatus;
+    meaningfulAppearances?: number;
+    pinned?: boolean;
+}
+
+export interface ToneBounds {
+    humor: [number, number];
+    darkness: [number, number];
+    intimacy: [number, number];
+    intensity: [number, number];
+    forbidden?: string[];
+}
+
+export type SceneRhythm = 'slow' | 'balanced' | 'fast' | 'adaptive';
+
+export type NarrativeStepStatus = 'planned' | 'active' | 'resolved' | 'detoured' | 'abandoned';
+
+export interface NarrativeStep {
+    id: string;
+    premise: string;
+    prerequisites: string[];
+    seeds: string[];
+    intendedPayoff: string;
+    canonAnchor?: string;
+    status: NarrativeStepStatus;
+    visibleEvidence: string[];
+}
+
+export interface CastingNeed {
+    id: string;
+    role: string;
+    reason: string;
+    status: 'open' | 'filled' | 'dismissed';
+    characterRefId?: string;
 }
 
 export interface NarrativePlan {
@@ -56,11 +111,25 @@ export interface StoryState {
         time?: string;
         summary?: string;
         participants: StoryParticipant[];
+        tone?: ToneBounds;
+        rhythm?: SceneRhythm;
     };
     plot: NarrativePlan & {
         arcWork?: string;
         currentBeat?: string;
+        canonPosition?: string;
+        dramaticQuestion?: string;
+        activeStepId?: string;
+        steps?: NarrativeStep[];
+        castingNeeds?: CastingNeed[];
+        planRevision?: number;
+        committedBeatCount?: number;
+        /** Rhythm memory: the kinds of the last committed beats on this branch (newest last). */
+        recentBeatKinds?: DirectedBeatKind[];
+        /** Who carried the initiative on the last committed beats ('world' or a character id). */
+        recentInitiativeOwners?: string[];
     };
+    characters?: Record<string, StoryCharacterState>;
     knowledge?: StoryKnowledgeFact[];
     /** JSON-pointer-like paths. A truthy entry prevents AI-authored changes. */
     locks: Record<string, true>;
@@ -69,7 +138,14 @@ export interface StoryState {
 }
 
 export type TransitionOrigin = 'observed' | 'planned';
-export type SceneTransitionType = 'enter' | 'exit' | 'presence' | 'agency' | 'location' | 'event';
+export type SceneTransitionType =
+    | 'enter'
+    | 'exit'
+    | 'presence'
+    | 'agency'
+    | 'location'
+    | 'time'
+    | 'event';
 
 export interface SceneTransition {
     origin: TransitionOrigin;
@@ -94,6 +170,28 @@ export interface DirectedParticipant {
     direction?: string;
 }
 
+export type DirectedBeatKind =
+    | 'reaction'
+    | 'initiative'
+    | 'complication'
+    | 'reveal'
+    | 'payoff'
+    | 'breather'
+    | 'transition';
+
+export interface PlayerFrame {
+    perceptions: string[];
+    externalPressures: string[];
+    affordances: string[];
+}
+
+export interface CastingRequest {
+    role: string;
+    reason: string;
+    preferredName?: string;
+    direction?: string;
+}
+
 export interface DirectedSceneDecision {
     sceneGoal?: string;
     narrationHint?: string;
@@ -101,6 +199,16 @@ export interface DirectedSceneDecision {
     participants: DirectedParticipant[];
     observedTransitions: SceneTransition[];
     plannedTransitions: SceneTransition[];
+    beatKind?: DirectedBeatKind;
+    intensity?: number;
+    humor?: number;
+    darkness?: number;
+    intimacy?: number;
+    initiativeOwner?: 'world' | string;
+    concreteChange?: string;
+    servedStepId?: string;
+    playerFrame?: PlayerFrame;
+    castingRequest?: CastingRequest;
 }
 
 /** Final, structured result only. Never a model's hidden chain-of-thought. */
@@ -116,6 +224,25 @@ export interface CharacterIntent {
     target?: string;
     departureIntent?: 'stay' | 'consider-leaving' | 'leave';
     usableFacts?: string[];
+    stance?: string;
+    initiative?: string;
+    /** Structured so the audit can compare characters; the free-text reason lives in the note. */
+    directionResponse?: 'accept' | 'bend' | 'refuse';
+    directionResponseNote?: string;
+    stateDelta?: {
+        stance?: string;
+        privateGoal?: string;
+        clearPrivateGoal?: boolean;
+        goalChangeReason?: 'resolved' | 'impossible' | 'circumstance';
+        addCommitments?: string[];
+        removeCommitments?: string[];
+        lastInitiative?: string;
+    };
+}
+
+export interface StepSignal {
+    stepId: string;
+    evidence: string;
 }
 
 export interface CompositionTurn {
@@ -128,6 +255,41 @@ export interface CompositionResult {
     narration?: string;
     turns: CompositionTurn[];
     effects?: SceneTransition[];
+    stepSignals?: StepSignal[];
+    /** V2: the writer's one-sentence state of the scene after this beat (replaces the V1 auditor). */
+    sceneSummary?: string;
+}
+
+export type DirectedTriggerKind = 'player-message' | 'advance-scene' | 'retry';
+
+export interface BeatAuditIssue {
+    code:
+        | 'invalid-participant'
+        | 'private-leak'
+        | 'player-control'
+        | 'missing-initiative'
+        | 'player-overfocus'
+        | 'positivity-bias'
+        | 'uniform-stances'
+        | 'voice-similarity'
+        | 'fake-progress'
+        | 'unused-setting'
+        | 'repetitive-structure'
+        | 'spotlight-imbalance'
+        | 'tone-bounds'
+        | 'passive-ending';
+    severity: 'warning' | 'hard';
+    message: string;
+    /** Set when the LLM judge raised or confirmed the issue; local heuristics leave it unset. */
+    confirmedBy?: 'judge';
+}
+
+export interface BeatAuditReport {
+    status: 'passed' | 'warning' | 'failed' | 'skipped';
+    source: 'local' | 'local+llm';
+    issues: BeatAuditIssue[];
+    rewritten: boolean;
+    createdAt: number;
 }
 
 export type SceneBeatStatus =
@@ -167,6 +329,8 @@ export interface SceneBeatRecord {
     id: string;
     conversationId: string;
     triggerMessageId: string;
+    triggerKind?: DirectedTriggerKind;
+    inputMessageId?: string;
     branchTipId: string;
     generationId: string;
     baseStoryStateRevisionId?: string;
@@ -182,6 +346,9 @@ export interface SceneBeatRecord {
     decision?: DirectedSceneDecision;
     intents: CharacterIntent[];
     composition?: CompositionResult;
+    audit?: BeatAuditReport;
+    registryFingerprint?: string;
+    provisionalProfiles?: StoryCharacterState[];
     profileAmbiguity?: SceneProfileAmbiguity;
     outputMessageIds: string[];
     errors: SceneBeatError[];
@@ -196,7 +363,7 @@ export interface SceneBeatRecord {
          * usage (NanoGPT emits no sentinel).
          */
         agents?: Array<{
-            agent: 'director' | 'reflection' | 'composer' | 'auditor' | 'planner';
+            agent: 'director' | 'reflection' | 'composer' | 'casting' | 'auditor' | 'planner';
             name?: string;
             promptTokens?: number;
             completionTokens?: number;

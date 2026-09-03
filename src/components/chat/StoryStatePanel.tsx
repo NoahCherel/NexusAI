@@ -51,30 +51,33 @@ export function StoryStatePanel({
         if (!open) return;
         let cancelled = false;
         setLoading(true);
-        Promise.all([
-            getStoryStateForBranch(conversation, messages),
-            resolveSceneCharacters(
+        void (async () => {
+            const stored = await getStoryStateForBranch(conversation, messages);
+            const profiles = await resolveSceneCharacters(
                 conversation.sceneRoster ?? [],
                 character,
-                conversation.sceneCharacterOverrides
-            ),
-        ])
-            .then(([stored, profiles]) => {
-                if (cancelled) return;
-                setState(
-                    stored ??
-                        createInitialStoryState({
-                            conversation,
-                            profiles,
-                            anchorMessageId: messages[messages.length - 1]?.id,
-                        })
-                );
-            })
-            .finally(() => !cancelled && setLoading(false));
+                conversation.sceneCharacterOverrides,
+                stored?.characters
+            );
+            if (cancelled) return;
+            setState(
+                stored ??
+                    createInitialStoryState({
+                        conversation,
+                        profiles,
+                        anchorMessageId: messages[messages.length - 1]?.id,
+                    })
+            );
+            setLoading(false);
+        })();
         return () => {
             cancelled = true;
         };
-    }, [open, conversation, character, messages]);
+        // Reload only when the panel opens or the conversation changes. `conversation` and
+        // `messages` get a new identity on every store tick (a planner pass, a streamed
+        // token) and would wipe the user's in-progress edits of twenty fields.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [open, conversation.id, character.id]);
 
     const toggleLock = (path: string) => {
         setState((current) => {
@@ -108,6 +111,16 @@ export function StoryStatePanel({
                 storyStateRevisionId: revision.id,
                 roster: storyRoster(revision),
             });
+            if (
+                conversation.arc &&
+                revision.plot.canonPosition &&
+                revision.plot.canonPosition !== conversation.arc.currentPosition
+            ) {
+                useChatStore.getState().updateArc(conversation.id, {
+                    ...conversation.arc,
+                    currentPosition: revision.plot.canonPosition,
+                });
+            }
             setState(revision);
             setOpen(false);
         } finally {
@@ -129,6 +142,26 @@ export function StoryStatePanel({
             )}
         </button>
     );
+
+    const updateTone = (
+        key: 'humor' | 'darkness' | 'intimacy' | 'intensity',
+        edge: 0 | 1,
+        value: number
+    ) => {
+        setState((current) => {
+            if (!current?.scene.tone) return current;
+            const range = [...current.scene.tone[key]] as [number, number];
+            range[edge] = Math.max(0, Math.min(4, value));
+            if (range[0] > range[1]) range[edge === 0 ? 1 : 0] = range[edge];
+            return {
+                ...current,
+                scene: {
+                    ...current.scene,
+                    tone: { ...current.scene.tone, [key]: range },
+                },
+            };
+        });
+    };
 
     return (
         <Dialog open={open} onOpenChange={setOpen}>
@@ -198,6 +231,147 @@ export function StoryStatePanel({
                                 </label>
                             );
                         })}
+                        {conversation.directedNarrativeVersion === 2 && (
+                            <div className="space-y-3 rounded-md border border-border/50 p-3">
+                                <div className="text-xs font-medium">Direction V2</div>
+                                <label className="block space-y-1">
+                                    <span className="flex items-center justify-between text-xs">
+                                        Position canonique{renderLock('/plot/canonPosition')}
+                                    </span>
+                                    <Input
+                                        value={state.plot.canonPosition ?? ''}
+                                        onChange={(event) =>
+                                            setState({
+                                                ...state,
+                                                plot: {
+                                                    ...state.plot,
+                                                    canonPosition: event.target.value,
+                                                },
+                                            })
+                                        }
+                                        className="h-8 text-xs"
+                                    />
+                                </label>
+                                <label className="block space-y-1">
+                                    <span className="flex items-center justify-between text-xs">
+                                        Question dramatique
+                                        {renderLock('/plot/dramaticQuestion')}
+                                    </span>
+                                    <Input
+                                        value={state.plot.dramaticQuestion ?? ''}
+                                        onChange={(event) =>
+                                            setState({
+                                                ...state,
+                                                plot: {
+                                                    ...state.plot,
+                                                    dramaticQuestion: event.target.value,
+                                                },
+                                            })
+                                        }
+                                        className="h-8 text-xs"
+                                    />
+                                </label>
+                                <label className="flex items-center justify-between gap-3 text-xs">
+                                    Rythme
+                                    <select
+                                        className="rounded border border-border bg-background px-2 py-1"
+                                        value={state.scene.rhythm ?? 'adaptive'}
+                                        onChange={(event) =>
+                                            setState({
+                                                ...state,
+                                                scene: {
+                                                    ...state.scene,
+                                                    rhythm: event.target.value as NonNullable<
+                                                        StoryState['scene']['rhythm']
+                                                    >,
+                                                },
+                                            })
+                                        }
+                                    >
+                                        <option value="slow">lent</option>
+                                        <option value="balanced">équilibré</option>
+                                        <option value="fast">rapide</option>
+                                        <option value="adaptive">adaptatif</option>
+                                    </select>
+                                </label>
+                                {state.scene.tone && (
+                                    <div className="space-y-1">
+                                        <span className="flex items-center justify-between text-xs">
+                                            Bornes de tonalité
+                                        </span>
+                                        {(
+                                            [
+                                                ['humor', 'Humour'],
+                                                ['darkness', 'Obscurité'],
+                                                ['intimacy', 'Intimité'],
+                                                ['intensity', 'Intensité'],
+                                            ] as const
+                                        ).map(([key, label]) => (
+                                            <div
+                                                key={key}
+                                                className="grid grid-cols-[1fr_3rem_3rem] items-center gap-2 text-[11px]"
+                                            >
+                                                <span>{label}</span>
+                                                <Input
+                                                    type="number"
+                                                    min={0}
+                                                    max={4}
+                                                    value={state.scene.tone![key][0]}
+                                                    onChange={(event) =>
+                                                        updateTone(
+                                                            key,
+                                                            0,
+                                                            Number(event.target.value)
+                                                        )
+                                                    }
+                                                    className="h-7 px-1 text-xs"
+                                                />
+                                                <Input
+                                                    type="number"
+                                                    min={0}
+                                                    max={4}
+                                                    value={state.scene.tone![key][1]}
+                                                    onChange={(event) =>
+                                                        updateTone(
+                                                            key,
+                                                            1,
+                                                            Number(event.target.value)
+                                                        )
+                                                    }
+                                                    className="h-7 px-1 text-xs"
+                                                />
+                                            </div>
+                                        ))}
+                                        <label className="block space-y-1">
+                                            <span className="text-[10px] text-muted-foreground">
+                                                Termes et thèmes interdits (un par ligne)
+                                            </span>
+                                            <Textarea
+                                                value={(state.scene.tone.forbidden ?? []).join(
+                                                    '\n'
+                                                )}
+                                                onChange={(event) =>
+                                                    setState({
+                                                        ...state,
+                                                        scene: {
+                                                            ...state.scene,
+                                                            tone: {
+                                                                ...state.scene.tone!,
+                                                                forbidden: event.target.value
+                                                                    .split('\n')
+                                                                    .map((line) => line.trim())
+                                                                    .filter(Boolean),
+                                                            },
+                                                        },
+                                                    })
+                                                }
+                                                className="min-h-14 text-xs"
+                                            />
+                                        </label>
+                                    </div>
+                                )}
+                            </div>
+                        )}
                         <label className="block space-y-1">
                             <span className="flex items-center justify-between text-xs">
                                 Fils ouverts{renderLock('/plot/openThreads')}
@@ -352,6 +526,241 @@ export function StoryStatePanel({
                                 );
                             })}
                         </div>
+                        {conversation.directedNarrativeVersion === 2 && (
+                            <>
+                                <div className="space-y-2">
+                                    <div className="flex items-center justify-between text-xs font-medium">
+                                        Étapes de l’arc{renderLock('/plot/steps')}
+                                    </div>
+                                    {(state.plot.steps ?? []).length === 0 ? (
+                                        <p className="text-[10px] text-muted-foreground">
+                                            Le Directeur d’intrigue préparera les prochaines étapes.
+                                        </p>
+                                    ) : (
+                                        (state.plot.steps ?? []).map((step, index) => (
+                                            <div
+                                                key={step.id}
+                                                className="space-y-1 rounded-md bg-muted/30 p-2"
+                                            >
+                                                <div className="flex gap-2">
+                                                    <Input
+                                                        value={step.premise}
+                                                        onChange={(event) => {
+                                                            const steps = [
+                                                                ...(state.plot.steps ?? []),
+                                                            ];
+                                                            steps[index] = {
+                                                                ...step,
+                                                                premise: event.target.value,
+                                                            };
+                                                            setState({
+                                                                ...state,
+                                                                plot: { ...state.plot, steps },
+                                                            });
+                                                        }}
+                                                        className="h-7 text-xs"
+                                                    />
+                                                    <select
+                                                        value={step.status}
+                                                        onChange={(event) => {
+                                                            const steps = [
+                                                                ...(state.plot.steps ?? []),
+                                                            ];
+                                                            steps[index] = {
+                                                                ...step,
+                                                                status: event.target
+                                                                    .value as typeof step.status,
+                                                            };
+                                                            setState({
+                                                                ...state,
+                                                                plot: { ...state.plot, steps },
+                                                            });
+                                                        }}
+                                                        className="rounded border border-border bg-background px-1 text-[10px]"
+                                                    >
+                                                        <option value="planned">prévue</option>
+                                                        <option value="active">active</option>
+                                                        <option value="resolved">résolue</option>
+                                                        <option value="detoured">détour</option>
+                                                        <option value="abandoned">
+                                                            abandonnée
+                                                        </option>
+                                                    </select>
+                                                </div>
+                                                <p className="text-[10px] text-muted-foreground">
+                                                    Payoff : {step.intendedPayoff}
+                                                </p>
+                                            </div>
+                                        ))
+                                    )}
+                                    {(state.plot.castingNeeds ?? []).length > 0 && (
+                                        <div className="flex items-center justify-between text-[10px] text-muted-foreground">
+                                            Besoins de casting{renderLock('/plot/castingNeeds')}
+                                        </div>
+                                    )}
+                                    {(state.plot.castingNeeds ?? []).map((need) => (
+                                        <div
+                                            key={need.id}
+                                            className="flex items-center gap-2 rounded border border-dashed border-border px-2 py-1 text-[10px]"
+                                        >
+                                            <select
+                                                value={need.status}
+                                                onChange={(event) =>
+                                                    setState({
+                                                        ...state,
+                                                        plot: {
+                                                            ...state.plot,
+                                                            castingNeeds: (
+                                                                state.plot.castingNeeds ?? []
+                                                            ).map((candidate) =>
+                                                                candidate.id === need.id
+                                                                    ? {
+                                                                          ...candidate,
+                                                                          status: event.target
+                                                                              .value as typeof need.status,
+                                                                      }
+                                                                    : candidate
+                                                            ),
+                                                        },
+                                                    })
+                                                }
+                                                className="rounded border border-border bg-background px-1"
+                                            >
+                                                <option value="open">ouvert</option>
+                                                <option value="filled">pourvu</option>
+                                                <option value="dismissed">écarté</option>
+                                            </select>
+                                            <span className="min-w-0 flex-1 truncate">
+                                                {need.role} — {need.reason}
+                                            </span>
+                                        </div>
+                                    ))}
+                                </div>
+                                <div className="space-y-2">
+                                    <div className="text-xs font-medium">Motivations privées</div>
+                                    {Object.values(state.characters ?? {}).map((entry) => {
+                                        const base = `/characters/${entry.ref.id}`;
+                                        return (
+                                            <div
+                                                key={entry.ref.id}
+                                                className="space-y-2 rounded-md border border-border/50 p-2"
+                                            >
+                                                <div className="flex items-center justify-between text-xs font-medium">
+                                                    <span>
+                                                        {entry.ref.displayName}
+                                                        {entry.ref.source === 'generated'
+                                                            ? ` · ${entry.status ?? 'cameo'}`
+                                                            : ''}
+                                                    </span>
+                                                    {entry.ref.source === 'generated' && (
+                                                        <label className="flex items-center gap-1 text-[10px] font-normal">
+                                                            <input
+                                                                type="checkbox"
+                                                                checked={entry.pinned ?? false}
+                                                                onChange={(event) =>
+                                                                    setState({
+                                                                        ...state,
+                                                                        characters: {
+                                                                            ...(state.characters ??
+                                                                                {}),
+                                                                            [entry.ref.id]: {
+                                                                                ...entry,
+                                                                                pinned: event.target
+                                                                                    .checked,
+                                                                                status: event.target
+                                                                                    .checked
+                                                                                    ? 'recurring'
+                                                                                    : (entry.meaningfulAppearances ??
+                                                                                            0) >= 2
+                                                                                      ? 'recurring'
+                                                                                      : 'cameo',
+                                                                            },
+                                                                        },
+                                                                    })
+                                                                }
+                                                            />
+                                                            récurrent
+                                                        </label>
+                                                    )}
+                                                </div>
+                                                <label className="block">
+                                                    <span className="flex items-center justify-between text-[10px] text-muted-foreground">
+                                                        Position{renderLock(`${base}/stance`)}
+                                                    </span>
+                                                    <Input
+                                                        value={entry.stance ?? ''}
+                                                        onChange={(event) =>
+                                                            setState({
+                                                                ...state,
+                                                                characters: {
+                                                                    ...(state.characters ?? {}),
+                                                                    [entry.ref.id]: {
+                                                                        ...entry,
+                                                                        stance: event.target.value,
+                                                                    },
+                                                                },
+                                                            })
+                                                        }
+                                                        className="h-7 text-xs"
+                                                    />
+                                                </label>
+                                                <label className="block">
+                                                    <span className="flex items-center justify-between text-[10px] text-muted-foreground">
+                                                        Objectif privé
+                                                        {renderLock(`${base}/privateGoal`)}
+                                                    </span>
+                                                    <Input
+                                                        value={entry.privateGoal ?? ''}
+                                                        onChange={(event) =>
+                                                            setState({
+                                                                ...state,
+                                                                characters: {
+                                                                    ...(state.characters ?? {}),
+                                                                    [entry.ref.id]: {
+                                                                        ...entry,
+                                                                        privateGoal:
+                                                                            event.target.value,
+                                                                    },
+                                                                },
+                                                            })
+                                                        }
+                                                        className="h-7 text-xs"
+                                                    />
+                                                </label>
+                                                <label className="block">
+                                                    <span className="flex items-center justify-between text-[10px] text-muted-foreground">
+                                                        Engagements
+                                                        {renderLock(`${base}/commitments`)}
+                                                    </span>
+                                                    <Textarea
+                                                        value={entry.commitments.join('\n')}
+                                                        onChange={(event) =>
+                                                            setState({
+                                                                ...state,
+                                                                characters: {
+                                                                    ...(state.characters ?? {}),
+                                                                    [entry.ref.id]: {
+                                                                        ...entry,
+                                                                        commitments:
+                                                                            event.target.value
+                                                                                .split('\n')
+                                                                                .map((line) =>
+                                                                                    line.trim()
+                                                                                )
+                                                                                .filter(Boolean),
+                                                                    },
+                                                                },
+                                                            })
+                                                        }
+                                                        className="min-h-14 text-xs"
+                                                    />
+                                                </label>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            </>
+                        )}
                         <Button
                             size="sm"
                             className="w-full gap-2"

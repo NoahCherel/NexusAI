@@ -162,6 +162,118 @@ describe('commitSceneBeat atomic IndexedDB transaction', () => {
         expect(messages.some((message) => message.id === data.output.id)).toBe(false);
     });
 
+    it('rejects a stale branch tip without publishing a partial beat', async () => {
+        const data = fixture(crypto.randomUUID());
+        const newer: Message = {
+            ...data.trigger,
+            id: `${data.trigger.id}-newer`,
+            parentId: data.trigger.id,
+            content: 'Une nouvelle action joueur arrive.',
+            messageOrder: 2,
+        };
+        await saveConversation(data.conversation);
+        await saveMessage(data.trigger);
+        await saveMessage(newer);
+
+        await expect(
+            commitSceneBeat({
+                beat: data.beat,
+                storyState: data.state,
+                messages: [data.output],
+                expectedBranchTipId: data.trigger.id,
+            })
+        ).rejects.toMatchObject({ name: 'StaleBeatError' });
+
+        expect(await getSceneBeat(data.beat.id)).toBeUndefined();
+        expect(await getStoryState(data.state.id)).toBeUndefined();
+        expect(
+            (await getConversationMessages(data.conversation.id)).some(
+                (message) => message.id === data.output.id
+            )
+        ).toBe(false);
+    });
+
+    it('never writes the Arc Compass: the user and the planner own it', async () => {
+        const data = fixture(crypto.randomUUID());
+        data.conversation.arc = { currentPosition: 'édition utilisateur' };
+        data.state.plot.canonPosition = 'position générée';
+        await saveConversation(data.conversation);
+        await saveMessage(data.trigger);
+
+        await commitSceneBeat({
+            beat: data.beat,
+            storyState: data.state,
+            messages: [data.output],
+            expectedBranchTipId: data.trigger.id,
+        });
+
+        expect((await getConversation(data.conversation.id))?.arc?.currentPosition).toBe(
+            'édition utilisateur'
+        );
+    });
+
+    it('accepts a regenerate: the only newer revision sits on the beat being replaced', async () => {
+        const data = fixture(crypto.randomUUID());
+        await saveConversation(data.conversation);
+        await saveMessage(data.trigger);
+        await commitSceneBeat({
+            beat: data.beat,
+            storyState: data.state,
+            messages: [{ ...data.output, storyStateRevisionId: data.state.id }],
+            expectedBranchTipId: data.trigger.id,
+        });
+        expect((await getConversation(data.conversation.id))?.activeStoryStateRevisionId).toBe(
+            data.state.id
+        );
+
+        // The regenerated take starts from the branch BEFORE the discarded beat: no revision.
+        const regenState: StoryState = { ...data.state, id: `${data.state.id}-regen` };
+        const regenOutput: Message = {
+            ...data.output,
+            id: `${data.output.id}-regen`,
+            storyStateRevisionId: regenState.id,
+        };
+        await commitSceneBeat({
+            beat: {
+                ...data.beat,
+                id: `${data.beat.id}-regen`,
+                committedStoryStateRevisionId: regenState.id,
+                outputMessageIds: [regenOutput.id],
+            },
+            storyState: regenState,
+            messages: [regenOutput],
+            expectedBranchTipId: data.trigger.id,
+            expectedStoryStateRevisionId: undefined,
+        });
+
+        const conversation = await getConversation(data.conversation.id);
+        expect(conversation?.activeStoryStateRevisionId).toBe(regenState.id);
+        const messages = await getConversationMessages(data.conversation.id);
+        expect(messages.find((message) => message.id === data.output.id)?.isActiveBranch).toBe(
+            false
+        );
+        expect(messages.find((message) => message.id === regenOutput.id)?.isActiveBranch).toBe(
+            true
+        );
+    });
+
+    it('rejects a commit when the branch itself gained a revision during generation', async () => {
+        const data = fixture(crypto.randomUUID());
+        await saveConversation(data.conversation);
+        await saveMessage({ ...data.trigger, storyStateRevisionId: 'landed-meanwhile' });
+
+        await expect(
+            commitSceneBeat({
+                beat: data.beat,
+                storyState: data.state,
+                messages: [data.output],
+                expectedBranchTipId: data.trigger.id,
+                expectedStoryStateRevisionId: undefined,
+            })
+        ).rejects.toMatchObject({ name: 'StaleBeatError' });
+        expect(await getSceneBeat(data.beat.id)).toBeUndefined();
+    });
+
     it('turns an in-flight beat into a retryable interruption after reload', async () => {
         const data = fixture(crypto.randomUUID());
         await saveSceneBeat({ ...data.beat, status: 'reflecting' });

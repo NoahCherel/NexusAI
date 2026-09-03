@@ -25,6 +25,9 @@ import type {
     SceneProfileAmbiguity,
     SceneTransition,
     StoryState,
+    DirectedTriggerKind,
+    StoryCharacterState,
+    CastingRequest,
 } from '@/types/scene';
 import {
     assertNoPrivateIntentLeak,
@@ -37,20 +40,30 @@ import {
     reflectCharacter,
     runCharacterReflections,
     selectReflectionTargets,
+    castOriginalCharacter,
     type AgentCallContext,
     type AgentCallUsage,
 } from '@/lib/ai/directed-scene';
 import type { AgentPayload, SamplerParams } from '@/lib/ai/conversation-context';
 import {
     AmbiguousCharacterError,
+    applyCharacterIntentDeltas,
+    applyCommittedNarrativeProgress,
     applyStoryTransitions,
+    buildCharacterRegistry,
     createInitialStoryState,
     createStoryStateRevision,
+    normalizeStoryState,
     reconcileStoryStateRoster,
     storyRoster,
     type ResolvedCharacterProfile,
 } from '@/lib/ai/story-state';
 import { nameMatchesText } from '@/lib/ai/canon-context';
+import {
+    auditCompositionWithModel,
+    auditDirectedComposition,
+    needsJudge,
+} from '@/lib/ai/beat-auditor';
 
 export interface ComposerReply {
     content: string;
@@ -68,9 +81,15 @@ export interface DirectedBeatDeps {
     resolveCharacters: (
         roster: Array<string | CharacterRef>,
         character: CharacterCard,
-        overrides?: Record<string, CharacterRef>
+        overrides?: Record<string, CharacterRef>,
+        persistedCharacters?: Record<string, StoryCharacterState>
     ) => Promise<ResolvedCharacterProfile[]>;
     resolveEntryCandidates: (character: CharacterCard) => Promise<ResolvedCharacterProfile[]>;
+    resolveCastingProfile?: (params: {
+        request: CastingRequest;
+        state: StoryState;
+        character: CharacterCard;
+    }) => Promise<ResolvedCharacterProfile | undefined>;
     /**
      * The shared-context seam. Builds the SAME payload the composer sends — card, canon, arc,
      * lorebook, Chronicle, journal, relationships, engine contract, preset post-history,
@@ -104,6 +123,8 @@ export interface DirectedBeatDeps {
         beat: SceneBeatRecord;
         storyState: StoryState;
         messages: Message[];
+        expectedBranchTipId?: string;
+        expectedStoryStateRevisionId?: string;
     }) => Promise<void>;
     /** Throws an AbortError when the beat no longer belongs to the visible branch. */
     assertCurrent?: () => void;
@@ -127,6 +148,9 @@ export interface DirectedBeatInput {
     /** Visible RP route, recorded for the Coulisses and the quota estimate. */
     composer: { provider: string; model: string };
     signal: AbortSignal;
+    triggerKind?: DirectedTriggerKind;
+    /** Shadow records quality warnings; enforce permits one quality rewrite. */
+    auditMode?: 'shadow' | 'enforce';
 }
 
 export type DirectedBeatOutcome =
@@ -147,6 +171,7 @@ export const MAX_DIRECTOR_PROFILES = 40;
 type AgentUsageEntry = NonNullable<NonNullable<SceneBeatRecord['usage']>['agents']>[number];
 
 const isAbort = (error: unknown) => error instanceof Error && error.name === 'AbortError';
+const isStale = (error: unknown) => error instanceof Error && error.name === 'StaleBeatError';
 
 function mentionsName(profile: ResolvedCharacterProfile, lowerText: string): boolean {
     return [profile.ref.displayName, ...(profile.ref.aliases ?? [])].some((name) =>
@@ -161,14 +186,16 @@ function mentionsName(profile: ResolvedCharacterProfile, lowerText: string): boo
 export function selectEntryCandidates(
     candidates: ResolvedCharacterProfile[],
     latestUserMessage: Message,
-    storedState: StoryState | undefined
+    storedState: StoryState | undefined,
+    includeLatestUserMessage = true
 ): ResolvedCharacterProfile[] {
     const entryCue = [
-        latestUserMessage.content,
+        includeLatestUserMessage ? latestUserMessage.content : undefined,
         storedState?.plot.objective,
         storedState?.plot.currentBeat,
         ...(storedState?.plot.openThreads ?? []),
         ...(storedState?.plot.nextMoves ?? []),
+        ...(storedState?.plot.castingNeeds ?? []).flatMap((need) => [need.role, need.reason]),
     ]
         .filter(Boolean)
         .join(' ')
@@ -195,13 +222,33 @@ export async function executeDirectedBeat(
     const latestUserMessage =
         [...beatHistory].reverse().find((message) => message.role === 'user') ?? triggerMessage;
     const beatId = retrySource?.id ?? newId();
+    // 'retry' replays the ORIGINAL trigger, never a reinterpretation of the history. The
+    // retried record carries its kind; a bare 'retry' (regenerate with no record to replay)
+    // derives it from the trigger itself: an unanswered player message is a new impulse, an
+    // assistant tip means the world moves on its own.
+    const replayedKind =
+        retrySource?.triggerKind !== 'retry' ? retrySource?.triggerKind : undefined;
+    const requestedKind = input.triggerKind ?? 'player-message';
+    const triggerKind: DirectedTriggerKind =
+        replayedKind ??
+        (requestedKind === 'retry'
+            ? triggerMessage.role === 'user'
+                ? 'player-message'
+                : 'advance-scene'
+            : requestedKind);
     const startedAt = now();
 
+    let preCommitProvisional: StoryCharacterState[] | undefined;
     let record: SceneBeatRecord = {
         ...retrySource,
         id: beatId,
         conversationId: conversation.id,
         triggerMessageId: triggerMessage.id,
+        triggerKind,
+        inputMessageId:
+            triggerKind === 'player-message' && latestUserMessage?.role === 'user'
+                ? latestUserMessage.id
+                : retrySource?.inputMessageId,
         branchTipId: triggerMessage.id,
         generationId: newId(),
         status: 'directing',
@@ -254,11 +301,17 @@ export async function executeDirectedBeat(
                       .map((participant) => participant.character)
                 : (conversation.sceneRoster ?? []);
         const overrides = conversation.sceneCharacterOverrides;
-        const activeProfiles = await deps.resolveCharacters(effectiveRoster, character, overrides);
+        const activeProfiles = await deps.resolveCharacters(
+            effectiveRoster,
+            character,
+            overrides,
+            storedState?.characters
+        );
         const entryCandidates = selectEntryCandidates(
             await deps.resolveEntryCandidates(character),
             latestUserMessage,
-            storedState
+            storedState,
+            triggerKind !== 'advance-scene'
         );
         const resolvedProfiles = await deps.resolveCharacters(
             [
@@ -267,10 +320,11 @@ export async function executeDirectedBeat(
                     []),
             ],
             character,
-            overrides
+            overrides,
+            storedState?.characters
         );
         const latestLower = latestUserMessage.content.toLocaleLowerCase();
-        const profiles = Array.from(
+        let profiles = Array.from(
             new Map(
                 [...resolvedProfiles, ...entryCandidates]
                     .sort(
@@ -282,8 +336,14 @@ export async function executeDirectedBeat(
                     .map((profile) => [profile.ref.id, profile] as const)
             ).values()
         );
-        const knownRefs = profiles.map((profile) => profile.ref);
-        const baseState = reconcileStoryStateRoster(
+        let registry = buildCharacterRegistry({
+            profiles,
+            state: storedState,
+            provisional: retrySource?.provisionalProfiles,
+        });
+        profiles = registry.profiles;
+        let knownRefs = profiles.map((profile) => profile.ref);
+        const reconciled = reconcileStoryStateRoster(
             storedState ??
                 createInitialStoryState({
                     conversation,
@@ -292,7 +352,27 @@ export async function executeDirectedBeat(
                 }),
             activeProfiles
         );
+        // The Arc Compass is the user's. An edit made since the last revision outranks the
+        // state's copy of the canon position, unless the user locked that field.
+        const arcPosition = conversation.arc?.currentPosition?.trim();
+        const baseState =
+            arcPosition &&
+            !reconciled.locks['/plot/canonPosition'] &&
+            reconciled.plot.canonPosition !== arcPosition
+                ? { ...reconciled, plot: { ...reconciled.plot, canonPosition: arcPosition } }
+                : reconciled;
         record.baseStoryStateRevisionId = storedState?.id;
+        record.registryFingerprint = registry.fingerprint;
+        if (
+            retrySource &&
+            (retrySource.registryFingerprint !== registry.fingerprint ||
+                (retrySource.observedStoryStateRevisionId ??
+                    retrySource.baseStoryStateRevisionId) !== storedState?.id)
+        ) {
+            record.intents = [];
+            record.decision = undefined;
+            record.observedStoryStateRevisionId = undefined;
+        }
 
         // Every agent of this beat shares one context. The FIRST build plans the history
         // window; the rest replay it, so the cacheable prefix is byte-identical and the
@@ -338,9 +418,17 @@ export async function executeDirectedBeat(
                 userName,
                 relationships: conversation.relationships,
                 maxSpeakers: input.maxSpeakers,
+                version: conversation.directedNarrativeVersion ?? 1,
+                triggerKind,
             })
         );
-        const worstCaseAgents = 1 + input.maxSpeakers;
+        const soloAtPreflight =
+            conversation.directedNarrativeVersion === 2 &&
+            baseState.scene.participants.every(
+                (participant) =>
+                    participant.presence === 'offstage' || participant.agency === 'none'
+            );
+        const worstCaseAgents = 1 + (soloAtPreflight ? 0 : input.maxSpeakers);
         const estimatedInputTokens =
             preflight.tokenBreakdown.total * worstCaseAgents +
             (input.composer.provider === 'nanogpt' ? preflight.tokenBreakdown.total : 0);
@@ -361,7 +449,7 @@ export async function executeDirectedBeat(
 
         const directorStartedAt = now();
         const decision =
-            retrySource?.decision ??
+            record.decision ??
             (await deps.direct({
                 state: baseState,
                 profiles,
@@ -373,23 +461,27 @@ export async function executeDirectedBeat(
                 maxSpeakers: input.maxSpeakers,
                 route,
                 signal,
+                version: conversation.directedNarrativeVersion ?? 1,
+                triggerKind,
             }));
         assertCurrent();
         record.timings.director = now() - directorStartedAt;
+        if (triggerKind === 'advance-scene') decision.observedTransitions = [];
 
         // User-authored facts commit before any character/composer work. A brand-new state
         // keeps revision 1; otherwise an immutable child revision is created.
-        const cachedObservedState = retrySource?.observedStoryStateRevisionId
-            ? await deps.loadState(retrySource.observedStoryStateRevisionId)
+        const cachedObservedState = record.observedStoryStateRevisionId
+            ? await deps.loadState(record.observedStoryStateRevisionId)
             : undefined;
         const observedNext = applyStoryTransitions(
             baseState,
             decision.observedTransitions,
             knownRefs
         );
-        const observedState: StoryState =
+        const hasObservedChanges = decision.observedTransitions.length > 0;
+        let observedState: StoryState =
             cachedObservedState ??
-            (storedState
+            (hasObservedChanges && storedState
                 ? createStoryStateRevision({
                       previous: storedState,
                       next: observedNext,
@@ -397,16 +489,132 @@ export async function executeDirectedBeat(
                       anchorMessageId: triggerMessage.id,
                       sourceBeatId: beatId,
                   })
-                : {
-                      ...observedNext,
-                      source: 'observed',
-                      anchorMessageId: triggerMessage.id,
-                      sourceBeatId: beatId,
-                  });
-        if (!cachedObservedState) {
+                : hasObservedChanges
+                  ? {
+                        ...observedNext,
+                        source: 'observed',
+                        anchorMessageId: triggerMessage.id,
+                        sourceBeatId: beatId,
+                    }
+                  : baseState);
+        if (!cachedObservedState && hasObservedChanges) {
             await deps.commitObservedState(observedState, triggerMessage.id);
         }
-        record.observedStoryStateRevisionId = observedState.id;
+        record.observedStoryStateRevisionId =
+            hasObservedChanges || cachedObservedState ? observedState.id : undefined;
+
+        // V2 casting is deliberately downstream from the Director: no second direction pass.
+        // A failed optional casting call leaves a valid world/narration beat.
+        let resolvedCastingProfile: ResolvedCharacterProfile | undefined;
+        if (
+            conversation.directedNarrativeVersion === 2 &&
+            decision.castingRequest &&
+            decision.participants.filter((participant) => participant.mode !== 'silent').length <
+                input.maxSpeakers &&
+            !retrySource?.provisionalProfiles?.length
+        ) {
+            try {
+                resolvedCastingProfile = await deps.resolveCastingProfile?.({
+                    request: decision.castingRequest,
+                    state: observedState,
+                    character,
+                });
+                if (!resolvedCastingProfile) {
+                    let castingAffordable = true;
+                    if (route.provider === 'nanogpt' && deps.fetchRemainingTokens) {
+                        const remaining = await deps.fetchRemainingTokens();
+                        const reflectionCount = decision.participants.filter(
+                            (participant) =>
+                                participant.mode !== 'silent' && participant.attention !== 'none'
+                        ).length;
+                        const requiredCalls =
+                            reflectionCount + (input.composer.provider === 'nanogpt' ? 1 : 0);
+                        castingAffordable =
+                            remaining == null || remaining >= plannedTokens * (requiredCalls + 1);
+                    }
+                    if (castingAffordable) {
+                        const generated = await castOriginalCharacter({
+                            request: decision.castingRequest,
+                            state: observedState,
+                            context: agentContext,
+                            id: newId(),
+                            onUsage: recordUsage('casting'),
+                        });
+                        record.provisionalProfiles = [generated];
+                    }
+                }
+            } catch (castingError) {
+                // Optional casting: the beat goes on without the character, but the Coulisses
+                // must say why nobody entered.
+                record.provisionalProfiles = [];
+                record.errors = [
+                    ...record.errors,
+                    {
+                        stage: 'director',
+                        message: `Casting : ${castingError instanceof Error ? castingError.message : 'échec inconnu.'}`,
+                        retryable: false,
+                    },
+                ];
+            }
+        }
+        if (
+            conversation.directedNarrativeVersion === 2 &&
+            (resolvedCastingProfile || record.provisionalProfiles?.length)
+        ) {
+            registry = buildCharacterRegistry({
+                profiles: resolvedCastingProfile ? [...profiles, resolvedCastingProfile] : profiles,
+                state: observedState,
+                provisional: record.provisionalProfiles,
+            });
+            profiles = registry.profiles;
+            knownRefs = profiles.map((profile) => profile.ref);
+            record.registryFingerprint = registry.fingerprint;
+            const casted =
+                resolvedCastingProfile ??
+                profiles.find(
+                    (profile) => profile.ref.id === record.provisionalProfiles?.[0]?.ref.id
+                );
+            const generated = record.provisionalProfiles?.[0];
+            if (generated) {
+                observedState = {
+                    ...observedState,
+                    characters: {
+                        ...(observedState.characters ?? {}),
+                        [generated.ref.id]: generated,
+                    },
+                };
+            }
+            if (
+                casted &&
+                !decision.participants.some(
+                    (participant) => participant.characterRefId === casted.ref.id
+                )
+            ) {
+                decision.participants.push({
+                    characterRefId: casted.ref.id,
+                    name: casted.ref.displayName,
+                    mode: 'act',
+                    attention: 'full',
+                    reason: decision.castingRequest?.reason ?? 'Entrée utile à la scène.',
+                    direction: decision.castingRequest?.direction,
+                });
+            }
+            if (
+                casted &&
+                !decision.plannedTransitions.some(
+                    (transition) =>
+                        transition.type === 'enter' && transition.characterRefId === casted.ref.id
+                )
+            ) {
+                decision.plannedTransitions.push({
+                    origin: 'planned',
+                    type: 'enter',
+                    characterRefId: casted.ref.id,
+                    characterName: casted.ref.displayName,
+                    presence: 'onstage',
+                });
+            }
+        }
 
         const plannedEntranceIds = new Set(
             decision.plannedTransitions
@@ -481,6 +689,7 @@ export async function executeDirectedBeat(
             signal,
             reflect: deps.reflect,
             context: agentContext,
+            version: conversation.directedNarrativeVersion ?? 1,
             onUsage: (name, usage) => recordUsage('reflection', name)(usage),
             onSettled: (completedReflections, totalReflections) =>
                 report({ status: 'reflecting', completedReflections, totalReflections }),
@@ -520,6 +729,8 @@ export async function executeDirectedBeat(
             intents,
             userName,
             knowledge: observedState.knowledge,
+            version: conversation.directedNarrativeVersion ?? 1,
+            state: observedState,
         });
         const composerStartedAt = now();
         let composerResult = await deps.compose({
@@ -573,6 +784,112 @@ export async function executeDirectedBeat(
             completionTokens: composerResult.usage?.completionTokens,
         };
         if (contextDivergence.length > 0) record.contextDivergence = [...contextDivergence];
+
+        if (conversation.directedNarrativeVersion === 2) {
+            const solo = allowedParticipants.length === 0;
+            // The Director may have named a character who did not survive the participant
+            // filter (offstage, no entrance): the beat is now world-led, and the audit must
+            // judge the prose, never a Director field no rewrite could change.
+            if (
+                decision.initiativeOwner !== 'world' &&
+                !allowedParticipants.some(
+                    (participant) => participant.characterRefId === decision.initiativeOwner
+                )
+            ) {
+                decision.initiativeOwner = 'world';
+            }
+            let audit = auditDirectedComposition({
+                composition,
+                decision,
+                intents,
+                state: observedState,
+                solo,
+                userName,
+            });
+            const majorTransition =
+                decision.beatKind === 'transition' ||
+                decision.beatKind === 'payoff' ||
+                decision.plannedTransitions.some(
+                    (transition) => transition.type === 'location' || transition.type === 'time'
+                );
+            const periodic = ((observedState.plot.committedBeatCount ?? 0) + 1) % 4 === 0;
+            const hardLocal = audit.issues.some((issue) => issue.severity === 'hard');
+            let judgeAffordable = true;
+            if (route.provider === 'nanogpt' && deps.fetchRemainingTokens) {
+                const remaining = await deps.fetchRemainingTokens();
+                const correctionReserve =
+                    input.auditMode === 'enforce' && input.composer.provider === 'nanogpt'
+                        ? plannedTokens
+                        : 0;
+                judgeAffordable =
+                    remaining == null || remaining >= plannedTokens + correctionReserve;
+            }
+            // Only calibrated semantic signals summon the judge; `unused-setting` and a
+            // missing concreteChange are recorded but never cost a call on their own.
+            const judgeWanted = needsJudge(audit) || majorTransition || periodic;
+            if (!hardLocal && judgeAffordable && judgeWanted) {
+                try {
+                    audit = await auditCompositionWithModel({
+                        context: agentContext,
+                        local: audit,
+                        composition,
+                        decision,
+                        state: observedState,
+                        solo,
+                        userName,
+                        onUsage: recordUsage('auditor'),
+                    });
+                } catch {
+                    audit = {
+                        ...audit,
+                        status: audit.issues.some((issue) => issue.severity === 'hard')
+                            ? 'failed'
+                            : 'skipped',
+                    };
+                }
+            } else if (!hardLocal && !judgeAffordable && judgeWanted) {
+                audit = { ...audit, status: audit.issues.length ? 'warning' : 'skipped' };
+            }
+
+            // Shadow: rewrite only for a hard violation (the beat cannot ship otherwise).
+            // Enforce: one quality rewrite, but only on issues the judge confirmed — local
+            // heuristics alone stay warnings, so an uncalibrated signal cannot burn a call.
+            const mustRewrite =
+                audit.issues.some((issue) => issue.severity === 'hard') ||
+                (input.auditMode === 'enforce' &&
+                    audit.issues.some((issue) => issue.confirmedBy === 'judge'));
+            if (mustRewrite) {
+                const correction = `${contract}\n\n[QUALITY CORRECTION] Rewrite the candidate exactly once. Fix these issues without changing confirmed facts:\n${JSON.stringify(audit.issues)}\nPrevious candidate:\n${composerResult.content.slice(0, 5_000)}`;
+                const corrected = await deps.compose({
+                    contract: correction,
+                    history: beatHistory,
+                    signal,
+                    frozenWindow,
+                });
+                if (corrected) {
+                    composition = parseCompositionResult(corrected.content, allowedParticipants);
+                    assertNoPrivateIntentLeak(composition, intents, observedState.knowledge);
+                    audit = auditDirectedComposition({
+                        composition,
+                        decision,
+                        intents,
+                        state: observedState,
+                        solo,
+                        userName,
+                        rewritten: true,
+                    });
+                    composerResult = corrected;
+                }
+            }
+            record.audit = audit;
+            if (audit.issues.some((issue) => issue.severity === 'hard')) {
+                throw new DirectedSceneError(
+                    audit.issues.find((issue) => issue.severity === 'hard')?.message ??
+                        'Une violation narrative dure persiste après correction.',
+                    'validation'
+                );
+            }
+        }
 
         const outputMessages: Message[] = [];
         let parentId: string | null = triggerMessage.id;
@@ -628,23 +945,75 @@ export async function executeDirectedBeat(
             ...(composition.effects ?? []),
             ...composition.turns.flatMap((turn) => turn.effects ?? []),
         ];
-        const generatedNext = applyStoryTransitions(observedState, generatedEffects, knownRefs);
+        let generatedNext = applyStoryTransitions(observedState, generatedEffects, knownRefs);
+        if (conversation.directedNarrativeVersion === 2) {
+            for (const provisional of record.provisionalProfiles ?? []) {
+                const visible =
+                    composition.turns.some((turn) => turn.characterRefId === provisional.ref.id) ||
+                    nameMatchesText(
+                        provisional.ref.displayName,
+                        (composition.narration ?? '').toLocaleLowerCase()
+                    );
+                if (!visible && generatedNext.characters) {
+                    const characters = { ...generatedNext.characters };
+                    delete characters[provisional.ref.id];
+                    generatedNext = { ...generatedNext, characters };
+                } else if (visible && !generatedNext.locks['/plot/castingNeeds']) {
+                    generatedNext = {
+                        ...generatedNext,
+                        plot: {
+                            ...generatedNext.plot,
+                            castingNeeds: (generatedNext.plot.castingNeeds ?? []).map((need) =>
+                                need.status === 'open' &&
+                                need.role.toLocaleLowerCase() ===
+                                    decision.castingRequest?.role.toLocaleLowerCase()
+                                    ? {
+                                          ...need,
+                                          status: 'filled' as const,
+                                          characterRefId: provisional.ref.id,
+                                      }
+                                    : need
+                            ),
+                        },
+                    };
+                }
+            }
+            generatedNext = applyCharacterIntentDeltas(generatedNext, intents);
+            generatedNext = applyCommittedNarrativeProgress(generatedNext, composition, decision);
+        }
         const finalMessage = outputMessages[outputMessages.length - 1];
-        const committedState = createStoryStateRevision({
-            previous: observedState,
-            next: generatedNext,
-            source: 'generated',
-            anchorMessageId: finalMessage.id,
-            sourceBeatId: beatId,
-        });
+        // A brand-new conversation with nothing observed has no persisted ancestor: this
+        // commit IS revision 1, not a child of an id that was never written.
+        const committedState: StoryState =
+            storedState || hasObservedChanges || cachedObservedState
+                ? createStoryStateRevision({
+                      previous: observedState,
+                      next: generatedNext,
+                      source: 'generated',
+                      anchorMessageId: finalMessage.id,
+                      sourceBeatId: beatId,
+                  })
+                : {
+                      ...normalizeStoryState(generatedNext),
+                      id: newId(),
+                      parentRevisionId: undefined,
+                      revision: 1,
+                      source: 'generated',
+                      anchorMessageId: finalMessage.id,
+                      sourceBeatId: beatId,
+                      createdAt: now(),
+                  };
         finalMessage.storyStateRevisionId = committedState.id;
 
         const committedAt = now();
+        preCommitProvisional = record.provisionalProfiles;
         record = {
             ...record,
             status: 'committed',
             branchTipId: finalMessage.id,
             composition,
+            audit: record.audit,
+            provisionalProfiles: [],
             outputMessageIds: outputMessages.map((message) => message.id),
             committedStoryStateRevisionId: committedState.id,
             timings: {
@@ -658,6 +1027,8 @@ export async function executeDirectedBeat(
             beat: record,
             storyState: committedState,
             messages: outputMessages,
+            expectedBranchTipId: triggerMessage.id,
+            expectedStoryStateRevisionId: record.observedStoryStateRevisionId ?? storedState?.id,
         });
         report({
             status: 'committed',
@@ -700,18 +1071,31 @@ export async function executeDirectedBeat(
             return { kind: 'awaiting-profile', record, ambiguity };
         }
         const aborted = isAbort(error);
-        if (record.status !== 'failed' && record.status !== 'committed') {
+        const stale = isStale(error);
+        if (record.status !== 'failed') {
             const stage =
                 error instanceof DirectedSceneError
                     ? error.stage
-                    : record.status === 'composing'
-                      ? 'composer'
-                      : record.status === 'validating'
-                        ? 'validation'
-                        : 'director';
+                    : record.status === 'committed'
+                      ? 'commit'
+                      : record.status === 'composing'
+                        ? 'composer'
+                        : record.status === 'validating'
+                          ? 'validation'
+                          : 'director';
             await persist(
                 {
-                    status: aborted ? 'cancelled' : 'failed',
+                    status: stale ? 'dirty' : aborted ? 'cancelled' : 'failed',
+                    // A dirty commit rolled its rows back: the record must not point at them,
+                    // and the provisional cast stays available for the retry.
+                    ...(stale
+                        ? {
+                              outputMessageIds: [],
+                              committedStoryStateRevisionId: undefined,
+                              provisionalProfiles:
+                                  preCommitProvisional ?? record.provisionalProfiles,
+                          }
+                        : {}),
                     errors: [
                         ...record.errors,
                         {
@@ -721,7 +1105,8 @@ export async function executeDirectedBeat(
                                     ? error.message
                                     : 'Erreur de scène inconnue.',
                             retryable:
-                                error instanceof DirectedSceneError ? error.retryable : !aborted,
+                                stale ||
+                                (error instanceof DirectedSceneError ? error.retryable : !aborted),
                         },
                     ],
                     timings: { ...record.timings, total: now() - startedAt },
@@ -729,7 +1114,9 @@ export async function executeDirectedBeat(
                 error instanceof Error ? error.message : 'Erreur inconnue'
             );
         }
-        return aborted ? { kind: 'cancelled', record, error } : { kind: 'failed', record, error };
+        return aborted && !stale
+            ? { kind: 'cancelled', record, error }
+            : { kind: 'failed', record, error };
     }
 }
 

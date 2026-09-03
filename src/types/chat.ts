@@ -94,6 +94,10 @@ export interface Conversation {
     // 'turns': historical sequential mode. 'composed-turns': one directed, atomic beat
     // rendered as separate bubbles. 'unified': one prose message for the whole ensemble.
     sceneStyle?: 'turns' | 'composed-turns' | 'unified';
+    /** Missing means the existing directed implementation (v1). V2 is experimental opt-in. */
+    directedNarrativeVersion?: 1 | 2;
+    /** Incremented by explicit Arc Compass edits; generated commits never outrank it. */
+    arcRevision?: number;
     activeStoryStateRevisionId?: string; // denormalized active-branch cache
     directedSceneSuggestionDismissed?: boolean;
     /** User choices for ambiguous scene names, keyed by normalized display name. */

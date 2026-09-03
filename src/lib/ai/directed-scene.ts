@@ -8,6 +8,9 @@ import type {
     SceneTransition,
     StoryState,
     StoryKnowledgeFact,
+    DirectedTriggerKind,
+    CastingRequest,
+    StoryCharacterState,
 } from '@/types/scene';
 import type { ResolvedCharacterProfile } from '@/lib/ai/story-state';
 import { backgroundAICall, BackgroundContextLengthError } from '@/lib/ai/background-ai';
@@ -31,10 +34,17 @@ export function parseSceneJson(raw: string): Record<string, unknown> {
     const fenced = candidate.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
     if (fenced) candidate = fenced[1].trim();
     if (!candidate.startsWith('{') || !candidate.endsWith('}')) {
-        throw new DirectedSceneError(
-            'La réponse structurée contient du texte hors JSON.',
-            'validation'
-        );
+        // One JSON object wrapped in chatter ("Here is the decision: {…}") is salvaged; the
+        // object itself must still parse. Prose without an object is rejected.
+        const start = candidate.indexOf('{');
+        const end = candidate.lastIndexOf('}');
+        if (start === -1 || end <= start) {
+            throw new DirectedSceneError(
+                'La réponse structurée contient du texte hors JSON.',
+                'validation'
+            );
+        }
+        candidate = candidate.slice(start, end + 1);
     }
     try {
         const parsed: unknown = JSON.parse(candidate);
@@ -68,6 +78,8 @@ export function directorContract(params: {
     userName: string;
     relationships?: DirectedRelationship[];
     maxSpeakers: number;
+    version?: 1 | 2;
+    triggerKind?: DirectedTriggerKind;
 }): string {
     // Ids, not names, are authoritative past this point: the parser resolves everything by id.
     const cast = params.profiles.map((profile) => {
@@ -111,10 +123,26 @@ export function directorContract(params: {
             ...relationship.axes,
         }));
 
+    const v2 = params.version === 2;
+    const solo =
+        v2 &&
+        params.state.scene.participants.every(
+            (participant) => participant.presence === 'offstage' || participant.agency === 'none'
+        );
+    const advance = params.triggerKind === 'advance-scene';
+    const inputRule = advance
+        ? 'This is an ADVANCE SCENE beat. History is context only: observedTransitions MUST be empty and no old player message is a new action.'
+        : "observedTransitions may contain only facts completed by the player's newest message.";
+    // V1 keeps its historical header. The one V1 addition is the advance-scene rule, because
+    // the parser now drops observed transitions on such beats for both versions.
+    const header = v2
+        ? `You direct a ${solo ? 'solo, world-led' : 'character'} roleplay beat. Read the story above and decide what changes next. You never write dialogue or prose.\n${inputRule}`
+        : `You direct an ensemble roleplay. Read the story above, then decide what the player's latest message has ALREADY made true and which characters must act now. You never write dialogue or prose.${advance ? `\n${inputRule}` : ''}`;
+
     return `${AGENT_PREAMBLE}
 
 [BEAT DIRECTOR]
-You direct an ensemble roleplay. Read the story above, then decide what the player's latest message has ALREADY made true and which characters must act now. You never write dialogue or prose.
+${header}
 
 Scene state:
 ${JSON.stringify({
@@ -129,6 +157,21 @@ ${JSON.stringify({
     openThreads: params.state.plot.openThreads,
     // The medium-term plan. Advisory: steer toward it, never force it.
     plannedNextMoves: params.state.plot.nextMoves,
+    // V2 only: a V1 conversation keeps the exact prompt it had before V2 existed.
+    ...(v2
+        ? {
+              dramaticQuestion: params.state.plot.dramaticQuestion,
+              activeStepId: params.state.plot.activeStepId,
+              steps: params.state.plot.steps,
+              castingNeeds: params.state.plot.castingNeeds,
+              tone: params.state.scene.tone,
+              rhythm: params.state.scene.rhythm,
+              mode: solo ? 'solo' : 'ensemble',
+              // Rhythm memory (oldest first): vary beatKind and who carries initiative.
+              recentBeatKinds: params.state.plot.recentBeatKinds,
+              recentInitiativeOwners: params.state.plot.recentInitiativeOwners,
+          }
+        : {}),
     lockedFields: Object.keys(params.state.locks),
 })}
 
@@ -143,8 +186,9 @@ Return exactly one JSON object:
   "sceneGoal": "dramatic purpose of this beat",
   "narrationHint": "optional event or atmosphere for the writer",
   "pacing": "slow|steady|urgent",
-  "observedTransitions": [{"type":"exit|enter|presence|agency|location|event","characterRefId":"id","presence":"onstage|remote|offstage","agency":"active|limited|none","value":"...","evidence":"short quote from the player's message"}],
-  "plannedTransitions": [{"type":"exit|enter|presence|agency|location|event","characterRefId":"id","presence":"onstage|remote|offstage","agency":"active|limited|none","value":"..."}],
+  ${v2 ? '"beatKind":"reaction|initiative|complication|reveal|payoff|breather|transition",\n  "intensity":0,\n  "humor":0,\n  "darkness":0,\n  "intimacy":0,\n  "initiativeOwner":"world or exact character id, never player",\n  "concreteChange":"observable change attempted by this beat",\n  "servedStepId":"optional active step id",\n  "playerFrame":{"perceptions":[],"externalPressures":[],"affordances":[]},\n  "castingRequest":{"role":"optional dramatic role","reason":"why now","preferredName":"optional","direction":"initial purpose"},' : ''}
+  "observedTransitions": [{"type":"exit|enter|presence|agency|location|time|event","characterRefId":"id","presence":"onstage|remote|offstage","agency":"active|limited|none","value":"...","evidence":"short quote from the player's message"}],
+  "plannedTransitions": [{"type":"exit|enter|presence|agency|location|time|event","characterRefId":"id","presence":"onstage|remote|offstage","agency":"active|limited|none","value":"..."}],
   "participants": [{"characterRefId":"id","mode":"speak|act|silent","attention":"none|brief|full","reason":"why this character matters now","direction":"goal/emotion/action for their turn"}]
 }
 
@@ -153,10 +197,27 @@ Rules:
 - "observedTransitions" holds ONLY completed, unambiguous facts stated in the player's latest message. Wanting, preparing or turning toward the door is not an exit.
 - An offstage character may participate only after an observed or planned entrance, or with remote presence.
 - attention full for a real dilemma, initiative, revelation or conflict; brief for a reaction; none when their presence is incidental. A stub profile can only receive none.
-- Never select the player. Never reveal a secret. Use the supplied ids exactly.`;
+- Never select the player. Never reveal a secret. Use the supplied ids exactly.
+${
+    v2
+        ? `- The initiative owner must be ${solo ? 'world' : 'world or a selected character id'}, never the player.
+- playerFrame contains only externally perceivable signals, pressures and possible affordances. Never decide the player's action, speech, thoughts or feelings.
+- A non-breather beat must attempt a concrete visible change. A breather must still add texture, latency or tension.
+- Do not repeat the beatKind of the last three beats nor let the same character carry initiative four times in a row.
+- Casting is optional and limited to one request. Never invent a canon identity.`
+        : ''
+}`;
 }
 
-const TRANSITION_TYPES = new Set(['enter', 'exit', 'presence', 'agency', 'location', 'event']);
+const TRANSITION_TYPES = new Set([
+    'enter',
+    'exit',
+    'presence',
+    'agency',
+    'location',
+    'time',
+    'event',
+]);
 const PRESENCE = new Set(['onstage', 'remote', 'offstage']);
 const AGENCY = new Set(['active', 'limited', 'none']);
 
@@ -197,9 +258,17 @@ function parseTransitions(
 export function parseDirectedDecision(
     raw: string,
     profiles: ResolvedCharacterProfile[],
-    maxSpeakers: number
+    maxSpeakers: number,
+    options: {
+        version?: 1 | 2;
+        solo?: boolean;
+        triggerKind?: DirectedTriggerKind;
+        /** Ids of the steps a beat may serve; an invented id is dropped, never audited. */
+        stepIds?: string[];
+    } = {}
 ): DirectedSceneDecision {
     const parsed = parseSceneJson(raw);
+    const servedStepId = asText(parsed.servedStepId);
     const refs = new Map(profiles.map((profile) => [profile.ref.id, profile]));
     const participants: DirectedParticipant[] = [];
     if (Array.isArray(parsed.participants)) {
@@ -230,13 +299,90 @@ export function parseDirectedDecision(
         }
     }
 
+    const arrayOfText = (value: unknown) =>
+        Array.isArray(value)
+            ? value
+                  .map(asText)
+                  .filter((item): item is string => !!item)
+                  .slice(0, 8)
+            : [];
+    const beatKind = asText(parsed.beatKind);
+    const initiativeOwner = asText(parsed.initiativeOwner);
+    const casting =
+        parsed.castingRequest && typeof parsed.castingRequest === 'object'
+            ? (parsed.castingRequest as Record<string, unknown>)
+            : undefined;
+    const frame =
+        parsed.playerFrame && typeof parsed.playerFrame === 'object'
+            ? (parsed.playerFrame as Record<string, unknown>)
+            : undefined;
     return {
         sceneGoal: asText(parsed.sceneGoal),
         narrationHint: asText(parsed.narrationHint),
         pacing: asText(parsed.pacing),
         participants,
-        observedTransitions: parseTransitions(parsed.observedTransitions, 'observed', refs),
+        observedTransitions:
+            options.triggerKind === 'advance-scene'
+                ? []
+                : parseTransitions(parsed.observedTransitions, 'observed', refs),
         plannedTransitions: parseTransitions(parsed.plannedTransitions, 'planned', refs),
+        beatKind: [
+            'reaction',
+            'initiative',
+            'complication',
+            'reveal',
+            'payoff',
+            'breather',
+            'transition',
+        ].includes(beatKind ?? '')
+            ? (beatKind as DirectedSceneDecision['beatKind'])
+            : options.version === 2
+              ? 'initiative'
+              : undefined,
+        intensity:
+            typeof parsed.intensity === 'number'
+                ? Math.max(0, Math.min(4, parsed.intensity))
+                : undefined,
+        humor:
+            typeof parsed.humor === 'number' ? Math.max(0, Math.min(4, parsed.humor)) : undefined,
+        darkness:
+            typeof parsed.darkness === 'number'
+                ? Math.max(0, Math.min(4, parsed.darkness))
+                : undefined,
+        intimacy:
+            typeof parsed.intimacy === 'number'
+                ? Math.max(0, Math.min(4, parsed.intimacy))
+                : undefined,
+        // Never the player, never an unknown name: 'world' or a supplied character id.
+        initiativeOwner:
+            options.version === 2
+                ? options.solo || !initiativeOwner || !refs.has(initiativeOwner)
+                    ? 'world'
+                    : initiativeOwner
+                : undefined,
+        concreteChange: asText(parsed.concreteChange),
+        servedStepId:
+            servedStepId && (!options.stepIds || options.stepIds.includes(servedStepId))
+                ? servedStepId
+                : undefined,
+        playerFrame: frame
+            ? {
+                  perceptions: arrayOfText(frame.perceptions),
+                  externalPressures: arrayOfText(frame.externalPressures),
+                  affordances: arrayOfText(frame.affordances),
+              }
+            : options.version === 2 && options.solo
+              ? { perceptions: [], externalPressures: [], affordances: [] }
+              : undefined,
+        castingRequest:
+            casting && asText(casting.role) && asText(casting.reason)
+                ? {
+                      role: asText(casting.role)!,
+                      reason: asText(casting.reason)!,
+                      preferredName: asText(casting.preferredName),
+                      direction: asText(casting.direction),
+                  }
+                : undefined,
     };
 }
 
@@ -315,7 +461,20 @@ export async function callStructuredAgent<T>(params: {
         const corrected = await run(
             `${params.contract}\n\n[CORRECTION] Your previous output was invalid: ${error.message} Return the corrected JSON object only. Previous output:\n${first.slice(0, 3_000)}`
         );
-        return params.parse(corrected);
+        try {
+            return params.parse(corrected);
+        } catch (secondError) {
+            // The Coulisses need to show WHAT the model answered, not only that it was invalid.
+            if (secondError instanceof DirectedSceneError && secondError.stage === 'validation') {
+                const preview = corrected.replace(/\s+/g, ' ').trim().slice(0, 240);
+                throw new DirectedSceneError(
+                    `${secondError.message} Aperçu de la réponse : « ${preview} »`,
+                    'validation',
+                    secondError.retryable
+                );
+            }
+            throw secondError;
+        }
     }
 }
 
@@ -330,7 +489,14 @@ export async function directSceneBeat(params: {
     signal?: AbortSignal;
     context: AgentCallContext;
     onUsage?: (usage: AgentCallUsage) => void;
+    version?: 1 | 2;
+    triggerKind?: DirectedTriggerKind;
 }): Promise<DirectedSceneDecision> {
+    const solo =
+        params.version === 2 &&
+        params.state.scene.participants.every(
+            (participant) => participant.presence === 'offstage' || participant.agency === 'none'
+        );
     return callStructuredAgent({
         context: params.context,
         contract: directorContract({
@@ -339,11 +505,78 @@ export async function directSceneBeat(params: {
             userName: params.userName,
             relationships: params.relationships,
             maxSpeakers: params.maxSpeakers,
+            version: params.version,
+            triggerKind: params.triggerKind,
         }),
-        parse: (raw) => parseDirectedDecision(raw, params.profiles, params.maxSpeakers),
+        parse: (raw) =>
+            parseDirectedDecision(raw, params.profiles, params.maxSpeakers, {
+                version: params.version,
+                solo,
+                triggerKind: params.triggerKind,
+                stepIds: (params.state.plot.steps ?? [])
+                    .filter((step) => step.status === 'active' || step.status === 'planned')
+                    .map((step) => step.id),
+            }),
         stage: 'director',
         failureMessage: 'Le directeur de beat n’a pas répondu.',
         onUsage: params.onUsage,
+    });
+}
+
+export async function castOriginalCharacter(params: {
+    request: CastingRequest;
+    state: StoryState;
+    context: AgentCallContext;
+    id: string;
+    onUsage?: (usage: AgentCallUsage) => void;
+}): Promise<StoryCharacterState> {
+    const contract = `${AGENT_PREAMBLE}
+
+[ORIGINAL CHARACTER CASTING]
+Create one concise ORIGINAL roleplay character for the requested dramatic role. This character must not claim to be a canon character and must not duplicate a known participant. Return a durable public profile, not prose or hidden reasoning.
+
+Request: ${JSON.stringify(params.request)}
+Scene: ${JSON.stringify({
+        location: params.state.scene.location,
+        time: params.state.scene.time,
+        summary: params.state.scene.summary,
+        dramaticQuestion: params.state.plot.dramaticQuestion,
+        existingNames: params.state.scene.participants.map(
+            (participant) => participant.character.displayName
+        ),
+    })}
+
+Return exactly: {"name":"distinct name","description":"public identity and role","personality":"specific voice, values and contradictions","scenario":"why they can enter now"}`;
+    return callStructuredAgent({
+        context: params.context,
+        contract,
+        stage: 'director',
+        failureMessage: 'Le casting original n’a pas répondu.',
+        onUsage: params.onUsage,
+        parse: (raw) => {
+            const parsed = parseSceneJson(raw);
+            const name = asText(parsed.name);
+            const description = asText(parsed.description);
+            if (!name || !description) {
+                throw new DirectedSceneError('Le profil généré est incomplet.', 'validation');
+            }
+            return {
+                ref: {
+                    id: `generated:${params.id}`,
+                    source: 'generated',
+                    displayName: name,
+                    readiness: 'ready',
+                },
+                publicProfile: {
+                    description,
+                    personality: asText(parsed.personality),
+                    scenario: asText(parsed.scenario),
+                },
+                commitments: [],
+                status: 'cameo',
+                meaningfulAppearances: 0,
+            };
+        },
     });
 }
 
@@ -353,9 +586,11 @@ export function reflectionContract(params: {
     state: StoryState;
     relationships?: DirectedRelationship[];
     rpJournal?: string[];
+    version?: 1 | 2;
 }): string {
     const attention = params.participant.attention as 'brief' | 'full';
     const name = params.profile.ref.displayName;
+    const v2 = params.version === 2;
     // The root card and the on-stage canon dossiers are already in the shared context; a
     // separate library card or an ad-hoc name is not, so carry it here.
     const ownProfile =
@@ -419,10 +654,44 @@ Scene right now: ${JSON.stringify({
     })}
 The director asks ${name} to: ${params.participant.direction ?? 'react in character'} (mode: ${params.participant.mode})
 
-Return exactly one JSON object:
-{"perception":"what they notice","emotion":"current emotion","privateGoal":"what they want","observableAction":"physical action they may take","speechIntent":"what their line should accomplish, not the final line","target":"optional target","departureIntent":"stay|consider-leaving|leave","usableFacts":["facts they may reveal"]}
+${v2 ? `Persistent final state: ${JSON.stringify(params.state.characters?.[params.profile.ref.id] ?? {})}\n\n` : ''}Return exactly one JSON object:
+${
+    v2
+        ? '{"perception":"what they notice","emotion":"current emotion","privateGoal":"what they want","stance":"their distinct position","initiative":"what they initiate rather than merely agree to","directionResponse":"accept|bend|refuse","directionResponseNote":"how they accept, bend or refuse the director direction, in character","observableAction":"physical action they may take","speechIntent":"what their line should accomplish, not the final line","target":"optional target","departureIntent":"stay|consider-leaving|leave","usableFacts":["facts they may reveal"],"stateDelta":{"stance":"new durable stance","privateGoal":"only if new or legitimately changed","clearPrivateGoal":false,"goalChangeReason":"resolved|impossible|circumstance","addCommitments":[],"removeCommitments":[],"lastInitiative":"compact final initiative"}}'
+        : '{"perception":"what they notice","emotion":"current emotion","privateGoal":"what they want","observableAction":"physical action they may take","speechIntent":"what their line should accomplish, not the final line","target":"optional target","departureIntent":"stay|consider-leaving|leave","usableFacts":["facts they may reveal"]}'
+}
 
 Depth: ${attention}. ${attention === 'brief' ? 'Be terse and reactive: one clear beat.' : 'Resolve the meaningful dilemma or initiative while staying in character.'}`;
+}
+
+/**
+ * Models answer "refuse", "refuses, because…" or a whole sentence. Keep the union for the
+ * audit and the sentence as the note, so nothing the model said is lost.
+ */
+export function normalizeDirectionResponse(
+    raw: string | undefined,
+    note: string | undefined
+): Pick<CharacterIntent, 'directionResponse' | 'directionResponseNote'> {
+    if (!raw) return { directionResponseNote: note };
+    const lower = raw.toLocaleLowerCase();
+    // "n'accepte pas", "does not follow", "won't comply" are refusals, not acceptances.
+    const negated = /\b(?:not|never|won['’]t|don['’]t|doesn['’]t|ne|n['’]|pas|jamais)\b/u.test(
+        lower
+    );
+    const response = /\b(refus|reject|décline|decline|oppos)/u.test(lower)
+        ? 'refuse'
+        : /\b(bend|twist|partial|nuance|adapt|détourn|infléch|réinterpr)/u.test(lower)
+          ? 'bend'
+          : /\b(accept|comply|follow|agree|suit|obé|obey)/u.test(lower)
+            ? negated
+                ? 'refuse'
+                : 'accept'
+            : undefined;
+    const isBareToken = /^[a-zé]+$/iu.test(raw.trim());
+    return {
+        directionResponse: response,
+        directionResponseNote: note ?? (isBareToken ? undefined : raw),
+    };
 }
 
 export function parseCharacterIntent(params: {
@@ -451,6 +720,44 @@ export function parseCharacterIntent(params: {
                   .filter((fact): fact is string => !!fact)
                   .slice(0, 8)
             : undefined,
+        stance: asText(parsed.stance),
+        initiative: asText(parsed.initiative),
+        ...normalizeDirectionResponse(
+            asText(parsed.directionResponse),
+            asText(parsed.directionResponseNote)
+        ),
+        stateDelta:
+            parsed.stateDelta && typeof parsed.stateDelta === 'object'
+                ? (() => {
+                      const delta = parsed.stateDelta as Record<string, unknown>;
+                      const reason = asText(delta.goalChangeReason);
+                      return {
+                          stance: asText(delta.stance),
+                          privateGoal: asText(delta.privateGoal),
+                          clearPrivateGoal: delta.clearPrivateGoal === true,
+                          goalChangeReason: ['resolved', 'impossible', 'circumstance'].includes(
+                              reason ?? ''
+                          )
+                              ? (reason as NonNullable<
+                                    CharacterIntent['stateDelta']
+                                >['goalChangeReason'])
+                              : undefined,
+                          addCommitments: Array.isArray(delta.addCommitments)
+                              ? delta.addCommitments
+                                    .map(asText)
+                                    .filter((item): item is string => !!item)
+                                    .slice(0, 1)
+                              : undefined,
+                          removeCommitments: Array.isArray(delta.removeCommitments)
+                              ? delta.removeCommitments
+                                    .map(asText)
+                                    .filter((item): item is string => !!item)
+                                    .slice(0, 1)
+                              : undefined,
+                          lastInitiative: asText(delta.lastInitiative),
+                      };
+                  })()
+                : undefined,
     };
 }
 
@@ -466,6 +773,7 @@ export async function reflectCharacter(params: {
     signal?: AbortSignal;
     context?: AgentCallContext;
     onUsage?: (usage: AgentCallUsage) => void;
+    version?: 1 | 2;
 }): Promise<CharacterIntent> {
     if (params.participant.attention === 'none') {
         throw new DirectedSceneError(
@@ -490,6 +798,7 @@ export async function reflectCharacter(params: {
             state: params.state,
             relationships: params.relationships,
             rpJournal: params.rpJournal,
+            version: params.version,
         }),
         parse: (raw) => parseCharacterIntent({ raw, profile: params.profile, attention }),
         stage: 'reflection',
@@ -586,6 +895,7 @@ export async function runCharacterReflections(params: {
     /** Shared-context seam; absent only in unit tests that inject their own `reflect`. */
     context?: AgentCallContext;
     onUsage?: (name: string, usage: AgentCallUsage) => void;
+    version?: 1 | 2;
 }): Promise<CharacterReflectionBatch> {
     const targets = selectReflectionTargets(params.participants, params.existingIntents);
     let completed = 0;
@@ -620,6 +930,7 @@ export async function runCharacterReflections(params: {
                     signal: params.signal,
                     context: params.context,
                     onUsage: (usage) => params.onUsage?.(profile.ref.displayName, usage),
+                    version: params.version,
                 });
             } finally {
                 completed++;
@@ -741,7 +1052,19 @@ export function parseCompositionResult(
             'validation'
         );
     }
-    return { narration, turns, effects: parseEffects(parsed.effects) };
+    const visible = [narration, ...turns.map((turn) => turn.text)].filter(Boolean).join(' ');
+    const sceneSummary = asText(parsed.sceneSummary)?.slice(0, 400);
+    const stepSignals = Array.isArray(parsed.stepSignals)
+        ? parsed.stepSignals.flatMap((entry) => {
+              if (!entry || typeof entry !== 'object') return [];
+              const item = entry as Record<string, unknown>;
+              const stepId = asText(item.stepId);
+              const evidence = asText(item.evidence);
+              if (!stepId || !evidence || !visible.includes(evidence)) return [];
+              return [{ stepId, evidence }];
+          })
+        : [];
+    return { narration, turns, effects: parseEffects(parsed.effects), stepSignals, sceneSummary };
 }
 
 /** Director-planned effects only become state when the committed composition makes them visible. */
@@ -824,9 +1147,29 @@ export function compositionContract(params: {
     intents: CharacterIntent[];
     userName: string;
     knowledge?: StoryKnowledgeFact[];
+    version?: 1 | 2;
+    state?: StoryState;
 }): string {
-    return `[DIRECTED ENSEMBLE COMPOSITION]
+    const v2 = params.version === 2;
+    const solo = v2 && params.decision.participants.length === 0;
+    // V1 keeps its historical contract byte-for-byte; the V2 blocks are appended only in V2.
+    const forbidden = params.state?.scene.tone?.forbidden?.filter(Boolean) ?? [];
+    const v2Sections = v2
+        ? `
+
+Active narrative steps (signals require an exact excerpt copied from the visible output):
+${JSON.stringify(params.state?.plot.steps ?? [])}${
+              forbidden.length
+                  ? `\n\nForbidden terms and themes (never appear in the visible text, not even quoted):\n${JSON.stringify(forbidden)}`
+                  : ''
+          }`
+        : '';
+    const v2Schema = v2
+        ? `,"stepSignals":[{"stepId":"active step id","evidence":"exact visible excerpt"}],"sceneSummary":"one sentence: where the scene stands after this beat"`
+        : '';
+    return `[DIRECTED ${solo ? 'SOLO' : 'ENSEMBLE'} COMPOSITION]
 Write one coherent roleplay beat, but return DATA rather than formatted chat. Preserve each character's canon voice and knowledge. Private goals explain behavior; never expose them as narration unless the intent explicitly permits a reveal. Never write actions, decisions or dialogue for ${params.userName}.
+${solo ? 'The world owns initiative. Use playerFrame as natural diegetic prose, never as a menu. Do not assign the player an action, thought, emotion, decision or spoken line.' : ''}
 
 Director decision:
 ${JSON.stringify(params.decision)}
@@ -835,9 +1178,9 @@ Private final intents:
 ${JSON.stringify(params.intents)}
 
 Knowledge permissions (a private fact may only appear in a turn whose characterRefId is in knownBy; never state it in neutral narration):
-${JSON.stringify(params.knowledge ?? [])}
+${JSON.stringify(params.knowledge ?? [])}${v2Sections}
 
 Return exactly one JSON object and no commentary:
-{"narration":"optional diegetic narration","turns":[{"characterRefId":"one allowed id","text":"that character's complete action/dialogue bubble","effects":[{"type":"exit|presence|agency","characterRefId":"id","presence":"onstage|remote|offstage","agency":"active|limited|none"}]}],"effects":[{"type":"location|event","value":"observable new value"}]}
+{"narration":"optional diegetic narration","turns":[{"characterRefId":"one allowed id","text":"that character's complete action/dialogue bubble","effects":[{"type":"exit|presence|agency","characterRefId":"id","presence":"onstage|remote|offstage","agency":"active|limited|none"}]}],"effects":[{"type":"location|${v2 ? 'time|' : ''}event","value":"observable new value"}]${v2Schema}}
 Each characterRefId may occur at most once. Omit silent characters. Do not prefix text with the character's name.`;
 }

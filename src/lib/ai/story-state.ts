@@ -1,9 +1,19 @@
 import type { CanonDossier } from '@/types/canon';
 import type { CharacterCard } from '@/types/character';
 import type { Conversation, Message } from '@/types/chat';
-import type { CharacterRef, SceneTransition, StoryParticipant, StoryState } from '@/types/scene';
+import type {
+    CharacterIntent,
+    CharacterRef,
+    DirectedSceneDecision,
+    SceneTransition,
+    StoryCharacterState,
+    StoryParticipant,
+    StoryState,
+    ToneBounds,
+    CompositionResult,
+} from '@/types/scene';
 import { getAllCharacters, getCanonDossiersByWork, getStoryState } from '@/lib/db';
-import { resolveWork } from '@/lib/ai/canon-context';
+import { nameMatchesText, resolveWork } from '@/lib/ai/canon-context';
 
 const normalizeName = (value: string) => value.trim().toLocaleLowerCase();
 
@@ -13,6 +23,113 @@ export interface ResolvedCharacterProfile {
     personality?: string;
     scenario?: string;
     canon?: CanonDossier;
+}
+
+export interface CharacterRegistry {
+    profiles: ResolvedCharacterProfile[];
+    byId: Map<string, ResolvedCharacterProfile>;
+    fingerprint: string;
+}
+
+export const DEFAULT_TONE_BOUNDS: ToneBounds = {
+    humor: [0, 4],
+    darkness: [0, 4],
+    intimacy: [0, 4],
+    intensity: [0, 4],
+    forbidden: [],
+};
+
+const clampTone = (range: [number, number] | undefined): [number, number] => {
+    const min = Math.max(0, Math.min(4, Math.round(range?.[0] ?? 0)));
+    const max = Math.max(min, Math.min(4, Math.round(range?.[1] ?? 4)));
+    return [min, max];
+};
+
+/** Pure lazy migration for records written before directed narrative V2. */
+export function normalizeStoryState(state: StoryState): StoryState {
+    const tone = state.scene.tone;
+    const characters = Object.fromEntries(
+        Object.entries(state.characters ?? {}).map(([id, character]) => [
+            id,
+            { ...character, commitments: character.commitments ?? [] },
+        ])
+    );
+    for (const participant of state.scene.participants) {
+        characters[participant.character.id] ??= {
+            ref: participant.character,
+            commitments: [],
+        };
+    }
+    return {
+        ...state,
+        scene: {
+            ...state.scene,
+            tone: {
+                humor: clampTone(tone?.humor),
+                darkness: clampTone(tone?.darkness),
+                intimacy: clampTone(tone?.intimacy),
+                intensity: clampTone(tone?.intensity),
+                forbidden: (tone?.forbidden ?? []).filter(Boolean),
+            },
+            rhythm: state.scene.rhythm ?? 'adaptive',
+        },
+        plot: {
+            ...state.plot,
+            canonPosition: state.plot.canonPosition ?? state.plot.currentBeat,
+            steps: state.plot.steps ?? [],
+            castingNeeds: state.plot.castingNeeds ?? [],
+            planRevision: state.plot.planRevision ?? 0,
+            committedBeatCount: state.plot.committedBeatCount ?? 0,
+        },
+        characters,
+        locks: state.locks ?? {},
+    };
+}
+
+function generatedProfile(character: StoryCharacterState): ResolvedCharacterProfile {
+    return {
+        ref: character.ref,
+        description: character.publicProfile?.description ?? '',
+        personality: character.publicProfile?.personality,
+        scenario: character.publicProfile?.scenario,
+    };
+}
+
+function registryFingerprint(profiles: ResolvedCharacterProfile[]): string {
+    const input = profiles
+        .map((profile) => `${profile.ref.id}:${profile.ref.readiness}:${profile.description}`)
+        .sort()
+        .join('|');
+    let hash = 2166136261;
+    for (let index = 0; index < input.length; index++) {
+        hash ^= input.charCodeAt(index);
+        hash = Math.imul(hash, 16777619);
+    }
+    return `registry:${(hash >>> 0).toString(16)}`;
+}
+
+export function buildCharacterRegistry(params: {
+    profiles: ResolvedCharacterProfile[];
+    state?: StoryState;
+    provisional?: StoryCharacterState[];
+}): CharacterRegistry {
+    const normalized = params.state ? normalizeStoryState(params.state) : undefined;
+    const generated = [
+        ...Object.values(normalized?.characters ?? {}),
+        ...(params.provisional ?? []),
+    ].filter((entry) => entry.ref.source === 'generated' && entry.ref.readiness === 'ready');
+    const profiles = Array.from(
+        new Map(
+            [...params.profiles, ...generated.map(generatedProfile)].map(
+                (profile) => [profile.ref.id, profile] as const
+            )
+        ).values()
+    );
+    return {
+        profiles,
+        byId: new Map(profiles.map((profile) => [profile.ref.id, profile])),
+        fingerprint: registryFingerprint(profiles),
+    };
 }
 
 export class AmbiguousCharacterError extends Error {
@@ -108,7 +225,8 @@ export async function resolveSceneEntryCandidates(
 export async function resolveSceneCharacters(
     roster: Array<string | CharacterRef>,
     rootCharacter: CharacterCard,
-    overrides: Record<string, CharacterRef> = {}
+    overrides: Record<string, CharacterRef> = {},
+    persistedCharacters: Record<string, StoryCharacterState> = {}
 ): Promise<ResolvedCharacterProfile[]> {
     const [cards, dossiers] = await Promise.all([
         getAllCharacters(),
@@ -132,6 +250,10 @@ export async function resolveSceneCharacters(
                     `canon:${normalizeName(work)}:${normalizeName(candidate.character)}` === ref.id
             );
             if (exactDossier) return canonProfile(work, exactDossier);
+        }
+        if (ref.source === 'generated') {
+            const generated = persistedCharacters[ref.id];
+            if (generated) return generatedProfile(generated);
         }
         if (ref.source === 'ad-hoc') return adHocProfile(ref.displayName);
         return undefined;
@@ -174,6 +296,10 @@ export async function resolveSceneCharacters(
         ) {
             return cardProfile(rootCharacter, 'root-card');
         }
+        const generated = Object.values(persistedCharacters).find(
+            (candidate) => normalizeName(candidate.ref.displayName) === name
+        );
+        if (generated) return generatedProfile(generated);
         return adHocProfile(rawName);
     });
 }
@@ -183,7 +309,7 @@ export function createInitialStoryState(params: {
     profiles: ResolvedCharacterProfile[];
     anchorMessageId?: string;
 }): StoryState {
-    return {
+    return normalizeStoryState({
         id: crypto.randomUUID(),
         conversationId: params.conversation.id,
         revision: 1,
@@ -195,6 +321,8 @@ export function createInitialStoryState(params: {
                 presence: 'onstage',
                 agency: profile.ref.readiness === 'ready' ? 'active' : 'limited',
             })),
+            tone: DEFAULT_TONE_BOUNDS,
+            rhythm: 'adaptive',
         },
         plot: {
             arcWork: params.conversation.arc?.work,
@@ -202,10 +330,21 @@ export function createInitialStoryState(params: {
             objective: params.conversation.arc?.nextBeat,
             openThreads: [],
             nextMoves: [],
+            canonPosition: params.conversation.arc?.currentPosition,
+            steps: [],
+            castingNeeds: [],
+            planRevision: 0,
+            committedBeatCount: 0,
         },
+        characters: Object.fromEntries(
+            params.profiles.map((profile) => [
+                profile.ref.id,
+                { ref: profile.ref, commitments: [] } satisfies StoryCharacterState,
+            ])
+        ),
         locks: {},
         createdAt: Date.now(),
-    };
+    });
 }
 
 /** The SceneBar is an explicit user control, so its roster is authoritative and bypasses locks. */
@@ -213,6 +352,7 @@ export function reconcileStoryStateRoster(
     state: StoryState,
     profiles: ResolvedCharacterProfile[]
 ): StoryState {
+    state = normalizeStoryState(state);
     const wanted = new Set(profiles.map((profile) => profile.ref.id));
     const participants = state.scene.participants.map((participant) => ({
         ...participant,
@@ -235,7 +375,11 @@ export function reconcileStoryStateRoster(
             });
         }
     }
-    return { ...state, scene: { ...state.scene, participants } };
+    const characters = { ...(state.characters ?? {}) };
+    for (const profile of profiles) {
+        characters[profile.ref.id] ??= { ref: profile.ref, commitments: [] };
+    }
+    return { ...state, scene: { ...state.scene, participants }, characters };
 }
 
 /** Resolve the nearest state snapshot on the supplied active branch. */
@@ -247,11 +391,22 @@ export async function getStoryStateForBranch(
         const revisionId = activeBranch[index].storyStateRevisionId;
         if (!revisionId) continue;
         const state = await getStoryState(revisionId);
-        if (state) return state;
+        if (state) return normalizeStoryState(state);
     }
-    return conversation.activeStoryStateRevisionId
-        ? getStoryState(conversation.activeStoryStateRevisionId)
+    const fallback = conversation.activeStoryStateRevisionId
+        ? await getStoryState(conversation.activeStoryStateRevisionId)
         : undefined;
+    // The denormalised cache may belong to a beat this branch no longer contains (a regenerate
+    // drops the discarded beat, a branch switch changes the path): a revision anchored on a
+    // message outside the supplied branch is not this branch's state. Legacy revisions with
+    // no anchor keep the historical fallback.
+    if (
+        fallback?.anchorMessageId &&
+        !activeBranch.some((message) => message.id === fallback.anchorMessageId)
+    ) {
+        return undefined;
+    }
+    return fallback ? normalizeStoryState(fallback) : undefined;
 }
 
 const isLocked = (state: StoryState, path: string, origin: SceneTransition['origin']) =>
@@ -263,7 +418,9 @@ export function applyStoryTransitions(
     transitions: SceneTransition[],
     knownCharacters: CharacterRef[] = []
 ): StoryState {
+    state = normalizeStoryState(state);
     let location = state.scene.location;
+    let time = state.scene.time;
     let summary = state.scene.summary;
     const participants = state.scene.participants.map((participant) => ({ ...participant }));
 
@@ -287,6 +444,12 @@ export function applyStoryTransitions(
                 transition.value?.trim()
             ) {
                 location = transition.value.trim();
+            }
+            continue;
+        }
+        if (transition.type === 'time') {
+            if (!isLocked(state, '/scene/time', transition.origin) && transition.value?.trim()) {
+                time = transition.value.trim();
             }
             continue;
         }
@@ -332,9 +495,144 @@ export function applyStoryTransitions(
         }
     }
 
+    const characters = { ...(state.characters ?? {}) };
+    for (const participant of participants) {
+        characters[participant.character.id] ??= {
+            ref: participant.character,
+            commitments: [],
+        };
+    }
     return {
         ...state,
-        scene: { ...state.scene, location, summary, participants },
+        scene: { ...state.scene, location, time, summary, participants },
+        characters,
+    };
+}
+
+/** Applies only compact final motivation deltas and honours user locks and goal inertia. */
+export function applyCharacterIntentDeltas(
+    state: StoryState,
+    intents: CharacterIntent[]
+): StoryState {
+    state = normalizeStoryState(state);
+    const characters = { ...(state.characters ?? {}) };
+    for (const intent of intents) {
+        const current = characters[intent.characterRefId];
+        if (!current || !intent.stateDelta) continue;
+        const delta = intent.stateDelta;
+        const base = `/characters/${intent.characterRefId}`;
+        const next: StoryCharacterState = {
+            ...current,
+            commitments: [...current.commitments],
+        };
+        if (delta.stance && !state.locks[`${base}/stance`]) next.stance = delta.stance;
+        if (delta.lastInitiative && !state.locks[`${base}/lastInitiative`]) {
+            next.lastInitiative = delta.lastInitiative;
+        }
+        if (!state.locks[`${base}/privateGoal`]) {
+            if (delta.clearPrivateGoal) next.privateGoal = undefined;
+            else if (delta.privateGoal && (!current.privateGoal || delta.goalChangeReason)) {
+                next.privateGoal = delta.privateGoal;
+            }
+        }
+        if (!state.locks[`${base}/commitments`]) {
+            const removed = new Set((delta.removeCommitments ?? []).map(normalizeName));
+            next.commitments = next.commitments.filter((item) => !removed.has(normalizeName(item)));
+            const addition = (delta.addCommitments ?? []).find(
+                (item) =>
+                    !next.commitments.some(
+                        (existing) => normalizeName(existing) === normalizeName(item)
+                    )
+            );
+            if (addition) next.commitments.push(addition);
+        }
+        characters[intent.characterRefId] = next;
+    }
+    return { ...state, characters };
+}
+
+export function applyCommittedNarrativeProgress(
+    state: StoryState,
+    composition: CompositionResult,
+    decision?: Pick<DirectedSceneDecision, 'beatKind' | 'initiativeOwner'>
+): StoryState {
+    state = normalizeStoryState(state);
+    const signals = composition.stepSignals ?? [];
+    // A user lock on the steps freezes their status: evidence is still recorded, nothing
+    // resolves or activates on its own.
+    const stepsLocked = !!state.locks['/plot/steps'];
+    const steps = (state.plot.steps ?? []).map((step) => {
+        const evidence = signals
+            .filter((signal) => signal.stepId === step.id)
+            .map((signal) => signal.evidence);
+        if (!evidence.length || step.status !== 'active') return step;
+        return {
+            ...step,
+            status: stepsLocked ? step.status : ('resolved' as const),
+            visibleEvidence: Array.from(new Set([...step.visibleEvidence, ...evidence])),
+        };
+    });
+    const activeStep = steps.find((step) => step.status === 'active');
+    const nextPlanned = steps.find(
+        (step) =>
+            step.status === 'planned' &&
+            step.prerequisites.every((id) =>
+                steps.some((candidate) => candidate.id === id && candidate.status === 'resolved')
+            )
+    );
+    if (!stepsLocked && !activeStep && nextPlanned) nextPlanned.status = 'active';
+
+    const characters = { ...(state.characters ?? {}) };
+    const narration = composition.narration?.toLocaleLowerCase() ?? '';
+    const visibleIds = new Set(composition.turns.map((turn) => turn.characterRefId));
+    for (const [id, character] of Object.entries(characters)) {
+        if (
+            character.ref.source === 'generated' &&
+            nameMatchesText(character.ref.displayName, narration)
+        ) {
+            visibleIds.add(id);
+        }
+    }
+    for (const id of visibleIds) {
+        const character = characters[id];
+        if (!character || character.ref.source !== 'generated') continue;
+        const meaningfulAppearances = (character.meaningfulAppearances ?? 0) + 1;
+        characters[id] = {
+            ...character,
+            meaningfulAppearances,
+            status:
+                character.pinned || meaningfulAppearances >= 2
+                    ? 'recurring'
+                    : (character.status ?? 'cameo'),
+        };
+    }
+    const RHYTHM_MEMORY = 6;
+    const recentBeatKinds = decision?.beatKind
+        ? [...(state.plot.recentBeatKinds ?? []), decision.beatKind].slice(-RHYTHM_MEMORY)
+        : state.plot.recentBeatKinds;
+    const recentInitiativeOwners = decision?.initiativeOwner
+        ? [...(state.plot.recentInitiativeOwners ?? []), decision.initiativeOwner].slice(
+              -RHYTHM_MEMORY
+          )
+        : state.plot.recentInitiativeOwners;
+    // V2 has no post-beat continuity auditor: the writer's own one-sentence summary is the
+    // scene memory, under the same lock the auditor honoured.
+    const summary =
+        composition.sceneSummary && !state.locks['/scene/summary']
+            ? composition.sceneSummary
+            : state.scene.summary;
+    return {
+        ...state,
+        scene: { ...state.scene, summary },
+        plot: {
+            ...state.plot,
+            steps,
+            activeStepId: steps.find((step) => step.status === 'active')?.id,
+            committedBeatCount: (state.plot.committedBeatCount ?? 0) + 1,
+            recentBeatKinds,
+            recentInitiativeOwners,
+        },
+        characters,
     };
 }
 
@@ -345,8 +643,8 @@ export function createStoryStateRevision(params: {
     anchorMessageId: string;
     sourceBeatId?: string;
 }): StoryState {
-    return {
-        ...params.next,
+    return normalizeStoryState({
+        ...normalizeStoryState(params.next),
         id: crypto.randomUUID(),
         parentRevisionId: params.previous.id,
         revision: params.previous.revision + 1,
@@ -354,7 +652,7 @@ export function createStoryStateRevision(params: {
         anchorMessageId: params.anchorMessageId,
         sourceBeatId: params.sourceBeatId,
         createdAt: Date.now(),
-    };
+    });
 }
 
 export function storyRoster(state: StoryState): string[] {

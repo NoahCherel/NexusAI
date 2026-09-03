@@ -86,9 +86,12 @@ describe('directed scene state', () => {
 });
 
 describe('directed scene structured outputs', () => {
-    it('accepts raw JSON or one JSON fence and rejects chatter', () => {
+    it('accepts raw JSON, one fence or one object wrapped in chatter; rejects prose', () => {
         expect(parseSceneJson('```json\n{"ok":true}\n```')).toEqual({ ok: true });
-        expect(() => parseSceneJson('Here: {"ok":true}')).toThrow(/hors JSON/);
+        // Models preface or trail their object with a sentence: the object is what counts.
+        expect(parseSceneJson('Here: {"ok":true}')).toEqual({ ok: true });
+        expect(() => parseSceneJson('No object at all.')).toThrow(/hors JSON/);
+        expect(() => parseSceneJson('Broken: {"ok":')).toThrow(/hors JSON|invalide/);
     });
 
     it('caps speakers, resolves stable ids and denies reflection to stubs', () => {

@@ -6,7 +6,7 @@
  * narration / NPC initiative / time passing).
  */
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
     Clapperboard,
     Play,
@@ -25,7 +25,7 @@ import type { Conversation, Message } from '@/types/chat';
 import { getActiveCanonNames } from '@/lib/ai/canon-context';
 import { useKnownCastNames } from '@/hooks/useKnownCastNames';
 import { useSettingsStore } from '@/stores/settings-store';
-import type { SceneBeatRecord, SceneGenerationProgress } from '@/types/scene';
+import type { SceneBeatRecord, SceneGenerationProgress, StoryState } from '@/types/scene';
 import { StoryStatePanel } from '@/components/chat/StoryStatePanel';
 import { Dialog, DialogContent, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import {
@@ -43,6 +43,7 @@ const AGENT_LABELS: Record<string, string> = {
     director: 'Directeur de beat',
     reflection: 'Réflexion',
     composer: 'Compositeur',
+    casting: 'Casting',
     auditor: 'Auditeur',
     planner: 'Directeur d’intrigue',
 };
@@ -70,6 +71,7 @@ export function SceneBar({
         setSceneMode,
         setSceneRoster,
         setSceneStyle,
+        setDirectedNarrativeVersion,
         setDirectedSceneSuggestionDismissed,
         setSceneCharacterOverride,
     } = useChatStore();
@@ -93,8 +95,44 @@ export function SceneBar({
         return pool.slice(0, 6);
     }, [newName, knownNames]);
 
+    // "Solo" is the ENGINE's definition — no non-player character on stage or remote with
+    // agency — read from the branch state, not from the roster length: a roster member the
+    // Director sent offstage still leaves the world alone with the player.
+    const [stateSolo, setStateSolo] = useState<boolean | null>(null);
+    const conversationId = conversation?.id;
+    const isV2Scene = !!conversation?.sceneMode && conversation.directedNarrativeVersion === 2;
+    const lastMessageId = messages[messages.length - 1]?.id;
+    const activeRevisionId = conversation?.activeStoryStateRevisionId;
+    useEffect(() => {
+        if (!conversation || !isV2Scene) {
+            setStateSolo(null);
+            return;
+        }
+        let cancelled = false;
+        getStoryStateForBranch(conversation, messages)
+            .then((stored) => {
+                if (cancelled) return;
+                setStateSolo(
+                    stored
+                        ? stored.scene.participants.every(
+                              (participant) =>
+                                  participant.presence === 'offstage' ||
+                                  participant.agency === 'none'
+                          )
+                        : null
+                );
+            })
+            .catch(() => !cancelled && setStateSolo(null));
+        return () => {
+            cancelled = true;
+        };
+        // The branch tip and the active revision are the only inputs that move the answer.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [conversationId, isV2Scene, lastMessageId, activeRevisionId, rosterSource]);
+
     if (!conversation) return null;
     const sceneOn = !!conversation.sceneMode;
+    const soloScene = stateSolo ?? roster.length === 0;
     const suggestedCast = getActiveCanonNames(character, conversation, messages, 6);
     const showSuggestion =
         !sceneOn &&
@@ -109,10 +147,13 @@ export function SceneBar({
             return;
         }
         try {
-            const [stored, profiles] = await Promise.all([
-                getStoryStateForBranch(conversation, messages),
-                resolveSceneCharacters(nextRoster, character, conversation.sceneCharacterOverrides),
-            ]);
+            const stored = await getStoryStateForBranch(conversation, messages);
+            const profiles = await resolveSceneCharacters(
+                nextRoster,
+                character,
+                conversation.sceneCharacterOverrides,
+                stored?.characters
+            );
             const next = stored
                 ? reconcileStoryStateRoster(stored, profiles)
                 : createInitialStoryState({
@@ -151,7 +192,7 @@ export function SceneBar({
         if (!sceneOn) {
             // Seed the roster: canon names active in the recent scene, else the whole
             // canonCast (capped), else the card's main character.
-            if (roster.length === 0) {
+            if (roster.length === 0 && conversation.directedNarrativeVersion !== 2) {
                 const active = getActiveCanonNames(character, conversation, messages, 20);
                 const seed =
                     active.length > 0
@@ -173,6 +214,96 @@ export function SceneBar({
         } else {
             setSceneMode(conversation.id, false);
         }
+    };
+
+    const switchDirectedVersion = async (version: 1 | 2) => {
+        try {
+            const stored = await getStoryStateForBranch(conversation, messages);
+            const anchor = messages[messages.length - 1];
+            // The switch is a user revision of the branch state, like a roster edit: the
+            // generated NPCs leave the stage for V1 (a V1 beat can no longer resurrect them)
+            // and come back on stage for V2. Their private state is untouched either way.
+            const commitPresence = async (next: StoryState) => {
+                if (!stored || !anchor) return;
+                const revision = createStoryStateRevision({
+                    previous: stored,
+                    next,
+                    source: 'user',
+                    anchorMessageId: anchor.id,
+                });
+                await commitStoryStateRevision(revision, anchor.id);
+                useChatStore.getState().applyStoryStateRevision({
+                    conversationId: conversation.id,
+                    messageId: anchor.id,
+                    storyStateRevisionId: revision.id,
+                    roster: storyRoster(revision),
+                });
+            };
+            const isGenerated = (id: string) =>
+                stored?.characters?.[id]?.ref.source === 'generated';
+            if (version === 1 && stored?.characters) {
+                const generated = Object.values(stored.characters)
+                    .filter((entry) => entry.ref.source === 'generated')
+                    .map((entry) => entry.ref.displayName);
+                const generatedNames = new Set(generated.map((name) => name.toLocaleLowerCase()));
+                const kept = roster.filter((name) => !generatedNames.has(name.toLocaleLowerCase()));
+                if (kept.length !== roster.length) {
+                    const { addNotification, updateNotification } = useNotificationStore.getState();
+                    const id = addNotification('Directeur V1', 'world');
+                    updateNotification(
+                        id,
+                        'success',
+                        `${roster.length - kept.length} PNJ généré(s) retiré(s) de la scène (${generated.join(', ')}). Leur état est conservé et revient avec la V2.`
+                    );
+                }
+                if (anchor) {
+                    await commitPresence({
+                        ...stored,
+                        scene: {
+                            ...stored.scene,
+                            participants: stored.scene.participants.map((participant) =>
+                                isGenerated(participant.character.id)
+                                    ? { ...participant, presence: 'offstage' as const }
+                                    : participant
+                            ),
+                        },
+                    });
+                } else {
+                    setSceneRoster(conversation.id, kept);
+                }
+            } else if (version === 2 && stored) {
+                if (anchor) {
+                    await commitPresence({
+                        ...stored,
+                        scene: {
+                            ...stored.scene,
+                            participants: stored.scene.participants.map((participant) =>
+                                isGenerated(participant.character.id) &&
+                                stored.characters?.[participant.character.id]?.status !== 'retired'
+                                    ? { ...participant, presence: 'onstage' as const }
+                                    : participant
+                            ),
+                        },
+                    });
+                } else {
+                    setSceneRoster(conversation.id, storyRoster(stored));
+                }
+            }
+            setDirectedNarrativeVersion(conversation.id, version);
+            setSceneStyle(conversation.id, 'composed-turns');
+        } catch (error) {
+            const message = error instanceof Error ? error.message : 'Bascule impossible.';
+            const { addNotification, updateNotification } = useNotificationStore.getState();
+            const id = addNotification('Impossible de changer de directeur', 'world');
+            updateNotification(id, 'error', message);
+        }
+    };
+
+    const enableV2 = () => {
+        // Scene mode first so the version switch persists onto an active scene; the switch
+        // itself sets the version, the style and restores the branch roster.
+        setSceneMode(conversation.id, true);
+        void switchDirectedVersion(2);
     };
 
     const removeFromRoster = (name: string) => {
@@ -201,6 +332,18 @@ export function SceneBar({
                 Troupe
             </Button>
 
+            {!sceneOn && enableDirectedSceneMode && (
+                <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 text-xs"
+                    onClick={enableV2}
+                    title="Activer le Directeur narratif V2 expérimental, y compris sans PNJ"
+                >
+                    Directeur V2
+                </Button>
+            )}
+
             {showSuggestion && (
                 <div className="flex min-w-0 items-center gap-2 rounded-md border border-primary/20 bg-primary/5 px-2 py-1 text-[11px]">
                     <span className="truncate">
@@ -224,20 +367,48 @@ export function SceneBar({
 
             {sceneOn && (
                 <>
+                    {conversation.sceneStyle === 'composed-turns' && enableDirectedSceneMode && (
+                        <span className="rounded border border-border/50 px-2 py-0.5 text-[10px] text-muted-foreground">
+                            {conversation.directedNarrativeVersion === 2
+                                ? soloScene
+                                    ? 'Solo · monde actif'
+                                    : 'Ensemble · V2'
+                                : 'Dirigé V1'}
+                        </span>
+                    )}
                     {/* Rendering style: historical, directed atomic, or unified passage. */}
                     <div className="inline-flex rounded-md border border-border/50 overflow-hidden shrink-0">
                         {enableDirectedSceneMode && (
-                            <button
-                                onClick={() => setSceneStyle(conversation.id, 'composed-turns')}
-                                className={`px-2 h-6 pointer-coarse:h-9 pointer-coarse:px-3 text-[10px] font-medium transition-colors ${
-                                    conversation.sceneStyle === 'composed-turns'
-                                        ? 'bg-primary/15 text-primary'
-                                        : 'text-muted-foreground hover:text-foreground'
-                                }`}
-                                title="Réflexions parallèles, composition cohérente et commit atomique"
-                            >
-                                Tours dirigés
-                            </button>
+                            <>
+                                <button
+                                    onClick={() => {
+                                        void switchDirectedVersion(1);
+                                    }}
+                                    className={`px-2 h-6 pointer-coarse:h-9 pointer-coarse:px-3 text-[10px] font-medium transition-colors ${
+                                        conversation.sceneStyle === 'composed-turns' &&
+                                        conversation.directedNarrativeVersion !== 2
+                                            ? 'bg-primary/15 text-primary'
+                                            : 'text-muted-foreground hover:text-foreground'
+                                    }`}
+                                    title="Pipeline dirigé existant"
+                                >
+                                    Dirigé V1
+                                </button>
+                                <button
+                                    onClick={() => {
+                                        void switchDirectedVersion(2);
+                                    }}
+                                    className={`px-2 h-6 pointer-coarse:h-9 pointer-coarse:px-3 text-[10px] font-medium transition-colors ${
+                                        conversation.sceneStyle === 'composed-turns' &&
+                                        conversation.directedNarrativeVersion === 2
+                                            ? 'bg-primary/15 text-primary'
+                                            : 'text-muted-foreground hover:text-foreground'
+                                    }`}
+                                    title="Scènes solo, autonomie persistante et arc multi-tours"
+                                >
+                                    Directeur V2
+                                </button>
+                            </>
                         )}
                         <button
                             onClick={() => setSceneStyle(conversation.id, 'turns')}
@@ -378,9 +549,14 @@ export function SceneBar({
                                     className="inline-flex h-7 pointer-coarse:h-9 items-center gap-1 px-2 pointer-coarse:px-3 text-[10px] text-muted-foreground hover:text-foreground"
                                 >
                                     <Brain className="h-3.5 w-3.5" /> Coulisses
-                                    {lastSceneBeat.status === 'committed' && (
-                                        <Check className="h-3 w-3 text-emerald-500" />
-                                    )}
+                                    {lastSceneBeat.status === 'committed' &&
+                                        (lastSceneBeat.audit?.status === 'warning' ||
+                                        (lastSceneBeat.audit?.status === 'skipped' &&
+                                            lastSceneBeat.audit.issues.length > 0) ? (
+                                            <AlertTriangle className="h-3 w-3 text-amber-500" />
+                                        ) : (
+                                            <Check className="h-3 w-3 text-emerald-500" />
+                                        ))}
                                 </button>
                             </DialogTrigger>
                             {/* A centred, fixed dialog, not an absolutely-placed panel: on a phone
@@ -401,6 +577,26 @@ export function SceneBar({
                                         <span className="text-muted-foreground">Objectif :</span>{' '}
                                         {lastSceneBeat.decision.sceneGoal}
                                     </p>
+                                )}
+                                {lastSceneBeat.audit && (
+                                    <div className="rounded-md border border-border/50 p-2">
+                                        <div className="font-medium">
+                                            Audit · {lastSceneBeat.audit.status}
+                                            {lastSceneBeat.audit.rewritten ? ' · réécrit' : ''}
+                                        </div>
+                                        {lastSceneBeat.audit.issues.map((issue) => (
+                                            <p
+                                                key={`${issue.code}:${issue.message}`}
+                                                className={
+                                                    issue.severity === 'hard'
+                                                        ? 'text-destructive'
+                                                        : 'text-muted-foreground'
+                                                }
+                                            >
+                                                {issue.code} — {issue.message}
+                                            </p>
+                                        ))}
+                                    </div>
                                 )}
                                 {lastSceneBeat.decision?.participants.map((participant) => (
                                     <div
@@ -585,9 +781,21 @@ export function SceneBar({
                         variant="secondary"
                         size="sm"
                         className="h-7 gap-1.5 text-xs shrink-0 max-sm:w-full max-sm:h-9"
-                        disabled={isSceneRunning || roster.length === 0}
+                        disabled={
+                            isSceneRunning ||
+                            (roster.length === 0 &&
+                                !(
+                                    conversation.directedNarrativeVersion === 2 &&
+                                    conversation.sceneStyle === 'composed-turns' &&
+                                    enableDirectedSceneMode
+                                ))
+                        }
                         onClick={onAdvanceScene}
-                        title="Le narrateur fait avancer la scène sans message du joueur"
+                        title={
+                            conversation.directedNarrativeVersion === 2 && roster.length === 0
+                                ? 'Le monde prend l’initiative sans décider pour votre personnage'
+                                : 'Le narrateur fait avancer la scène sans message du joueur'
+                        }
                     >
                         {isSceneRunning ? (
                             <Loader2 className="w-3.5 h-3.5 animate-spin" />

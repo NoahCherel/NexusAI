@@ -203,6 +203,7 @@ interface SettingsState {
     enableTroupeMode: boolean;
     // Feature gate for the new atomic, multi-agent scene pipeline.
     enableDirectedSceneMode: boolean;
+    directedAuditMode: 'shadow' | 'enforce';
     // Max character turns per scene beat (the Director may pick fewer). 1..8.
     maxSceneSpeakers: number;
     // Number of character-intent calls allowed to run at once. 1..8.
@@ -250,6 +251,7 @@ interface SettingsState {
     addWeeklySpend: (cost: number) => void;
     setEnableTroupeMode: (enabled: boolean) => void;
     setEnableDirectedSceneMode: (enabled: boolean) => void;
+    setDirectedAuditMode: (mode: 'shadow' | 'enforce') => void;
     setMaxSceneSpeakers: (max: number) => void;
     setSceneReflectionConcurrency: (max: number) => void;
     setEnableRelationshipAnalyst: (enabled: boolean) => void;
@@ -305,6 +307,7 @@ export const useSettingsStore = create<SettingsState>()(
             enableTroupeMode: true,
             // Experimental until the deterministic and human evaluation gates are complete.
             enableDirectedSceneMode: false,
+            directedAuditMode: 'shadow',
             maxSceneSpeakers: 5,
             sceneReflectionConcurrency: 4,
             enableRelationshipAnalyst: true,
@@ -375,6 +378,7 @@ export const useSettingsStore = create<SettingsState>()(
             setEnableTroupeMode: (enableTroupeMode) => set({ enableTroupeMode }),
             setEnableDirectedSceneMode: (enableDirectedSceneMode) =>
                 set({ enableDirectedSceneMode }),
+            setDirectedAuditMode: (directedAuditMode) => set({ directedAuditMode }),
             setMaxSceneSpeakers: (maxSceneSpeakers) =>
                 set({ maxSceneSpeakers: Math.max(1, Math.min(8, Math.round(maxSceneSpeakers))) }),
             setSceneReflectionConcurrency: (sceneReflectionConcurrency) =>
