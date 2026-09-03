@@ -1088,7 +1088,11 @@ export function useChatGeneration({
         await triggerAiReponse(history, { prefill });
     };
 
-    const impersonate = async (): Promise<string | void> => {
+    /**
+     * Draft the player's next message. `directive` is whatever was already typed in the input
+     * box: an outline the drafted message must enact, rather than a free continuation.
+     */
+    const impersonate = async (directive?: string): Promise<string | void> => {
         if (!activeConversationId || isLoading || !currentApiKey || !character) return;
 
         setIsLoading(true);
@@ -1130,6 +1134,7 @@ export function useChatGeneration({
                     : undefined,
                 userPersona: activePersona,
                 longTermMemory: impMem,
+                impersonationDirective: directive,
                 storyGuidance: impConv?.storyGuidance,
                 scratchpad: impConv?.scratchpad,
                 activeProvider,

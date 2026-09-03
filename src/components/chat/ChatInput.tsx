@@ -29,7 +29,11 @@ interface ChatInputProps {
     isLoading?: boolean;
     placeholder?: string;
     disabled?: boolean;
-    onImpersonate?: () => Promise<string | void>;
+    /**
+     * Draft the player's next message. Receives the current input-box text when there is
+     * one: the draft is then an outline the generated message must enact, not free writing.
+     */
+    onImpersonate?: (draft?: string) => Promise<string | void>;
     onDraftChange?: (draft: string) => void;
 }
 
@@ -82,11 +86,15 @@ export function ChatInput({
 
     const handleImpersonateClick = async () => {
         if (!onImpersonate) return;
+        // The outline is only replaced once a draft actually comes back: an empty result or a
+        // failed generation must leave what the player wrote untouched.
+        const outline = message.trim();
         setIsImpersonating(true);
         try {
-            const text = await onImpersonate();
+            const text = await onImpersonate(outline || undefined);
             if (text && typeof text === 'string') {
                 setMessage(text);
+                onDraftChange?.(text);
                 adjustHeight();
             }
         } finally {
@@ -119,10 +127,19 @@ export function ChatInput({
                             <DropdownMenuItem
                                 onClick={handleImpersonateClick}
                                 disabled={isImpersonating || isLoading}
+                                title={
+                                    message.trim()
+                                        ? 'Rédige votre réplique à partir de ce que vous avez écrit'
+                                        : 'Rédige votre prochaine réplique à votre place'
+                                }
                             >
                                 <User className="mr-2 h-4 w-4" />
                                 <span>
-                                    {isImpersonating ? 'Impersonating...' : 'Impersonate Me'}
+                                    {isImpersonating
+                                        ? 'Impersonating...'
+                                        : message.trim()
+                                          ? 'Mettre en scène le brouillon'
+                                          : 'Impersonate Me'}
                                 </span>
                             </DropdownMenuItem>
                         )}

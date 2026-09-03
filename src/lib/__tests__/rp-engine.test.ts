@@ -377,6 +377,82 @@ describe('buildConversationPayload — impersonate (inverted contract)', () => {
         expect(joined).not.toContain('SCRATCH_SECRET');
     });
 
+    // The input box doubles as an outline: what the player typed becomes the shape of the
+    // drafted turn instead of being discarded.
+    const OUTLINE = 'il ouvre la porte, saute, et combat';
+
+    it('turns the typed draft into an outline the drafted message must enact', async () => {
+        const { messagesPayload } = await buildConversationPayload({
+            mode: 'impersonate',
+            character: card,
+            activeEntries: [],
+            history: [userMsg('hello')],
+            activePreset: preset(),
+            activeEngine: immersive,
+            userPersona: { name: 'Alex', bio: 'a ranger' },
+            impersonationDirective: OUTLINE,
+            maxContextTokens: 8192,
+            maxOutputTokens: 1000,
+        });
+
+        const last = messagesPayload[messagesPayload.length - 1];
+        expect(last.role).toBe('user');
+        expect(last.content).toContain("PLAYER'S OUTLINE");
+        expect(last.content).toContain(OUTLINE);
+        // The outline is an instruction, never a played turn: it must not reach the history.
+        expect(
+            messagesPayload
+                .slice(0, -1)
+                .map((m) => m.content)
+                .join('\n')
+        ).not.toContain(OUTLINE);
+        // The behavioural contract keeps the final word.
+        expect(last.content.indexOf("PLAYER'S OUTLINE")).toBeLessThan(
+            last.content.indexOf('ROLEPLAY DRAFTING TASK')
+        );
+    });
+
+    it('leaves the prompt untouched when the input box is empty', async () => {
+        const build = (impersonationDirective?: string) =>
+            buildConversationPayload({
+                mode: 'impersonate',
+                character: card,
+                activeEntries: [],
+                history: [userMsg('hello')],
+                activePreset: preset(),
+                activeEngine: immersive,
+                userPersona: { name: 'Alex', bio: 'a ranger' },
+                impersonationDirective,
+                maxContextTokens: 8192,
+                maxOutputTokens: 1000,
+            });
+
+        const [none, blank] = await Promise.all([build(), build('   ')]);
+        const lastOf = (payload: Awaited<ReturnType<typeof build>>) =>
+            payload.messagesPayload[payload.messagesPayload.length - 1].content;
+        expect(lastOf(none)).not.toContain("PLAYER'S OUTLINE");
+        expect(lastOf(blank)).toBe(lastOf(none));
+    });
+
+    it('keeps a custom impersonationPrompt as the closing instruction after the outline', async () => {
+        const { messagesPayload } = await buildConversationPayload({
+            mode: 'impersonate',
+            character: card,
+            activeEntries: [],
+            history: [userMsg('hello')],
+            activePreset: preset({ impersonationPrompt: 'CUSTOM_IMP for {{user}}' }),
+            activeEngine: immersive,
+            userPersona: { name: 'Alex', bio: 'a ranger' },
+            impersonationDirective: OUTLINE,
+            maxContextTokens: 8192,
+            maxOutputTokens: 1000,
+        });
+        const last = messagesPayload[messagesPayload.length - 1];
+        expect(last.content).toContain(OUTLINE);
+        expect(last.content).toContain('ROLEPLAY DRAFTING CONTEXT');
+        expect(last.content.endsWith('CUSTOM_IMP for Alex')).toBe(true);
+    });
+
     it('still injects the prior scratchpad during normal generation', async () => {
         const { messagesPayload } = await buildConversationPayload({
             mode: 'generate',

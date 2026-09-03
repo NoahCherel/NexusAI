@@ -56,6 +56,13 @@ export interface BuildConversationPayloadParams {
     learnedBanList?: string[];
     userPersona?: { name: string; bio: string; description?: string } | null;
     longTermMemory?: string[];
+    /**
+     * Impersonation only: the one-shot outline the player typed in the input box before
+     * asking for a draft ("il ouvre la porte, saute, et combat"). The drafted message must
+     * ENACT it. Unlike `storyGuidance` this is not persisted and not an author's note — it
+     * describes this single turn, and it never enters the history as a played message.
+     */
+    impersonationDirective?: string;
     storyGuidance?: string;
     scratchpad?: string;
     /**
@@ -324,13 +331,28 @@ export async function buildConversationPayload(
                   userName: resolvedUserName,
               })
             : `${draftingContext}\n\n[Draft one candidate next message for ${resolvedUserName} in their established voice. Output only ${resolvedUserName}'s message; do not answer as the assistant and do not write the other characters.]`;
+        // What the player typed in the input box before asking for a draft: an outline of the
+        // turn, not a played message. It is placed BEFORE the contract so the contract stays
+        // the final instruction (a custom impersonationPrompt must remain the closing word).
+        const outline = params.impersonationDirective?.trim();
+        const outlineBlock = outline
+            ? [
+                  `[PLAYER'S OUTLINE — ${resolvedUserName} has sketched what they do or say next:`,
+                  `« ${outline} »`,
+                  `The outline may be written in any person or tense: "je", "il", "elle" and the like all refer to ${resolvedUserName}. Write ${resolvedUserName}'s message so it enacts exactly this outline: keep every event, its order and its intent; expand it into full prose and dialogue in ${resolvedUserName}'s established voice and point of view; do not add outcomes, decisions or events the player did not sketch. When an action has no written outcome (a fight, a question, an attempt), play it out and stop at the moment the other characters' response becomes necessary; never narrate their reactions.]`,
+              ].join('\n')
+            : undefined;
         // A custom prompt remains authoritative; the neutral context only tells the model that
         // this is fictional drafting, then the user's configured instruction closes the request.
         // Avoid calling this "impersonation" in model-facing text: some models interpret that
         // as identity impersonation instead of collaborative drafting for a fictional persona.
-        contractBlock = customImpersonationPrompt
-            ? `${draftingContext}\n\n${customImpersonationPrompt}`
-            : defaultDraftingContract;
+        contractBlock = (
+            customImpersonationPrompt
+                ? [draftingContext, outlineBlock, customImpersonationPrompt]
+                : [outlineBlock, defaultDraftingContract]
+        )
+            .filter(Boolean)
+            .join('\n\n');
     } else if (activeEngine) {
         contractBlock = buildEnginePostHistory(activeEngine, 'generate', { userName });
     }
