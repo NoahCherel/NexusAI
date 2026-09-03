@@ -2,7 +2,14 @@
 
 import { useEffect, useState, type ReactNode } from 'react';
 import { Lock, Unlock, Save, Loader2 } from 'lucide-react';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogHeader,
+    DialogTitle,
+    DialogTrigger,
+} from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -124,20 +131,20 @@ export function StoryStatePanel({
     );
 
     return (
-        <Popover open={open} onOpenChange={setOpen}>
-            <PopoverTrigger asChild>{trigger}</PopoverTrigger>
-            <PopoverContent
-                side="top"
-                align="start"
-                className="w-[min(34rem,92vw)] max-h-[70vh] overflow-auto space-y-3"
-            >
-                <div>
-                    <h3 className="font-semibold">État de l’intrigue</h3>
-                    <p className="text-[11px] text-muted-foreground">
+        <Dialog open={open} onOpenChange={setOpen}>
+            <DialogTrigger asChild>{trigger}</DialogTrigger>
+            {/* A centred, fixed dialog rather than an anchored popover: the panel opens on a
+                "Chargement…" stub and grows once the revision loads, and an anchored panel
+                positioned for the stub could end up hanging below a phone's viewport. A
+                dialog is sized by the viewport alone and scrolls inside itself. */}
+            <DialogContent className="block max-h-[85vh] w-[min(34rem,calc(100%-1rem))] max-w-none overflow-y-auto p-4 sm:max-w-[34rem] space-y-3">
+                <DialogHeader className="text-left">
+                    <DialogTitle className="text-base">État de l’intrigue</DialogTitle>
+                    <DialogDescription className="text-[11px]">
                         Révision liée à cette branche. Les cadenas bloquent les modifications
                         produites par l’IA.
-                    </p>
-                </div>
+                    </DialogDescription>
+                </DialogHeader>
                 {loading || !state ? (
                     <div className="flex items-center gap-2 text-xs text-muted-foreground">
                         <Loader2 className="h-4 w-4 animate-spin" /> Chargement…
@@ -299,7 +306,7 @@ export function StoryStatePanel({
                                                 : ''}
                                         </span>
                                         <select
-                                            className="rounded border border-border bg-background px-1 py-1"
+                                            className="rounded border border-border bg-background px-1 py-1 pointer-coarse:py-2"
                                             value={participant.presence}
                                             onChange={(event) => {
                                                 const participants = [...state.scene.participants];
@@ -321,7 +328,7 @@ export function StoryStatePanel({
                                         <span className="flex">{renderLock(presencePath)}</span>
                                         <span />
                                         <select
-                                            className="rounded border border-border bg-background px-1 py-1"
+                                            className="rounded border border-border bg-background px-1 py-1 pointer-coarse:py-2"
                                             value={participant.agency}
                                             onChange={(event) => {
                                                 const participants = [...state.scene.participants];
@@ -360,7 +367,7 @@ export function StoryStatePanel({
                         </Button>
                     </>
                 )}
-            </PopoverContent>
-        </Popover>
+            </DialogContent>
+        </Dialog>
     );
 }

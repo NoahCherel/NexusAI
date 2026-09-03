@@ -186,10 +186,25 @@ export interface SceneBeatRecord {
     outputMessageIds: string[];
     errors: SceneBeatError[];
     usage?: {
+        /** Composer only, kept for the existing Coulisses line. */
         promptTokens?: number;
         completionTokens?: number;
         estimatedInputTokens?: number;
+        /**
+         * Per-agent breakdown. Every agent now sends the whole conversation, so the cost of a
+         * beat is only legible agent by agent. `estimated` marks a provider that reports no
+         * usage (NanoGPT emits no sentinel).
+         */
+        agents?: Array<{
+            agent: 'director' | 'reflection' | 'composer' | 'auditor' | 'planner';
+            name?: string;
+            promptTokens?: number;
+            completionTokens?: number;
+            estimated?: boolean;
+        }>;
     };
+    /** Set when an agent's final block forced a history trim the rest of the beat did not have. */
+    contextDivergence?: string[];
     timings: Partial<
         Record<'director' | 'reflections' | 'composer' | 'validation' | 'total', number>
     >;

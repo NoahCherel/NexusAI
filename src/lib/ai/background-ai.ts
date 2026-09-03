@@ -22,11 +22,29 @@ import { decryptApiKey } from '@/lib/crypto';
 import { NANOGPT_USAGE_REFRESH_EVENT } from '@/lib/ai/nanogpt-usage';
 import { extractUsageSentinel } from '@/lib/ai/usage-sentinel';
 import type { BackgroundRouteSnapshot } from '@/types/scene';
+import type { SamplerParams } from '@/lib/ai/conversation-context';
 import {
     noteProviderRateLimit,
     scheduleBackgroundRequest,
     type BackgroundPriority,
 } from '@/lib/ai/background-scheduler';
+
+/**
+ * The frozen route's model cannot hold the payload. Only raised in full-payload mode: a
+ * legacy extraction call keeps its null-on-failure contract.
+ */
+export class BackgroundContextLengthError extends Error {
+    constructor(
+        readonly model: string,
+        readonly detail: string
+    ) {
+        super(detail);
+        this.name = 'BackgroundContextLengthError';
+    }
+}
+
+const CONTEXT_LENGTH_PATTERN =
+    /context.length|context.window|maximum context|max(?:imum)?_?tokens|too many tokens|token limit|exceeds? the (?:model|context)|prompt is too long|input is too long/i;
 
 // Fallback model chain — tried in order, skips on 429
 const FREE_MODELS = [
@@ -37,8 +55,23 @@ const FREE_MODELS = [
 ];
 
 export interface BackgroundAIOptions {
+    /**
+     * Legacy single-turn mode: a synthetic user message plus a separate system prompt. Kept
+     * for the small extraction agents (relationships, facts, canon retrieval).
+     */
     systemPrompt: string;
     userPrompt: string;
+    /**
+     * Full-payload mode. When present it REPLACES systemPrompt/userPrompt: the messages are
+     * sent as-is (system already at [0]) exactly like the visible generation, so an invisible
+     * agent shares the composer's context byte for byte. Pair it with `sampler` so the
+     * active preset governs the call too.
+     */
+    messages?: { role: string; content: string }[];
+    /** Preset-derived sampler body (see buildSamplerParams). Overrides temperature/maxTokens. */
+    sampler?: SamplerParams;
+    /** system + history boundary, for provider prompt caching. */
+    cachePrefixLength?: number;
     /**
      * Optional pre-resolved OpenRouter key. When omitted, keys are resolved from settings.
      * (Legacy param — only affects the OpenRouter path.)
@@ -76,6 +109,8 @@ export interface BackgroundAIResult {
     content: string;
     usedModel: string;
     usedProvider: 'nanogpt' | 'openrouter';
+    /** Provider-reported token usage. Absent on NanoGPT, which emits no sentinel. */
+    usage?: { promptTokens?: number; completionTokens?: number; cachedTokens?: number };
 }
 
 /** Decrypt the stored key for a provider, or null when absent/broken. */
@@ -144,6 +179,10 @@ interface ChainAttemptParams {
     models: string[];
     systemPrompt: string;
     userPrompt: string;
+    /** Full-payload mode: sent verbatim instead of systemPrompt + a synthetic user turn. */
+    messages?: { role: string; content: string }[];
+    sampler?: SamplerParams;
+    cachePrefixLength?: number;
     temperature: number;
     maxTokens: number;
     maxRetries: number;
@@ -164,6 +203,9 @@ async function tryModelChain(params: ChainAttemptParams): Promise<BackgroundAIRe
         models,
         systemPrompt,
         userPrompt,
+        messages,
+        sampler,
+        cachePrefixLength,
         temperature,
         maxTokens,
         maxRetries,
@@ -191,13 +233,27 @@ async function tryModelChain(params: ChainAttemptParams): Promise<BackgroundAIRe
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify({
-                                messages: [{ role: 'user', content: userPrompt }],
+                                // Full-payload mode carries its own system message at [0];
+                                // legacy mode sends one synthetic user turn plus a system
+                                // prompt the route prepends.
+                                messages: messages ?? [{ role: 'user', content: userPrompt }],
                                 provider,
                                 model,
                                 apiKey,
-                                systemPrompt,
-                                temperature,
-                                maxTokens,
+                                systemPrompt: messages ? undefined : systemPrompt,
+                                cachePrefixLength,
+                                // The preset governs an agent exactly as it governs the
+                                // visible reply; legacy callers keep their own two knobs.
+                                temperature: sampler?.temperature ?? temperature,
+                                maxTokens: sampler?.maxTokens ?? maxTokens,
+                                topP: sampler?.topP,
+                                topK: sampler?.topK,
+                                frequencyPenalty: sampler?.frequencyPenalty,
+                                presencePenalty: sampler?.presencePenalty,
+                                repetitionPenalty: sampler?.repetitionPenalty,
+                                minP: sampler?.minP,
+                                stoppingStrings: sampler?.stoppingStrings,
+                                enableReasoning: sampler?.enableReasoning,
                                 billingScope:
                                     provider === 'nanogpt'
                                         ? (billingScope ?? 'subscription')
@@ -206,16 +262,20 @@ async function tryModelChain(params: ChainAttemptParams): Promise<BackgroundAIRe
                                 // plus the server-side search loop exceeds the deadline.
                                 useFlexTier:
                                     provider === 'openrouter' && !webSearch
-                                        ? useSettingsStore.getState().useFlexTier
+                                        ? (sampler?.useFlexTier ??
+                                          useSettingsStore.getState().useFlexTier)
                                         : false,
                                 webSearch: provider === 'openrouter' ? webSearch : false,
                                 webMaxResults,
-                                disableReasoning,
+                                // The visible generation never sends this; a full-payload
+                                // agent must not be silently stripped of reasoning either.
+                                disableReasoning: sampler ? undefined : disableReasoning,
                             }),
                             signal,
                         });
                         if (response.ok) {
-                            return { response, text: await readStreamFull(response) };
+                            const stream = await readStreamFull(response);
+                            return { response, text: stream.clean, usage: stream.usage };
                         }
                         const errorPayload = (await response.json().catch(() => ({}))) as Record<
                             string,
@@ -232,7 +292,12 @@ async function tryModelChain(params: ChainAttemptParams): Promise<BackgroundAIRe
                         thinkTagStrategy
                     ).trim();
                     if (cleaned) {
-                        return { content: cleaned, usedModel: model, usedProvider: provider };
+                        return {
+                            content: cleaned,
+                            usedModel: model,
+                            usedProvider: provider,
+                            usage: scheduled.usage,
+                        };
                     }
                     // Empty response — try next model
                     break;
@@ -265,12 +330,24 @@ async function tryModelChain(params: ChainAttemptParams): Promise<BackgroundAIRe
                     break;
                 }
 
+                // A full-payload agent that does not fit its model is a configuration
+                // problem, not a transient one: surface it instead of a silent null.
+                const detail = typeof errorPayload.error === 'string' ? errorPayload.error : '';
+                if (
+                    messages &&
+                    (upstreamStatus === 400 || upstreamStatus === 413) &&
+                    CONTEXT_LENGTH_PATTERN.test(detail)
+                ) {
+                    throw new BackgroundContextLengthError(model, detail);
+                }
+
                 // Other error — try next model
                 console.warn(
                     `[BackgroundAI] ${response.status} on ${provider}/${model}, trying next model`
                 );
                 break;
             } catch (err) {
+                if (err instanceof BackgroundContextLengthError) throw err;
                 console.warn(`[BackgroundAI] Error on ${provider}/${model}:`, err);
                 break;
             }
@@ -363,7 +440,12 @@ export async function backgroundAICall(
         route,
         signal,
         priority = 'background',
-        timeoutMs = 90_000,
+        messages,
+        sampler,
+        cachePrefixLength,
+        // A full-payload agent sends the whole conversation; 90 s is the small-extraction
+        // budget and is not enough for a 30k-token prompt on a slow free model.
+        timeoutMs = messages ? 240_000 : 90_000,
     } = options;
     // Safari < 17.4 has neither AbortSignal.timeout nor AbortSignal.any.
     const timeoutController = new AbortController();
@@ -390,6 +472,9 @@ export async function backgroundAICall(
             webSearch,
             webMaxResults,
             disableReasoning,
+            messages,
+            sampler,
+            cachePrefixLength,
             signal: effectiveSignal,
             priority,
         };
@@ -487,9 +572,12 @@ function normalizeThinkText(text: string, strategy: 'remove-blocks' | 'remove-ta
  * (extractors), so the raw sentinel must NEVER leak through. A paid background model's
  * real cost still counts toward the weekly OpenRouter budget.
  */
-async function readStreamFull(response: Response): Promise<string> {
+async function readStreamFull(response: Response): Promise<{
+    clean: string;
+    usage?: { promptTokens?: number; completionTokens?: number; cachedTokens?: number };
+}> {
     const reader = response.body?.getReader();
-    if (!reader) return '';
+    if (!reader) return { clean: '' };
 
     const decoder = new TextDecoder();
     let text = '';
@@ -509,5 +597,14 @@ async function readStreamFull(response: Response): Promise<string> {
             /* store unavailable (tests/SSR) — accounting is best-effort */
         }
     }
-    return clean;
+    return {
+        clean,
+        usage: usage
+            ? {
+                  promptTokens: usage.promptTokens,
+                  completionTokens: usage.completionTokens,
+                  cachedTokens: usage.cachedTokens,
+              }
+            : undefined,
+    };
 }

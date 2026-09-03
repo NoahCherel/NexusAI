@@ -10,7 +10,8 @@ import type {
     StoryKnowledgeFact,
 } from '@/types/scene';
 import type { ResolvedCharacterProfile } from '@/lib/ai/story-state';
-import { backgroundAICall } from '@/lib/ai/background-ai';
+import { backgroundAICall, BackgroundContextLengthError } from '@/lib/ai/background-ai';
+import type { AgentPayload, SamplerParams } from '@/lib/ai/conversation-context';
 import { USER_REL_KEY } from '@/types/chat';
 
 export class DirectedSceneError extends Error {
@@ -47,86 +48,112 @@ export function parseSceneJson(raw: string): Record<string, unknown> {
 const asText = (value: unknown): string | undefined =>
     typeof value === 'string' && value.trim() ? value.trim() : undefined;
 
-function directorSystemPrompt(maxSpeakers: number): string {
-    return `You are the BEAT DIRECTOR for an ensemble roleplay. Analyze what the user's latest message has ALREADY made true, then choose only the characters whose participation matters. You do not write dialogue or publish prose.
+/**
+ * The one block that differs between agents. Everything before it — card, canon dossiers,
+ * arc, lorebook, Chronicle, RP journal, relationships, engine contract, preset post-history,
+ * history window — is the composer's, verbatim.
+ *
+ * The preamble is not optional: the shared context ends with instructions to write prose of a
+ * given length, and this call must return JSON instead.
+ */
+const AGENT_PREAMBLE = [
+    '[STRUCTURED PLANNING TURN — this is NOT a chat reply.',
+    'Ignore every instruction above about prose, length, formatting and staying in character as a narrator: they govern the visible reply, not this request.',
+    'The story context above is your memory: use it. Return exactly one JSON object and nothing else — no prose, no code fence commentary.]',
+].join('\n');
 
-Return exactly one JSON object:
-{
-  "sceneGoal": "dramatic purpose",
-  "narrationHint": "optional event or atmosphere for the composer",
-  "pacing": "slow|steady|urgent",
-  "observedTransitions": [{"type":"exit|enter|presence|agency|location|event","characterRefId":"id","presence":"onstage|remote|offstage","agency":"active|limited|none","value":"...","evidence":"short quote"}],
-  "plannedTransitions": [{"type":"exit|enter|presence|agency|location|event","characterRefId":"id","presence":"onstage|remote|offstage","agency":"active|limited|none","value":"..."}],
-  "participants": [{"characterRefId":"id","mode":"speak|act|silent","attention":"none|brief|full","reason":"why this character matters","direction":"goal/emotion/action"}]
-}
-
-Rules:
-- At most ${maxSpeakers} participants with mode speak or act. Directly addressed characters take priority.
-- "observedTransitions" contains ONLY completed or unambiguous facts in the latest USER message. Wanting, preparing or turning to leave is not an exit.
-- An offstage character may participate only after an observed/planned entrance, or with remote presence.
-- Use full attention only for a meaningful dilemma, initiative, revelation or conflict; brief for a reaction; none for incidental participation.
-- A stub profile can only receive attention none.
-- Never select the player. Never expose secrets. Use the supplied stable characterRefId values exactly.`;
-}
-
-function directorUserPrompt(params: {
+export function directorContract(params: {
     state: StoryState;
     profiles: ResolvedCharacterProfile[];
-    recentMessages: Message[];
     userName: string;
     relationships?: DirectedRelationship[];
+    maxSpeakers: number;
 }): string {
-    const latest = params.recentMessages.slice(-4).map((message) => ({
-        role: message.role,
-        speaker: message.speaker?.name ?? (message.role === 'user' ? params.userName : 'Narrator'),
-        content: message.content.slice(0, 1_400),
-    }));
-    const profiles = params.profiles.map((profile) => {
+    // Ids, not names, are authoritative past this point: the parser resolves everything by id.
+    const cast = params.profiles.map((profile) => {
         const participant = params.state.scene.participants.find(
             (candidate) => candidate.character.id === profile.ref.id
         );
+        const onStage = !!participant && participant.presence !== 'offstage';
+        // The shared context above already describes the root card and the injected canon
+        // dossiers of the on-stage cast. A separate library card, an ad-hoc name or an
+        // off-stage candidate is NOT in it, so they get a short reminder here.
+        const described =
+            profile.ref.source === 'root-card' ||
+            (profile.ref.source === 'canon-dossier' && onStage);
         return {
             id: profile.ref.id,
             name: profile.ref.displayName,
+            aliases: profile.ref.aliases,
             readiness: profile.ref.readiness,
             presence: participant?.presence ?? 'offstage',
             agency: participant?.agency ?? 'limited',
-            identity: [profile.personality, profile.description]
-                .filter(Boolean)
-                .join(' ')
-                .slice(0, 500),
+            identity: described
+                ? undefined
+                : [profile.personality, profile.description]
+                      .filter(Boolean)
+                      .join(' ')
+                      .slice(0, 600) || undefined,
         };
     });
     const relationships = (params.relationships ?? [])
         .filter((relationship) =>
-            profiles.some(
-                (profile) => profile.name === relationship.from || profile.name === relationship.to
+            params.profiles.some(
+                (profile) =>
+                    profile.ref.displayName === relationship.from ||
+                    profile.ref.displayName === relationship.to
             )
         )
-        .slice(0, 12)
+        .slice(0, 20)
         .map((relationship) => ({
             from: relationship.from,
             to: relationship.to === USER_REL_KEY ? params.userName : relationship.to,
-            trust: relationship.axes.trust,
-            affection: relationship.axes.affection,
-            respect: relationship.axes.respect,
+            ...relationship.axes,
         }));
 
-    return JSON.stringify({
-        player: params.userName,
-        scene: {
-            location: params.state.scene.location,
-            time: params.state.scene.time,
-            summary: params.state.scene.summary,
-            objective: params.state.plot.objective,
-            pressure: params.state.plot.pressure,
-            openThreads: params.state.plot.openThreads,
-            locks: Object.keys(params.state.locks),
-        },
-        profiles,
-        relationships,
-        recentMessages: latest,
-    });
+    return `${AGENT_PREAMBLE}
+
+[BEAT DIRECTOR]
+You direct an ensemble roleplay. Read the story above, then decide what the player's latest message has ALREADY made true and which characters must act now. You never write dialogue or prose.
+
+Scene state:
+${JSON.stringify({
+    player: params.userName,
+    location: params.state.scene.location,
+    time: params.state.scene.time,
+    summary: params.state.scene.summary,
+    work: params.state.plot.arcWork,
+    currentBeat: params.state.plot.currentBeat,
+    objective: params.state.plot.objective,
+    pressure: params.state.plot.pressure,
+    openThreads: params.state.plot.openThreads,
+    // The medium-term plan. Advisory: steer toward it, never force it.
+    plannedNextMoves: params.state.plot.nextMoves,
+    lockedFields: Object.keys(params.state.locks),
+})}
+
+Cast (use these exact ids):
+${JSON.stringify(cast)}
+
+Directed bonds (-100..100):
+${JSON.stringify(relationships)}
+
+Return exactly one JSON object:
+{
+  "sceneGoal": "dramatic purpose of this beat",
+  "narrationHint": "optional event or atmosphere for the writer",
+  "pacing": "slow|steady|urgent",
+  "observedTransitions": [{"type":"exit|enter|presence|agency|location|event","characterRefId":"id","presence":"onstage|remote|offstage","agency":"active|limited|none","value":"...","evidence":"short quote from the player's message"}],
+  "plannedTransitions": [{"type":"exit|enter|presence|agency|location|event","characterRefId":"id","presence":"onstage|remote|offstage","agency":"active|limited|none","value":"..."}],
+  "participants": [{"characterRefId":"id","mode":"speak|act|silent","attention":"none|brief|full","reason":"why this character matters now","direction":"goal/emotion/action for their turn"}]
+}
+
+Rules:
+- At most ${params.maxSpeakers} participants with mode speak or act. A directly addressed character takes priority.
+- "observedTransitions" holds ONLY completed, unambiguous facts stated in the player's latest message. Wanting, preparing or turning toward the door is not an exit.
+- An offstage character may participate only after an observed or planned entrance, or with remote presence.
+- attention full for a real dilemma, initiative, revelation or conflict; brief for a reaction; none when their presence is incidental. A stub profile can only receive none.
+- Never select the player. Never reveal a secret. Use the supplied ids exactly.`;
 }
 
 const TRANSITION_TYPES = new Set(['enter', 'exit', 'presence', 'agency', 'location', 'event']);
@@ -213,6 +240,85 @@ export function parseDirectedDecision(
     };
 }
 
+export interface AgentCallContext {
+    /** Builds the full shared payload with this agent's contract as the final block. */
+    buildPayload: (contract: string) => Promise<AgentPayload>;
+    sampler: SamplerParams;
+    route: BackgroundRouteSnapshot;
+    signal?: AbortSignal;
+}
+
+/** Token usage of one agent call, estimated when the provider reports none (NanoGPT). */
+export interface AgentCallUsage {
+    promptTokens?: number;
+    completionTokens?: number;
+    estimated?: boolean;
+}
+
+/**
+ * One structured agent turn: build the shared payload, call the frozen route, parse. A single
+ * malformed answer gets exactly one correction on the same model — the contract the composer
+ * already lives under.
+ */
+export async function callStructuredAgent<T>(params: {
+    context: AgentCallContext;
+    contract: string;
+    parse: (raw: string) => T;
+    stage: DirectedSceneError['stage'];
+    failureMessage: string;
+    onUsage?: (usage: AgentCallUsage) => void;
+}): Promise<T> {
+    const { context } = params;
+    const run = async (contract: string) => {
+        const payload = await context.buildPayload(contract);
+        let result: Awaited<ReturnType<typeof backgroundAICall>>;
+        try {
+            result = await backgroundAICall({
+                systemPrompt: '',
+                userPrompt: '',
+                messages: payload.messages,
+                sampler: context.sampler,
+                cachePrefixLength: payload.stablePrefixLength,
+                maxRetries: 2,
+                route: context.route,
+                signal: context.signal,
+                priority: 'scene',
+            });
+        } catch (error) {
+            if (error instanceof BackgroundContextLengthError) {
+                // The preset sized the window; the background model is narrower. Retrying
+                // the same route cannot help — the user has to pick a wider background model
+                // or a smaller preset context.
+                throw new DirectedSceneError(
+                    `Le modèle background « ${error.model} » ne peut pas recevoir le contexte du preset (${payload.tokenBreakdown.total.toLocaleString('fr-FR')} tokens). Choisissez un modèle background à fenêtre plus large ou réduisez le contexte du preset.`,
+                    'route',
+                    false
+                );
+            }
+            throw error;
+        }
+        if (!result) throw new DirectedSceneError(params.failureMessage, params.stage);
+        params.onUsage?.({
+            promptTokens: result.usage?.promptTokens ?? payload.tokenBreakdown.total,
+            completionTokens:
+                result.usage?.completionTokens ?? Math.ceil(result.content.length / 4),
+            estimated: !result.usage,
+        });
+        return result.content;
+    };
+
+    const first = await run(params.contract);
+    try {
+        return params.parse(first);
+    } catch (error) {
+        if (!(error instanceof DirectedSceneError) || error.stage !== 'validation') throw error;
+        const corrected = await run(
+            `${params.contract}\n\n[CORRECTION] Your previous output was invalid: ${error.message} Return the corrected JSON object only. Previous output:\n${first.slice(0, 3_000)}`
+        );
+        return params.parse(corrected);
+    }
+}
+
 export async function directSceneBeat(params: {
     state: StoryState;
     profiles: ResolvedCharacterProfile[];
@@ -222,31 +328,101 @@ export async function directSceneBeat(params: {
     maxSpeakers: number;
     route: BackgroundRouteSnapshot;
     signal?: AbortSignal;
+    context: AgentCallContext;
+    onUsage?: (usage: AgentCallUsage) => void;
 }): Promise<DirectedSceneDecision> {
-    const result = await backgroundAICall({
-        systemPrompt: directorSystemPrompt(params.maxSpeakers),
-        userPrompt: directorUserPrompt(params),
-        temperature: 0.35,
-        maxTokens: 900,
-        maxRetries: 2,
-        route: params.route,
-        signal: params.signal,
-        priority: 'scene',
+    return callStructuredAgent({
+        context: params.context,
+        contract: directorContract({
+            state: params.state,
+            profiles: params.profiles,
+            userName: params.userName,
+            relationships: params.relationships,
+            maxSpeakers: params.maxSpeakers,
+        }),
+        parse: (raw) => parseDirectedDecision(raw, params.profiles, params.maxSpeakers),
+        stage: 'director',
+        failureMessage: 'Le directeur de beat n’a pas répondu.',
+        onUsage: params.onUsage,
     });
-    if (!result) throw new DirectedSceneError('Le directeur de beat n’a pas répondu.', 'director');
-    return parseDirectedDecision(result.content, params.profiles, params.maxSpeakers);
 }
 
-function reflectionSystemPrompt(
-    profile: ResolvedCharacterProfile,
-    attention: 'brief' | 'full'
-): string {
-    return `You are privately deciding the next beat for ${profile.ref.displayName}. Return a compact FINAL INTENT, not prose for the chat and not hidden chain-of-thought. Use only the character profile and facts supplied here. Never decide the player's actions.
+export function reflectionContract(params: {
+    profile: ResolvedCharacterProfile;
+    participant: DirectedParticipant;
+    state: StoryState;
+    relationships?: DirectedRelationship[];
+    rpJournal?: string[];
+}): string {
+    const attention = params.participant.attention as 'brief' | 'full';
+    const name = params.profile.ref.displayName;
+    // The root card and the on-stage canon dossiers are already in the shared context; a
+    // separate library card or an ad-hoc name is not, so carry it here.
+    const ownProfile =
+        params.profile.ref.source === 'root-card' || params.profile.ref.source === 'canon-dossier'
+            ? undefined
+            : [params.profile.personality, params.profile.description]
+                  .filter(Boolean)
+                  .join('\n')
+                  .slice(0, 4_000) || undefined;
+    const known = (params.state.knowledge ?? []).filter(
+        (fact) => fact.visibility === 'public' || fact.knownBy.includes(params.profile.ref.id)
+    );
+    const bonds = (params.relationships ?? [])
+        .filter((relationship) => relationship.from === name || relationship.to === name)
+        .slice(0, 12)
+        .map((relationship) => ({
+            from: relationship.from,
+            to: relationship.to,
+            ...relationship.axes,
+        }));
+    const sections = [
+        ownProfile ? `Who ${name} is:\n${ownProfile}` : '',
+        params.profile.canon?.timelineCap
+            ? `Canon knowledge stops at: ${params.profile.canon.timelineCap}`
+            : '',
+        params.rpJournal?.length
+            ? `What has happened to ${name} in THIS playthrough:\n- ${params.rpJournal.slice(-12).join('\n- ')}`
+            : '',
+        bonds.length
+            ? `How ${name} feels about the others (-100..100):\n${JSON.stringify(bonds)}`
+            : '',
+        known.length
+            ? `Facts ${name} knows (a private one is theirs alone — reveal it only deliberately):\n${JSON.stringify(
+                  known.map((fact) => ({
+                      text: fact.text,
+                      private: fact.visibility === 'private',
+                  }))
+              )}`
+            : '',
+    ].filter(Boolean);
+
+    return `${AGENT_PREAMBLE}
+
+[PRIVATE DECISION — ${name}]
+You decide privately what ${name} does next in the scene above. You are not writing the reply: you return a compact FINAL INTENT that a writer will turn into prose. Use only what ${name} can plausibly know from the story above and the facts below. Never decide, narrate or speak for the player or for another character.
+
+${sections.join('\n\n')}
+
+Scene right now: ${JSON.stringify({
+        location: params.state.scene.location,
+        objective: params.state.plot.objective,
+        pressure: params.state.plot.pressure,
+        openThreads: params.state.plot.openThreads,
+        others: params.state.scene.participants
+            .filter((participant) => participant.character.id !== params.profile.ref.id)
+            .map((participant) => ({
+                name: participant.character.displayName,
+                presence: participant.presence,
+                agency: participant.agency,
+            })),
+    })}
+The director asks ${name} to: ${params.participant.direction ?? 'react in character'} (mode: ${params.participant.mode})
 
 Return exactly one JSON object:
 {"perception":"what they notice","emotion":"current emotion","privateGoal":"what they want","observableAction":"physical action they may take","speechIntent":"what their line should accomplish, not the final line","target":"optional target","departureIntent":"stay|consider-leaving|leave","usableFacts":["facts they may reveal"]}
 
-Depth: ${attention}. ${attention === 'brief' ? 'Be terse and reactive.' : 'Resolve the meaningful dilemma or initiative while staying in character.'}`;
+Depth: ${attention}. ${attention === 'brief' ? 'Be terse and reactive: one clear beat.' : 'Resolve the meaningful dilemma or initiative while staying in character.'}`;
 }
 
 export function parseCharacterIntent(params: {
@@ -285,8 +461,11 @@ export async function reflectCharacter(params: {
     latestUserMessage: Message;
     recentMessages?: Message[];
     relationships?: DirectedRelationship[];
+    rpJournal?: string[];
     route: BackgroundRouteSnapshot;
     signal?: AbortSignal;
+    context?: AgentCallContext;
+    onUsage?: (usage: AgentCallUsage) => void;
 }): Promise<CharacterIntent> {
     if (params.participant.attention === 'none') {
         throw new DirectedSceneError(
@@ -295,68 +474,28 @@ export async function reflectCharacter(params: {
             false
         );
     }
-    const attention = params.participant.attention;
-    const relationshipContext = params.state.scene.participants.map((participant) => ({
-        name: participant.character.displayName,
-        presence: participant.presence,
-        agency: participant.agency,
-    }));
-    const userPrompt = JSON.stringify({
-        character: {
-            id: params.profile.ref.id,
-            name: params.profile.ref.displayName,
-            identity: params.profile.description.slice(0, attention === 'brief' ? 900 : 1_800),
-            personality: params.profile.personality?.slice(0, 900),
-            timelineCap: params.profile.canon?.timelineCap,
-        },
-        publicScene: {
-            location: params.state.scene.location,
-            summary: params.state.scene.summary,
-            objective: params.state.plot.objective,
-            participants: relationshipContext,
-        },
-        director: {
-            goal: params.state.plot.objective,
-            direction: params.participant.direction,
-            mode: params.participant.mode,
-        },
-        relationships: (params.relationships ?? [])
-            .filter(
-                (relationship) =>
-                    relationship.from === params.profile.ref.displayName ||
-                    relationship.to === params.profile.ref.displayName
-            )
-            .slice(0, 10),
-        recentPublicHistory: (params.recentMessages ?? []).slice(-8).map((message) => ({
-            role: message.role,
-            speaker: message.speaker?.name,
-            content: message.content.slice(0, 1_200),
-        })),
-        knownFacts: (params.state.knowledge ?? [])
-            .filter(
-                (fact) =>
-                    fact.visibility === 'public' || fact.knownBy.includes(params.profile.ref.id)
-            )
-            .map((fact) => ({ id: fact.id, text: fact.text })),
-        latestUserMessage: params.latestUserMessage.content.slice(0, 1_600),
-    });
-    const result = await backgroundAICall({
-        systemPrompt: reflectionSystemPrompt(params.profile, attention),
-        userPrompt,
-        temperature: 0.55,
-        maxTokens: attention === 'brief' ? 180 : 420,
-        maxRetries: 2,
-        route: params.route,
-        signal: params.signal,
-        priority: 'scene',
-    });
-    if (!result) {
+    if (!params.context) {
         throw new DirectedSceneError(
-            `La réflexion de ${params.profile.ref.displayName} a échoué.`,
-            'reflection'
+            `Contexte de scène manquant pour la réflexion de ${params.profile.ref.displayName}.`,
+            'reflection',
+            false
         );
     }
-    return parseCharacterIntent({ raw: result.content, profile: params.profile, attention });
+    const attention = params.participant.attention;
+    return callStructuredAgent({
+        context: params.context,
+        contract: reflectionContract({
+            profile: params.profile,
+            participant: params.participant,
+            state: params.state,
+            relationships: params.relationships,
+            rpJournal: params.rpJournal,
+        }),
+        parse: (raw) => parseCharacterIntent({ raw, profile: params.profile, attention }),
+        stage: 'reflection',
+        failureMessage: `La réflexion de ${params.profile.ref.displayName} a échoué.`,
+        onUsage: params.onUsage,
+    });
 }
 
 export async function mapWithConcurrency<T, R>(
@@ -380,6 +519,25 @@ export async function mapWithConcurrency<T, R>(
         Array.from({ length: Math.min(Math.max(1, concurrency), values.length) }, () => worker())
     );
     return results;
+}
+
+/**
+ * Like `mapWithConcurrency`, but the first item runs alone. Used when every call shares a
+ * cacheable prompt prefix: the lone first call writes the cache, the fan-out then hits it.
+ */
+export async function mapWithConcurrencyWarmup<T, R>(
+    values: T[],
+    concurrency: number,
+    mapper: (value: T, index: number) => Promise<R>
+): Promise<PromiseSettledResult<R>[]> {
+    if (values.length <= 1 || concurrency <= 1) {
+        return mapWithConcurrency(values, concurrency, mapper);
+    }
+    const [first] = await mapWithConcurrency(values.slice(0, 1), 1, mapper);
+    const rest = await mapWithConcurrency(values.slice(1), concurrency, (value, index) =>
+        mapper(value, index + 1)
+    );
+    return [first, ...rest];
 }
 
 export interface CharacterReflectionFailure {
@@ -418,42 +576,57 @@ export async function runCharacterReflections(params: {
     latestUserMessage: Message;
     recentMessages?: Message[];
     relationships?: DirectedRelationship[];
+    /** Per-character playthrough notes, keyed by display name. */
+    rpJournal?: Record<string, string[]>;
     route: BackgroundRouteSnapshot;
     concurrency: number;
     signal?: AbortSignal;
     onSettled?: (completed: number, total: number) => void;
     reflect?: typeof reflectCharacter;
+    /** Shared-context seam; absent only in unit tests that inject their own `reflect`. */
+    context?: AgentCallContext;
+    onUsage?: (name: string, usage: AgentCallUsage) => void;
 }): Promise<CharacterReflectionBatch> {
     const targets = selectReflectionTargets(params.participants, params.existingIntents);
     let completed = 0;
     const reflect = params.reflect ?? reflectCharacter;
-    const results = await mapWithConcurrency(targets, params.concurrency, async (participant) => {
-        try {
-            const profile = params.profiles.find(
-                (candidate) => candidate.ref.id === participant.characterRefId
-            );
-            if (!profile) {
-                throw new DirectedSceneError(
-                    `Profil introuvable pour ${participant.name}.`,
-                    'reflection',
-                    false
+    // Every agent of the beat shares one stable prefix, so the first call is what populates
+    // the provider's prompt cache. Fanning out immediately makes all N calls miss it; running
+    // one alone first means the rest are cache hits on the identical system + history.
+    const results = await mapWithConcurrencyWarmup(
+        targets,
+        params.concurrency,
+        async (participant) => {
+            try {
+                const profile = params.profiles.find(
+                    (candidate) => candidate.ref.id === participant.characterRefId
                 );
+                if (!profile) {
+                    throw new DirectedSceneError(
+                        `Profil introuvable pour ${participant.name}.`,
+                        'reflection',
+                        false
+                    );
+                }
+                return await reflect({
+                    profile,
+                    participant,
+                    state: params.state,
+                    latestUserMessage: params.latestUserMessage,
+                    recentMessages: params.recentMessages,
+                    relationships: params.relationships,
+                    rpJournal: params.rpJournal?.[profile.ref.displayName],
+                    route: params.route,
+                    signal: params.signal,
+                    context: params.context,
+                    onUsage: (usage) => params.onUsage?.(profile.ref.displayName, usage),
+                });
+            } finally {
+                completed++;
+                params.onSettled?.(completed, targets.length);
             }
-            return await reflect({
-                profile,
-                participant,
-                state: params.state,
-                latestUserMessage: params.latestUserMessage,
-                recentMessages: params.recentMessages,
-                relationships: params.relationships,
-                route: params.route,
-                signal: params.signal,
-            });
-        } finally {
-            completed++;
-            params.onSettled?.(completed, targets.length);
         }
-    });
+    );
     const activeIds = new Set(params.participants.map((participant) => participant.characterRefId));
     return {
         targets,

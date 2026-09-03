@@ -20,7 +20,10 @@ import { resolveWork, nameMatchesText } from '@/lib/ai/canon-context';
 import { fetchCharacterDossier } from '@/lib/ai/canon-retrieval';
 import { detectStall, buildMomentumNudge } from '@/lib/ai/momentum';
 import { analyzeAndUpdateRelationships } from '@/lib/ai/relationship-analyst';
-import { maintainNarrativeAfterBeat } from '@/lib/ai/narrative-maintenance';
+import {
+    maintainNarrativeAfterBeat,
+    type DirectedMaintenanceContext,
+} from '@/lib/ai/narrative-maintenance';
 
 export interface PostBeatParams {
     character: CharacterCard;
@@ -56,6 +59,12 @@ export interface PostBeatParams {
      * double-counts nor freezes.
      */
     supersededMessageId?: string;
+    /**
+     * Directed beats: the retrieval stack already built for the beat. Forwarded so the
+     * Auditor and the Story Director read the same canon, lorebook and Chronicle the writer
+     * did, instead of a bare state dump. Absent for a manual edit, which rebuilds its own.
+     */
+    sceneContext?: DirectedMaintenanceContext;
 }
 
 /**
@@ -156,6 +165,8 @@ export function runPostBeatAnalyses(params: PostBeatParams): void {
             targetMessageId: targetId,
             beatContent: beatContent || finalContent,
             stalled,
+            history,
+            sceneContext: params.sceneContext,
         }).catch((error) => console.error('[Narrative maintenance] failed', error));
     }
 }

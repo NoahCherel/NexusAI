@@ -112,8 +112,15 @@ export interface BuildConversationPayloadParams {
         narrationHint?: string;
         userName?: string;
     };
-    /** Atomic directed mode: final structured composer contract placed after history. */
-    sceneComposition?: string;
+    /**
+     * Final structured contract for an agent turn, placed after history in the same slot the
+     * composer uses. Every invisible agent of a directed beat (Director, per-character
+     * reflection, Auditor, Story Director) and the composer itself share this seam: identical
+     * system prompt and history window, only this last block differs.
+     */
+    agentContract?: string;
+    /** Replay the window of an earlier build of the same beat (see buildRAGEnhancedPayload). */
+    frozenWindow?: { startMessageId: string };
     /**
      * Optional Chronicle retrieval (long-term memory). Invoked with a budget once the system
      * prompt size is known. Omit — as impersonation does — to skip memory entirely.
@@ -142,6 +149,8 @@ export interface BuildConversationPayloadResult {
     stablePrefixLength: number;
     /** Set when the history window moved; caller persists it on the conversation. */
     suggestedCutMessageId?: string;
+    /** Oldest included message — feed back as `frozenWindow` to replay this exact window. */
+    windowStartMessageId?: string;
     /** Smoothed dynamic-zone size to persist for next turn (generation only). */
     nextDynamicReserve: number;
     /** What the window did this turn, and why — surfaced in the context preview. */
@@ -395,7 +404,19 @@ export async function buildConversationPayload(
         lorebookEntries: templatePlacesLorebook ? undefined : activeEntries,
         longTermMemory: templatePlacesMemory ? undefined : longTermMemory,
         rpJournal: isImpersonation ? undefined : canon.rpJournal,
-        activeCastNames: (canon.canonDossiers ?? []).map((d) => d.character),
+        // The journal is keyed by character name, and it used to render ONLY for names with
+        // an injected canon dossier — so the card's own character, who is always on stage and
+        // is exactly who the journal is mostly about, never got theirs. Their names are added
+        // here; a name with no notes renders nothing, so this costs nothing when empty.
+        activeCastNames: Array.from(
+            new Set(
+                [
+                    ...(canon.canonDossiers ?? []).map((d) => d.character),
+                    character.name,
+                    character.displayName,
+                ].filter((name): name is string => !!name)
+            )
+        ),
         relationshipBlock: canon.relationshipBlock,
         ragSections,
         arcPosition: canon.arc?.enabled !== false ? canon.arc?.currentPosition : undefined,
@@ -452,7 +473,7 @@ export async function buildConversationPayload(
               ']',
           ].join('')
         : undefined;
-    const sceneCompositionBlock = params.sceneComposition;
+    const agentContractBlock = params.agentContract;
     // Card-level post-history (V2 `post_history_instructions`) — imported cards ship their
     // own "jailbreak"/behavioural closer. `{{original}}` splices the preset's post-history
     // in; otherwise the card's block follows the preset's. Never for impersonation (the
@@ -479,7 +500,7 @@ export async function buildConversationPayload(
                   sceneSpeakerBlock,
                   sceneNarratorBlock,
                   sceneEnsembleBlock,
-                  sceneCompositionBlock,
+                  agentContractBlock,
                   continueBlock,
               ]
         )
@@ -492,6 +513,7 @@ export async function buildConversationPayload(
         droppedMessageCount,
         stablePrefixLength,
         suggestedCutMessageId,
+        windowStartMessageId,
         nextDynamicReserve,
         historyWindow,
         tokenBreakdown,
@@ -506,6 +528,7 @@ export async function buildConversationPayload(
         activeProvider,
         historyCutMessageId: projectedCutMessageId,
         dynamicReserveTokens: params.dynamicReserveTokens,
+        frozenWindow: params.frozenWindow,
     });
 
     return {
@@ -519,6 +542,7 @@ export async function buildConversationPayload(
         droppedMessageCount,
         stablePrefixLength,
         suggestedCutMessageId,
+        windowStartMessageId,
         nextDynamicReserve,
         historyWindow,
         tokenBreakdown,

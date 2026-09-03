@@ -17,7 +17,7 @@ import { useSettingsStore, useChatStore, useLorebookStore } from '@/stores';
 import { useNotificationStore } from '@/components/ui/api-notification';
 import { decryptApiKey } from '@/lib/crypto';
 import { parseStreamingChunk, normalizeCoT } from '@/lib/ai/cot-middleware';
-import { buildConversationPayload } from '@/lib/ai/payload-builder';
+import { buildConversationPayload, type CanonPayloadOptions } from '@/lib/ai/payload-builder';
 import { buildCanonOptions } from '@/lib/ai/canon-context';
 import { resolveActiveLorebookEntries } from '@/lib/ai/rag-service';
 import {
@@ -39,6 +39,13 @@ import {
     type DirectedBeatOutcome,
 } from '@/lib/ai/directed-beat';
 import { resolveBackgroundRoute } from '@/lib/ai/background-ai';
+import {
+    buildAgentPayload,
+    buildRetrievalStack,
+    buildSamplerParams,
+    withSpeakerPrefixes,
+    type RetrievalStack,
+} from '@/lib/ai/conversation-context';
 import {
     getStoryStateForBranch,
     resolveSceneCharacters,
@@ -160,9 +167,10 @@ export function useChatGeneration({
     // reuse it for the rest of the beat (keyed by beat id).
     const sceneRetrievalCacheRef = useRef<{
         key: string;
-        canonOptions: Awaited<ReturnType<typeof buildCanonOptions>>;
+        canonOptions: CanonPayloadOptions;
         activeEntries: Awaited<ReturnType<typeof resolveActiveLorebookEntries>>;
-        chronicle: ChronicleResult;
+        /** Memoised: the first build of the beat fixes the text, later builds reuse it. */
+        chronicle: (budget: number) => Promise<ChronicleResult>;
     } | null>(null);
 
     const {
@@ -219,6 +227,11 @@ export function useChatGeneration({
             sceneEnsemble?: import('@/lib/ai/payload-builder').BuildConversationPayloadParams['sceneEnsemble'];
             /** Directed scene composer contract; response stays buffered until validated. */
             sceneComposition?: string;
+            /**
+             * Replay the history window planned by the beat's first agent build, so the
+             * writer sends the same transcript bytes as the Director and the reflections.
+             */
+            frozenWindow?: { startMessageId: string };
             bufferedOnly?: boolean;
             /** Reuse the scene-wide cancellation signal across director/reflection/composer. */
             requestController?: AbortController;
@@ -353,9 +366,10 @@ export function useChatGeneration({
             sceneDirection: options.sceneDirection,
             sceneGoal: options.sceneGoal,
             sceneEnsemble: options.sceneEnsemble,
-            sceneComposition: options.sceneComposition,
+            agentContract: options.sceneComposition,
+            frozenWindow: options.frozenWindow,
             retrieveChronicle: retrievalCache
-                ? async () => retrievalCache.chronicle
+                ? retrievalCache.chronicle
                 : enableHierarchicalSummaries && activeConversationId
                   ? async (budget) => {
                         const chronicle = await buildChronicle(
@@ -382,11 +396,12 @@ export function useChatGeneration({
 
         // First turn of a scene beat: store the retrieval stack for the beat's next turns.
         if (options.retrievalCacheKey && !retrievalCache) {
+            const chronicle = capturedChronicle ?? EMPTY_CHRONICLE;
             sceneRetrievalCacheRef.current = {
                 key: options.retrievalCacheKey,
                 canonOptions,
                 activeEntries,
-                chronicle: capturedChronicle ?? EMPTY_CHRONICLE,
+                chronicle: async () => chronicle,
             };
         }
 
@@ -464,20 +479,15 @@ export function useChatGeneration({
                     provider: activeProvider,
                     model: activeModel,
                     apiKey: currentApiKey,
-                    // Extended Parameters
-                    temperature: activePreset?.temperature ?? temperature,
-                    maxTokens: activePreset?.maxOutputTokens ?? 2048,
-                    topP: activePreset?.topP,
-                    topK: activePreset?.topK,
-                    frequencyPenalty: activePreset?.frequencyPenalty,
-                    presencePenalty: activePreset?.presencePenalty,
-                    repetitionPenalty: activePreset?.repetitionPenalty,
-                    minP: activePreset?.minP,
-                    stoppingStrings: activePreset?.stoppingStrings,
+                    // Sampler params: ONE definition, shared with every invisible agent, so
+                    // a preset change reaches the Director and the reflections too.
+                    ...buildSamplerParams(activePreset, {
+                        temperature,
+                        enableReasoning,
+                        useFlexTier,
+                    }),
                     // System prompt is now in messages[0]
                     systemInstruction: undefined,
-                    enableReasoning: activePreset?.enableReasoning ?? enableReasoning,
-                    useFlexTier: activePreset?.useFlexTier ?? useFlexTier,
                     // Cache-stable prefix boundary (system + history) for Claude cache_control.
                     cachePrefixLength: stablePrefixLength,
                 }),
@@ -699,13 +709,6 @@ export function useChatGeneration({
     };
 
     /** Prefix scene-attributed messages with their speaker so the model knows who spoke. */
-    const withSpeakerPrefixes = (history: CAMessage[]): CAMessage[] =>
-        history.map((m) =>
-            m.role === 'assistant' && m.speaker && !m.sceneBeatId
-                ? { ...m, content: `${m.speaker.name}: ${m.content}` }
-                : m
-        );
-
     const runDirectedSceneBeat = async (
         conv: NonNullable<(typeof conversations)[number]>,
         beatHistory: CAMessage[],
@@ -716,9 +719,44 @@ export function useChatGeneration({
         if (!activeConversationId || !character || beatHistory.length === 0) return;
         const triggerMessage = beatHistory[beatHistory.length - 1];
         const controller = new AbortController();
-        const beatDeadline = window.setTimeout(() => controller.abort(), 4 * 60_000);
+        // Every agent now carries the whole conversation and may take minutes on a slow
+        // route; reflections serialise on OpenRouter free. Budget per potential call.
+        const maxSpeakersForDeadline = useSettingsStore.getState().maxSceneSpeakers;
+        const beatDeadlineMs = Math.min(
+            20 * 60_000,
+            4 * 60_000 + (2 + maxSpeakersForDeadline) * 2 * 60_000
+        );
+        const beatDeadline = window.setTimeout(() => controller.abort(), beatDeadlineMs);
         abortControllerRef.current?.abort();
         abortControllerRef.current = controller;
+
+        const activePreset = getActivePreset();
+        const activePersona = personas.find((p) => p.id === activePersonaId);
+        const settings = useSettingsStore.getState();
+
+        // ONE retrieval stack for the whole beat: canon, lorebook (one embedding) and the
+        // Chronicle. Every agent AND the composer build their payload from it, so they cannot
+        // reason about different memories. Lazily built so the ambiguous-profile path, which
+        // fails before any model call, pays nothing.
+        let stackPromise: Promise<RetrievalStack> | null = null;
+        const getStack = () => {
+            stackPromise ??= buildRetrievalStack({
+                character,
+                conversation: conv,
+                history: beatHistory,
+                activeBranchMessageIds: messages.map((m) => m.id),
+                personaName: activePersona?.name,
+                preset: activePreset,
+                lorebook: activeLorebook,
+                enableHierarchicalSummaries: settings.enableHierarchicalSummaries,
+                // This ONE stack is the visible turn's stack too (the composer reuses it
+                // below), so the sticky-cast window is written exactly once per beat.
+                persistSticky: true,
+            });
+            return stackPromise;
+        };
+        const beatCacheKey = crypto.randomUUID();
+        const learnedBanList = getActiveBranchBanList(conv.id);
 
         // The orchestrator itself lives in lib/ai/directed-beat.ts so the exact state
         // machine can be replayed under test; this wrapper only supplies the real world.
@@ -728,13 +766,45 @@ export function useChatGeneration({
             loadState: getStoryState,
             resolveCharacters: resolveSceneCharacters,
             resolveEntryCandidates: resolveSceneEntryCandidates,
+            buildAgentPayload: async ({ contract, frozenWindow }) =>
+                buildAgentPayload({
+                    stack: await getStack(),
+                    character,
+                    conversation: conv,
+                    history: beatHistory,
+                    preset: activePreset,
+                    engine: getActiveEngine(),
+                    persona: activePersona,
+                    // The composer's provider, so the agent payload is byte-identical to it
+                    // (this only governs assistant-prefill support, which agents never use).
+                    provider: activeProvider,
+                    learnedBanList,
+                    agentContract: contract,
+                    frozenWindow,
+                }),
+            sampler: buildSamplerParams(activePreset, {
+                temperature: settings.temperature,
+                enableReasoning: settings.enableReasoning,
+                useFlexTier: settings.useFlexTier,
+            }),
             direct: directSceneBeat,
-            compose: async ({ contract, history }) => {
+            compose: async ({ contract, history, frozenWindow }) => {
+                // The writer reads from the beat's stack and replays its window: canon,
+                // lorebook, Chronicle and transcript are the bytes the agents just saw.
+                const stack = await getStack();
+                sceneRetrievalCacheRef.current = {
+                    key: beatCacheKey,
+                    canonOptions: stack.canonOptions,
+                    activeEntries: stack.activeEntries,
+                    chronicle: stack.chronicle ?? (async () => EMPTY_CHRONICLE),
+                };
                 const result = await triggerAiReponse(withSpeakerPrefixes(history), {
                     bufferedOnly: true,
                     sceneComposition: contract,
+                    frozenWindow,
                     skipBeatAnalyses: true,
                     requestController: controller,
+                    retrievalCacheKey: beatCacheKey,
                 });
                 return result ? { content: result.content, usage: result.usage } : null;
             },
@@ -782,6 +852,7 @@ export function useChatGeneration({
                     maxSpeakers: useSettingsStore.getState().maxSceneSpeakers,
                     reflectionConcurrency:
                         useSettingsStore.getState().sceneReflectionConcurrency ?? 4,
+                    rpJournal: (await getStack()).canonOptions.rpJournal,
                     composer: { provider: activeProvider, model: activeModel },
                     signal: controller.signal,
                 },
@@ -817,6 +888,18 @@ export function useChatGeneration({
                     skipBeatAnalyses: false,
                     beatContent: outcome.beatContent,
                     speakerNames: outcome.speakerNames,
+                    // The Auditor and the Story Director read the story the writer read.
+                    // Passed by value: this hook's caches are torn down before they run.
+                    sceneContext: {
+                        stack: await getStack(),
+                        conversation: conv,
+                        preset: activePreset,
+                        engine: getActiveEngine(),
+                        persona: activePersona,
+                        provider: activeProvider,
+                        learnedBanList,
+                        sampler: deps.sampler,
+                    },
                 });
                 return;
             }
@@ -898,14 +981,63 @@ export function useChatGeneration({
                 );
                 return;
             }
-            // 1. Director decision (never on the paid RP model).
+            // 1. Director decision (never on the paid RP model). It reads the same context
+            // the speakers will: one retrieval stack for the beat, planned window replayed
+            // by every turn. Without a background route it falls back to its old digest.
+            const classicPreset = getActivePreset();
+            const classicSettings = useSettingsStore.getState();
+            const beatRetrievalKey = crypto.randomUUID();
+            const classicStack = await buildRetrievalStack({
+                character,
+                conversation: conv,
+                history: beatHistory,
+                activeBranchMessageIds: messages.map((m) => m.id),
+                personaName: activePersona?.name,
+                preset: classicPreset,
+                lorebook: activeLorebook,
+                enableHierarchicalSummaries: classicSettings.enableHierarchicalSummaries,
+                persistSticky: true,
+            });
+            sceneRetrievalCacheRef.current = {
+                key: beatRetrievalKey,
+                canonOptions: classicStack.canonOptions,
+                activeEntries: classicStack.activeEntries,
+                chronicle: classicStack.chronicle ?? (async () => EMPTY_CHRONICLE),
+            };
+            const classicRoute = await resolveBackgroundRoute().catch(() => null);
+            let classicWindow: { startMessageId: string } | undefined;
             const decision = await directorDecide({
                 roster,
                 userName,
                 recentMessages: beatHistory,
                 relationships: conv.relationships,
                 arcPosition: conv.arc?.currentPosition,
-                maxSpeakers: useSettingsStore.getState().maxSceneSpeakers,
+                maxSpeakers: classicSettings.maxSceneSpeakers,
+                context: classicRoute
+                    ? {
+                          route: classicRoute,
+                          sampler: buildSamplerParams(classicPreset, classicSettings),
+                          buildPayload: async (contract) => {
+                              const payload = await buildAgentPayload({
+                                  stack: classicStack,
+                                  character,
+                                  conversation: conv,
+                                  history: beatHistory,
+                                  preset: classicPreset,
+                                  engine: getActiveEngine(),
+                                  persona: activePersona,
+                                  provider: activeProvider,
+                                  learnedBanList: getActiveBranchBanList(conv.id),
+                                  agentContract: contract,
+                                  frozenWindow: classicWindow,
+                              });
+                              classicWindow ??= payload.windowStartMessageId
+                                  ? { startMessageId: payload.windowStartMessageId }
+                                  : undefined;
+                              return payload;
+                          },
+                      }
+                    : undefined,
             });
             if (stopRequestedRef.current) return;
 
@@ -959,8 +1091,6 @@ export function useChatGeneration({
             // 4. Character turns, sequential and streamed. Hard cap; Stop (or a new user
             // message) cancels the remaining turns.
             const speakers = decision.speakers;
-            // One retrieval stack per beat: computed on the first turn, reused after.
-            const beatRetrievalKey = crypto.randomUUID();
             // Lines written so far in THIS beat, handed to the final turn so the post-beat
             // analyses see the whole scene and not just whoever spoke last.
             const beatLines: string[] = [];
@@ -977,6 +1107,7 @@ export function useChatGeneration({
                         isFinalTurn && beatLines.length > 0 ? beatLines.join('\n') : undefined,
                     beatSpeakers: isFinalTurn ? speakers.map((s) => s.name) : undefined,
                     retrievalCacheKey: beatRetrievalKey,
+                    frozenWindow: classicWindow,
                 });
                 if (!result) break;
                 beatLines.push(`${speaker.name}: ${result.content}`);

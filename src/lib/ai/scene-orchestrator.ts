@@ -13,8 +13,10 @@
  */
 
 import type { Message, DirectedRelationship } from '@/types/chat';
+import type { BackgroundRouteSnapshot } from '@/types/scene';
 import { USER_REL_KEY } from '@/types/chat';
 import { backgroundAICall } from '@/lib/ai/background-ai';
+import type { AgentPayload, SamplerParams } from '@/lib/ai/conversation-context';
 
 /** Hard ceiling — the effective cap is the user's `maxSceneSpeakers` setting (1..8). */
 export const MAX_SPEAKERS_CEILING = 8;
@@ -204,6 +206,50 @@ export function applySceneChange(roster: string[], change?: SceneChange): string
     return next;
 }
 
+/**
+ * Shared-context mode for the classic Director: the same payload the speakers will get
+ * (card, canon, lorebook, Chronicle, history window), with the decision request as the
+ * final block. The transcript is no longer digested here — it is the history itself.
+ */
+export interface ClassicDirectorContext {
+    buildPayload: (contract: string) => Promise<AgentPayload>;
+    sampler: SamplerParams;
+    route: BackgroundRouteSnapshot;
+    signal?: AbortSignal;
+}
+
+export function buildClassicDirectorContract(params: {
+    roster: string[];
+    userName: string;
+    relationships?: DirectedRelationship[];
+    arcPosition?: string;
+    maxSpeakers: number;
+}): string {
+    const { roster, userName, relationships, arcPosition, maxSpeakers } = params;
+    const relLines = (relationships || [])
+        .filter((r) => roster.includes(r.from) && (roster.includes(r.to) || r.to === USER_REL_KEY))
+        .slice(0, 20)
+        .map(
+            (r) =>
+                `${r.from} → ${r.to === USER_REL_KEY ? userName : r.to}: trust ${r.axes.trust}, affection ${r.axes.affection}, respect ${r.axes.respect}, attraction ${r.axes.attraction}`
+        )
+        .join('\n');
+    return [
+        '[STRUCTURED PLANNING TURN — this is NOT a chat reply.',
+        'Ignore every instruction above about prose, length, formatting and staying in character: they govern the visible reply, not this request. The story above is your memory: use it. Return exactly one JSON object and nothing else.]',
+        '',
+        buildDirectorSystemPrompt(maxSpeakers),
+        '',
+        `On stage: ${roster.join(', ')}`,
+        `The player is: ${userName}`,
+        arcPosition ? `Story position: ${arcPosition}` : '',
+        relLines ? `Relationships (-100..100):\n${relLines}` : '',
+        'Decide the next stage direction for the beat that follows the last message above (JSON only).',
+    ]
+        .filter(Boolean)
+        .join('\n');
+}
+
 /** One Director decision via the background AI layer. Never throws — silent scene on failure. */
 export async function directorDecide(params: {
     roster: string[];
@@ -212,15 +258,33 @@ export async function directorDecide(params: {
     relationships?: DirectedRelationship[];
     arcPosition?: string;
     maxSpeakers?: number;
+    /** When present the Director reads the shared conversation context instead of a digest. */
+    context?: ClassicDirectorContext;
 }): Promise<DirectorDecision> {
     const maxSpeakers = params.maxSpeakers ?? DEFAULT_MAX_SPEAKERS;
     try {
-        const result = await backgroundAICall({
-            systemPrompt: buildDirectorSystemPrompt(maxSpeakers),
-            userPrompt: buildDirectorUserPrompt(params),
-            temperature: 0.6,
-            maxTokens: 700,
-        });
+        const result = params.context
+            ? await (async () => {
+                  const payload = await params.context!.buildPayload(
+                      buildClassicDirectorContract({ ...params, maxSpeakers })
+                  );
+                  return backgroundAICall({
+                      systemPrompt: '',
+                      userPrompt: '',
+                      messages: payload.messages,
+                      sampler: params.context!.sampler,
+                      cachePrefixLength: payload.stablePrefixLength,
+                      route: params.context!.route,
+                      signal: params.context!.signal,
+                      priority: 'scene',
+                  });
+              })()
+            : await backgroundAICall({
+                  systemPrompt: buildDirectorSystemPrompt(maxSpeakers),
+                  userPrompt: buildDirectorUserPrompt(params),
+                  temperature: 0.6,
+                  maxTokens: 700,
+              });
         if (!result) return { speakers: [] };
         return parseDirectorResponse(result.content, params.roster, params.userName, maxSpeakers);
     } catch (err) {

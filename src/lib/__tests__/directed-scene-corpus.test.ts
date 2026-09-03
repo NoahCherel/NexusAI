@@ -77,6 +77,10 @@ interface Harness {
         compositions: number;
         commits: number;
         observedCommits: number;
+        /** Every contract handed to the shared payload builder, in order. */
+        payloads: { contract: string; frozen?: string }[];
+        /** The window each composer call was told to replay. */
+        composeWindows: (string | undefined)[];
     };
     persisted: SceneBeatRecord[];
     committed: { messages: Message[]; state: StoryState } | null;
@@ -180,7 +184,15 @@ function buildHarness(
         history,
         controller,
         registry,
-        calls: { director: 0, reflections: [], compositions: 0, commits: 0, observedCommits: 0 },
+        calls: {
+            director: 0,
+            reflections: [],
+            compositions: 0,
+            commits: 0,
+            observedCommits: 0,
+            payloads: [],
+            composeWindows: [],
+        },
         persisted: [],
         committed: null,
         healthy: false,
@@ -214,8 +226,9 @@ function buildHarness(
     let tabClosed = false;
     const faultActive = () => !!script.fault && !harness.healthy;
 
-    const reflect: typeof reflectCharacter = async ({ profile, participant }) => {
+    const reflect: typeof reflectCharacter = async ({ profile, participant, context }) => {
         harness.calls.reflections.push(profile.ref.displayName);
+        await context?.buildPayload(`[PRIVATE DECISION — ${profile.ref.displayName}]`);
         if (faultActive() && script.failingReflections?.includes(profile.ref.displayName)) {
             if (script.fault === 'reload') {
                 // The tab dies: promises never resolve, nothing else gets written.
@@ -263,9 +276,45 @@ function buildHarness(
                 return byName(entry);
             }),
         resolveEntryCandidates: async () => (script.library ?? []).map((name) => byName(name)),
-        direct: async ({ profiles, maxSpeakers }) => {
+        // Stands in for the real shared payload: records the contract and the window it was
+        // asked to replay, so the test can prove every agent got the same frozen window.
+        buildAgentPayload: async ({ contract, frozenWindow }) => {
+            harness.calls.payloads.push({ contract, frozen: frozenWindow?.startMessageId });
+            return {
+                messages: [
+                    { role: 'system', content: 'SHARED_SYSTEM' },
+                    ...history.map((m) => ({ role: m.role, content: m.content })),
+                    { role: 'system', content: contract },
+                ],
+                stablePrefixLength: 1 + history.length,
+                windowStartMessageId: history[0].id,
+                includedMessageCount: history.length,
+                // Above the quota fixture's 100 remaining tokens, so it still fails.
+                tokenBreakdown: {
+                    system: 100,
+                    rag: 0,
+                    history: 200,
+                    postHistory: 50,
+                    total: 400,
+                    dynamicReserve: 50,
+                    historyBudget: 1_000,
+                    historyTarget: 900,
+                    historyHeadroom: 800,
+                },
+                historyWindow: { action: 'unchanged', reason: 'test', recoverableMessageCount: 0 },
+            };
+        },
+        sampler: {
+            temperature: 0.9,
+            maxTokens: 512,
+            enableReasoning: false,
+            useFlexTier: false,
+        },
+        direct: async ({ profiles, maxSpeakers, context }) => {
             harness.calls.director++;
             directorProfiles = profiles;
+            // Exercise the shared-context seam exactly as the real director does.
+            await context.buildPayload('[BEAT DIRECTOR] scripted');
             const raw = JSON.stringify({
                 sceneGoal: fixture.title,
                 participants: script.director.participants.map((participant) => ({
@@ -283,7 +332,8 @@ function buildHarness(
             return decision;
         },
         reflect,
-        compose: async () => {
+        compose: async ({ frozenWindow }) => {
+            harness.calls.composeWindows.push(frozenWindow?.startMessageId);
             if (faultActive() && script.fault === 'cancel-during-composition') {
                 controller.abort();
                 throw abortError();
@@ -357,6 +407,29 @@ function assertCommittedInvariants(
     expect(outcome.kind).toBe('committed');
     if (outcome.kind !== 'committed') return;
     expect(harness.calls.commits).toBe(1);
+
+    // Shared context: every agent went through the one payload builder, and everything after
+    // the first build replayed that build's window instead of sizing its own.
+    expect(harness.calls.payloads.length).toBeGreaterThan(1);
+    const [planning, ...replays] = harness.calls.payloads;
+    expect(planning.frozen).toBeUndefined();
+    for (const replay of replays) {
+        expect(replay.frozen).toBe(harness.history[0].id);
+    }
+    // The director's own contract went through it, not a private prompt, and so did every
+    // reflection. (Per-call token accounting is covered in directed-scene.test.ts, where the
+    // real `callStructuredAgent` runs against a mocked provider.)
+    // The director's contract is assembled into the shared payload — including on a retry,
+    // where it plans the window even though the stored decision is reused.
+    expect(harness.calls.payloads.some((p) => p.contract.includes('[BEAT DIRECTOR]'))).toBe(true);
+    expect(
+        harness.calls.payloads.filter((p) => p.contract.includes('[PRIVATE DECISION')).length
+    ).toBe(harness.calls.reflections.length);
+    // The writer replays the very window the agents used — including on its correction.
+    expect(harness.calls.composeWindows.length).toBeGreaterThan(0);
+    for (const window of harness.calls.composeWindows) {
+        expect(window).toBe(harness.history[0].id);
+    }
     expect(harness.committed?.messages.length).toBeGreaterThan(0);
     for (const message of outcome.messages) {
         expect(message.sceneBeatId).toBe(outcome.record.id);

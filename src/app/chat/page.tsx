@@ -517,6 +517,8 @@ export default function ChatPage() {
                     const { getSceneBeat, saveSceneBeat } = await import('@/lib/db');
                     const { maintainNarrativeAfterBeat } =
                         await import('@/lib/ai/narrative-maintenance');
+                    const { buildRetrievalStack, buildSamplerParams } =
+                        await import('@/lib/ai/conversation-context');
                     const beat = await getSceneBeat(edited.sceneBeatId!);
                     if (!beat) return;
                     await saveSceneBeat({
@@ -524,8 +526,10 @@ export default function ChatPage() {
                         status: 'dirty',
                         updatedAt: Date.now(),
                     });
-                    const beatContent = messages
-                        .filter((message) => message.sceneBeatId === edited.sceneBeatId)
+                    const beatMessages = messages.filter(
+                        (message) => message.sceneBeatId === edited.sceneBeatId
+                    );
+                    const beatContent = beatMessages
                         .map(
                             (message) =>
                                 `${message.speaker?.name ?? 'Narrateur'}: ${
@@ -533,21 +537,56 @@ export default function ChatPage() {
                                 }`
                         )
                         .join('\n');
+                    // A hand-edited beat is re-audited with the same context the writer had:
+                    // rebuild the beat's stack from the branch as it stood before the beat.
+                    const conversation = useChatStore
+                        .getState()
+                        .conversations.find((c) => c.id === edited.conversationId);
+                    const firstBeatIndex = messages.findIndex(
+                        (message) => message.sceneBeatId === edited.sceneBeatId
+                    );
+                    const historyBeforeBeat = messages.slice(0, Math.max(0, firstBeatIndex));
+                    const settings = useSettingsStore.getState();
+                    const preset = settings.getActivePreset();
+                    const persona = settings.personas.find(
+                        (p) => p.id === settings.activePersonaId
+                    );
+                    const sceneContext = conversation
+                        ? {
+                              stack: await buildRetrievalStack({
+                                  character,
+                                  conversation,
+                                  history: historyBeforeBeat,
+                                  activeBranchMessageIds: messages.map((m) => m.id),
+                                  personaName: persona?.name,
+                                  preset,
+                                  lorebook: activeLorebook,
+                                  enableHierarchicalSummaries: settings.enableHierarchicalSummaries,
+                                  persistSticky: false,
+                              }),
+                              conversation,
+                              preset,
+                              engine: settings.getActiveEngine(),
+                              persona,
+                              provider: settings.activeProvider,
+                              learnedBanList: getActiveBranchBanList(conversation.id),
+                              sampler: buildSamplerParams(preset, settings),
+                          }
+                        : undefined;
                     await maintainNarrativeAfterBeat({
                         character,
                         conversationId: edited.conversationId,
                         beatId: edited.sceneBeatId!,
-                        targetMessageId:
-                            messages
-                                .filter((message) => message.sceneBeatId === edited.sceneBeatId)
-                                .at(-1)?.id ?? id,
+                        targetMessageId: beatMessages.at(-1)?.id ?? id,
                         beatContent,
                         stalled: false,
+                        history: historyBeforeBeat,
+                        sceneContext,
                     });
                 })();
             }
         },
-        [updateMessage, messages, character]
+        [updateMessage, messages, character, activeLorebook, getActiveBranchBanList]
     );
 
     const handleDeleteMessage = useCallback(

@@ -623,6 +623,16 @@ export function buildRAGEnhancedPayload(
          * post-history, which is also what makes an old ratcheted anchor spring back open.
          */
         dynamicReserveTokens?: number;
+        /**
+         * Replay a window decided by an EARLIER call instead of sizing a new one. Every
+         * invisible agent of a directed beat and the composer must send byte-identical
+         * history, but their final blocks differ in size — left to the normal algorithm they
+         * would cut, trim or expand differently and the shared prefix would break. The id is
+         * in PROJECTED space (post `projectSceneBeatsForContext`). No cut is ever suggested
+         * in this mode; if the request genuinely does not fit it is trimmed newest-first and
+         * reported as `transient-trim` so the caller can flag the divergence.
+         */
+        frozenWindow?: { startMessageId: string };
     }
 ): {
     messagesPayload: { role: string; content: string }[];
@@ -632,6 +642,11 @@ export function buildRAGEnhancedPayload(
     stablePrefixLength: number;
     /** Set when the window moved this turn; the caller persists it on the conversation. */
     suggestedCutMessageId?: string;
+    /**
+     * Id of the oldest message actually included. Feed it back as `frozenWindow` to make a
+     * later call reproduce this exact window.
+     */
+    windowStartMessageId?: string;
     /** Reserve to persist for next turn. Not written on impersonation or preview. */
     nextDynamicReserve: number;
     historyWindow: {
@@ -666,6 +681,7 @@ export function buildRAGEnhancedPayload(
         activeProvider,
         historyCutMessageId,
         dynamicReserveTokens,
+        frozenWindow,
     } = options;
 
     const T = HISTORY_WINDOW_TUNING;
@@ -755,7 +771,31 @@ export function buildRAGEnhancedPayload(
     const fitsSized = totalHistoryTokens <= availableSized;
     const fitsActual = totalHistoryTokens <= availableActual;
 
-    if (!fitsSized || !fitsActual) {
+    if (frozenWindow) {
+        // Replay mode: the window was decided by the first call of this beat. Reproduce it
+        // byte for byte and never persist an anchor — the plan belongs to the call that made
+        // it. `history` here is already projected, so the id resolves directly.
+        const frozenIdx = history.findIndex((m) => m.id === frozenWindow.startMessageId);
+        const frozenHistory = frozenIdx > 0 ? history.slice(frozenIdx) : history;
+        const frozenTokens = frozenHistory.map((m) => countMessageTokens(m.id, m.content));
+        const frozenTotal = frozenTokens.reduce((a, b) => a + b, 0);
+        if (frozenTotal <= availableActual) {
+            included = frozenHistory;
+            historyTokens = frozenTotal;
+            action = 'unchanged';
+            reason = 'Fenêtre figée — identique à celle du reste du beat.';
+        } else {
+            // This agent's final block is fatter than the one that planned the window. Trim
+            // for this request only; the caller records a context divergence.
+            ({ included, historyTokens } = fillNewestFirst(
+                frozenHistory,
+                frozenTokens,
+                availableActual
+            ));
+            action = 'transient-trim';
+            reason = `Fenêtre figée trop large pour ce bloc final (${postHistoryTokens} tk) — rognage de ${frozenHistory.length - included.length} message(s) pour cette requête.`;
+        }
+    } else if (!fitsSized || !fitsActual) {
         const structural = !fitsSized;
         const ceiling = structural ? historyTarget : availableActual;
         ({ included, historyTokens } = fillNewestFirst(workingHistory, perMessageTokens, ceiling));
@@ -839,6 +879,7 @@ export function buildRAGEnhancedPayload(
         droppedMessageCount,
         stablePrefixLength,
         suggestedCutMessageId,
+        windowStartMessageId: included[0]?.id,
         nextDynamicReserve,
         historyWindow: {
             action,

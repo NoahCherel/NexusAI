@@ -27,6 +27,7 @@ import { useKnownCastNames } from '@/hooks/useKnownCastNames';
 import { useSettingsStore } from '@/stores/settings-store';
 import type { SceneBeatRecord, SceneGenerationProgress } from '@/types/scene';
 import { StoryStatePanel } from '@/components/chat/StoryStatePanel';
+import { Dialog, DialogContent, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import {
     createInitialStoryState,
     createStoryStateRevision,
@@ -37,6 +38,14 @@ import {
 } from '@/lib/ai/story-state';
 import { commitStoryStateRevision } from '@/lib/db';
 import { useNotificationStore } from '@/components/ui/api-notification';
+
+const AGENT_LABELS: Record<string, string> = {
+    director: 'Directeur de beat',
+    reflection: 'Réflexion',
+    composer: 'Compositeur',
+    auditor: 'Auditeur',
+    planner: 'Directeur d’intrigue',
+};
 
 export function SceneBar({
     conversation,
@@ -260,7 +269,7 @@ export function SceneBar({
                         messages={messages}
                         trigger={
                             <button
-                                className="inline-flex h-6 items-center gap-1 px-2 text-[10px] text-muted-foreground hover:text-foreground"
+                                className="inline-flex h-6 pointer-coarse:h-9 items-center gap-1 px-2 pointer-coarse:px-3 text-[10px] text-muted-foreground hover:text-foreground"
                                 title="État de la scène et direction de l’intrigue"
                             >
                                 <BookOpen className="h-3 w-3" /> Intrigue
@@ -362,15 +371,25 @@ export function SceneBar({
                         </span>
                     )}
                     {lastSceneBeat && (
-                        <details className="relative group">
-                            <summary className="list-none cursor-pointer inline-flex h-7 items-center gap-1 px-2 text-[10px] text-muted-foreground hover:text-foreground">
-                                <Brain className="h-3.5 w-3.5" /> Coulisses
-                                {lastSceneBeat.status === 'committed' && (
-                                    <Check className="h-3 w-3 text-emerald-500" />
-                                )}
-                            </summary>
-                            <div className="absolute bottom-full right-0 mb-2 z-50 w-[min(32rem,90vw)] max-h-80 overflow-auto rounded-xl border border-border/70 bg-popover p-3 shadow-2xl text-xs space-y-3">
-                                <div className="flex items-center justify-between">
+                        <Dialog>
+                            <DialogTrigger asChild>
+                                <button
+                                    type="button"
+                                    className="inline-flex h-7 pointer-coarse:h-9 items-center gap-1 px-2 pointer-coarse:px-3 text-[10px] text-muted-foreground hover:text-foreground"
+                                >
+                                    <Brain className="h-3.5 w-3.5" /> Coulisses
+                                    {lastSceneBeat.status === 'committed' && (
+                                        <Check className="h-3 w-3 text-emerald-500" />
+                                    )}
+                                </button>
+                            </DialogTrigger>
+                            {/* A centred, fixed dialog, not an absolutely-placed panel: on a phone
+                                the trigger wraps to the left edge and a right-anchored panel used
+                                to extend 200 px off-screen. The dialog is sized by the viewport
+                                alone and scrolls inside itself. */}
+                            <DialogContent className="block max-h-[85vh] w-[min(32rem,calc(100%-1rem))] max-w-none overflow-y-auto p-3 text-xs sm:max-w-[32rem] space-y-3">
+                                <DialogTitle className="sr-only">Coulisses du beat</DialogTitle>
+                                <div className="flex items-center justify-between gap-2 pr-8">
                                     <strong>Beat {lastSceneBeat.status}</strong>
                                     <span className="text-muted-foreground">
                                         {lastSceneBeat.backgroundRoute?.provider} /{' '}
@@ -502,20 +521,65 @@ export function SceneBar({
                                             Réessayer le beat
                                         </Button>
                                     )}
+                                {!!lastSceneBeat.usage?.agents?.length && (
+                                    <div className="space-y-0.5 border-t border-border/40 pt-1 text-[10px] text-muted-foreground">
+                                        <div className="font-medium text-foreground/80">
+                                            Consommation par agent
+                                        </div>
+                                        {lastSceneBeat.usage.agents.map((entry, index) => (
+                                            <div
+                                                key={`${entry.agent}-${entry.name ?? index}`}
+                                                className="flex justify-between gap-2"
+                                            >
+                                                <span className="truncate">
+                                                    {AGENT_LABELS[entry.agent] ?? entry.agent}
+                                                    {entry.name ? ` · ${entry.name}` : ''}
+                                                    {entry.estimated ? ' (estimé)' : ''}
+                                                </span>
+                                                <span className="shrink-0 font-mono">
+                                                    {(entry.promptTokens ?? 0).toLocaleString(
+                                                        'fr-FR'
+                                                    )}
+                                                    {' + '}
+                                                    {(entry.completionTokens ?? 0).toLocaleString(
+                                                        'fr-FR'
+                                                    )}
+                                                </span>
+                                            </div>
+                                        ))}
+                                        <div className="flex justify-between gap-2 font-medium text-foreground/80">
+                                            <span>Total</span>
+                                            <span className="shrink-0 font-mono">
+                                                {lastSceneBeat.usage.agents
+                                                    .reduce(
+                                                        (sum, entry) =>
+                                                            sum +
+                                                            (entry.promptTokens ?? 0) +
+                                                            (entry.completionTokens ?? 0),
+                                                        0
+                                                    )
+                                                    .toLocaleString('fr-FR')}{' '}
+                                                tokens
+                                            </span>
+                                        </div>
+                                    </div>
+                                )}
+                                {!!lastSceneBeat.contextDivergence?.length && (
+                                    <div className="rounded-md border border-amber-500/30 bg-amber-500/5 p-2 text-[10px] text-amber-700 dark:text-amber-300">
+                                        Contexte non identique entre agents :{' '}
+                                        {lastSceneBeat.contextDivergence[0]}
+                                    </div>
+                                )}
                                 <div className="text-[10px] text-muted-foreground">
                                     Directeur {lastSceneBeat.timings.director ?? 0} ms · réflexions{' '}
                                     {lastSceneBeat.timings.reflections ?? 0} ms · compositeur{' '}
                                     {lastSceneBeat.timings.composer ?? 0} ms
                                     {lastSceneBeat.usage?.estimatedInputTokens
-                                        ? ` · ~${lastSceneBeat.usage.estimatedInputTokens.toLocaleString('fr-FR')} tokens d’entrée`
-                                        : ''}
-                                    {lastSceneBeat.usage?.promptTokens != null ||
-                                    lastSceneBeat.usage?.completionTokens != null
-                                        ? ` · compositeur ${(lastSceneBeat.usage.promptTokens ?? 0).toLocaleString('fr-FR')} + ${(lastSceneBeat.usage.completionTokens ?? 0).toLocaleString('fr-FR')} tokens`
+                                        ? ` · ~${lastSceneBeat.usage.estimatedInputTokens.toLocaleString('fr-FR')} tokens d’entrée estimés`
                                         : ''}
                                 </div>
-                            </div>
-                        </details>
+                            </DialogContent>
+                        </Dialog>
                     )}
                     <Button
                         variant="secondary"

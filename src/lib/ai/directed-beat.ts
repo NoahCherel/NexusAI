@@ -30,13 +30,17 @@ import {
     assertNoPrivateIntentLeak,
     compositionContract,
     DirectedSceneError,
+    directorContract,
     directSceneBeat,
     filterVisiblePlannedTransitions,
     parseCompositionResult,
     reflectCharacter,
     runCharacterReflections,
     selectReflectionTargets,
+    type AgentCallContext,
+    type AgentCallUsage,
 } from '@/lib/ai/directed-scene';
+import type { AgentPayload, SamplerParams } from '@/lib/ai/conversation-context';
 import {
     AmbiguousCharacterError,
     applyStoryTransitions,
@@ -67,6 +71,19 @@ export interface DirectedBeatDeps {
         overrides?: Record<string, CharacterRef>
     ) => Promise<ResolvedCharacterProfile[]>;
     resolveEntryCandidates: (character: CharacterCard) => Promise<ResolvedCharacterProfile[]>;
+    /**
+     * The shared-context seam. Builds the SAME payload the composer sends — card, canon, arc,
+     * lorebook, Chronicle, journal, relationships, engine contract, preset post-history,
+     * history window — with `contract` as the only differing final block. `frozenWindow`
+     * replays the window planned by the beat's first build so every agent and the composer
+     * send byte-identical history.
+     */
+    buildAgentPayload: (params: {
+        contract: string;
+        frozenWindow?: { startMessageId: string };
+    }) => Promise<AgentPayload>;
+    /** Preset-derived sampler applied to every agent, exactly as to the visible reply. */
+    sampler: SamplerParams;
     direct: typeof directSceneBeat;
     reflect?: typeof reflectCharacter;
     /** The visible RP model. Must buffer: nothing reaches the transcript from here. */
@@ -74,6 +91,8 @@ export interface DirectedBeatDeps {
         contract: string;
         history: Message[];
         signal: AbortSignal;
+        /** The beat's planned window: the writer replays it like every agent did. */
+        frozenWindow?: { startMessageId: string };
     }) => Promise<ComposerReply | null>;
     /** Remaining NanoGPT subscription tokens, or null when unknown / not token-metered. */
     fetchRemainingTokens?: () => Promise<number | null>;
@@ -103,6 +122,8 @@ export interface DirectedBeatInput {
     preferStoredRoster?: boolean;
     maxSpeakers: number;
     reflectionConcurrency: number;
+    /** Per-character playthrough notes, keyed by display name (from the canon options). */
+    rpJournal?: Record<string, string[]>;
     /** Visible RP route, recorded for the Coulisses and the quota estimate. */
     composer: { provider: string; model: string };
     signal: AbortSignal;
@@ -122,6 +143,8 @@ export type DirectedBeatOutcome =
     | { kind: 'failed'; record: SceneBeatRecord; error: unknown };
 
 export const MAX_DIRECTOR_PROFILES = 40;
+
+type AgentUsageEntry = NonNullable<NonNullable<SceneBeatRecord['usage']>['agents']>[number];
 
 const isAbort = (error: unknown) => error instanceof Error && error.name === 'AbortError';
 
@@ -271,6 +294,71 @@ export async function executeDirectedBeat(
         );
         record.baseStoryStateRevisionId = storedState?.id;
 
+        // Every agent of this beat shares one context. The FIRST build plans the history
+        // window; the rest replay it, so the cacheable prefix is byte-identical and the
+        // Director cannot reason about a different transcript than the writer.
+        const agentUsage: AgentUsageEntry[] = [];
+        let frozenWindow: { startMessageId: string } | undefined;
+        const contextDivergence: string[] = [];
+        let plannedTokens = 0;
+        const buildPayload = async (contract: string): Promise<AgentPayload> => {
+            const payload = await deps.buildAgentPayload({ contract, frozenWindow });
+            if (!frozenWindow && payload.windowStartMessageId) {
+                frozenWindow = { startMessageId: payload.windowStartMessageId };
+                plannedTokens = payload.tokenBreakdown.total;
+            }
+            if (payload.historyWindow.action === 'transient-trim') {
+                contextDivergence.push(payload.historyWindow.reason);
+            }
+            return payload;
+        };
+        const agentContext: AgentCallContext = {
+            buildPayload,
+            sampler: deps.sampler,
+            route,
+            signal,
+        };
+        const recordUsage =
+            (agent: AgentUsageEntry['agent'], name?: string) => (usage: AgentCallUsage) => {
+                agentUsage.push({ agent, name, ...usage });
+                record.usage = { ...record.usage, agents: [...agentUsage] };
+            };
+
+        // Quota pre-flight on REAL numbers: one full context per agent, not a guess. Done
+        // before the director so an exhausted subscription costs nothing at all.
+        //
+        // It plans the window with the DIRECTOR's real contract, not a placeholder: on a fresh
+        // conversation the window is sized against the live final block, so a short stand-in
+        // would plan a wider window than any real agent can carry and every one of them would
+        // then have to trim it back.
+        const preflight = await buildPayload(
+            directorContract({
+                state: baseState,
+                profiles,
+                userName,
+                relationships: conversation.relationships,
+                maxSpeakers: input.maxSpeakers,
+            })
+        );
+        const worstCaseAgents = 1 + input.maxSpeakers;
+        const estimatedInputTokens =
+            preflight.tokenBreakdown.total * worstCaseAgents +
+            (input.composer.provider === 'nanogpt' ? preflight.tokenBreakdown.total : 0);
+        record.usage = { ...record.usage, estimatedInputTokens };
+        if (
+            (route.provider === 'nanogpt' || input.composer.provider === 'nanogpt') &&
+            deps.fetchRemainingTokens
+        ) {
+            const remaining = await deps.fetchRemainingTokens();
+            if (remaining != null && remaining < estimatedInputTokens) {
+                throw new DirectedSceneError(
+                    `Quota NanoGPT insuffisant : environ ${estimatedInputTokens.toLocaleString('fr-FR')} tokens d’entrée requis, ${remaining.toLocaleString('fr-FR')} restants.`,
+                    'director',
+                    false
+                );
+            }
+        }
+
         const directorStartedAt = now();
         const decision =
             retrySource?.decision ??
@@ -280,6 +368,8 @@ export async function executeDirectedBeat(
                 recentMessages: beatHistory,
                 userName,
                 relationships: conversation.relationships,
+                context: agentContext,
+                onUsage: recordUsage('director'),
                 maxSpeakers: input.maxSpeakers,
                 route,
                 signal,
@@ -352,22 +442,20 @@ export async function executeDirectedBeat(
         );
 
         const reflectionTargets = selectReflectionTargets(allowedParticipants, record.intents);
-        const estimatedInputTokens =
-            2_500 +
-            reflectionTargets.reduce(
-                (total, participant) => total + (participant.attention === 'full' ? 3_000 : 1_600),
-                0
-            ) +
-            (input.composer.provider === 'nanogpt' ? 4_000 : 0);
-        record.usage = { ...record.usage, estimatedInputTokens };
+        // Re-check with the real cast: the pre-flight assumed the worst case.
+        const refinedEstimate =
+            plannedTokens * (1 + reflectionTargets.length) +
+            (input.composer.provider === 'nanogpt' ? plannedTokens : 0);
+        record.usage = { ...record.usage, estimatedInputTokens: refinedEstimate };
         if (
+            reflectionTargets.length > 0 &&
             (route.provider === 'nanogpt' || input.composer.provider === 'nanogpt') &&
             deps.fetchRemainingTokens
         ) {
             const remaining = await deps.fetchRemainingTokens();
-            if (remaining != null && remaining < estimatedInputTokens) {
+            if (remaining != null && remaining < refinedEstimate) {
                 throw new DirectedSceneError(
-                    `Quota NanoGPT insuffisant : environ ${estimatedInputTokens.toLocaleString('fr-FR')} tokens d’entrée requis, ${remaining.toLocaleString('fr-FR')} restants.`,
+                    `Quota NanoGPT insuffisant : environ ${refinedEstimate.toLocaleString('fr-FR')} tokens d’entrée requis, ${remaining.toLocaleString('fr-FR')} restants.`,
                     'director',
                     false
                 );
@@ -387,10 +475,13 @@ export async function executeDirectedBeat(
             latestUserMessage,
             recentMessages: beatHistory,
             relationships: conversation.relationships,
+            rpJournal: input.rpJournal,
             route,
             concurrency: input.reflectionConcurrency,
             signal,
             reflect: deps.reflect,
+            context: agentContext,
+            onUsage: (name, usage) => recordUsage('reflection', name)(usage),
             onSettled: (completedReflections, totalReflections) =>
                 report({ status: 'reflecting', completedReflections, totalReflections }),
         });
@@ -431,7 +522,12 @@ export async function executeDirectedBeat(
             knowledge: observedState.knowledge,
         });
         const composerStartedAt = now();
-        let composerResult = await deps.compose({ contract, history: beatHistory, signal });
+        let composerResult = await deps.compose({
+            contract,
+            history: beatHistory,
+            signal,
+            frozenWindow,
+        });
         if (!composerResult) {
             throw new DirectedSceneError('Le compositeur n’a pas répondu.', 'composer');
         }
@@ -457,6 +553,7 @@ export async function executeDirectedBeat(
                 contract: correction,
                 history: beatHistory,
                 signal,
+                frozenWindow,
             });
             if (!composerResult) {
                 throw new DirectedSceneError('La correction du compositeur a échoué.', 'composer');
@@ -465,11 +562,17 @@ export async function executeDirectedBeat(
             assertNoPrivateIntentLeak(composition, intents, observedState.knowledge);
         }
         assertCurrent();
+        recordUsage('composer')({
+            promptTokens: composerResult.usage?.promptTokens,
+            completionTokens: composerResult.usage?.completionTokens,
+            estimated: !composerResult.usage,
+        });
         record.usage = {
             ...record.usage,
             promptTokens: composerResult.usage?.promptTokens,
             completionTokens: composerResult.usage?.completionTokens,
         };
+        if (contextDivergence.length > 0) record.contextDivergence = [...contextDivergence];
 
         const outputMessages: Message[] = [];
         let parentId: string | null = triggerMessage.id;
