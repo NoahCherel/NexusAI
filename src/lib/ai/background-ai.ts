@@ -21,6 +21,7 @@ import type { CustomModel } from '@/stores/settings-store';
 import { decryptApiKey } from '@/lib/crypto';
 import { NANOGPT_USAGE_REFRESH_EVENT } from '@/lib/ai/nanogpt-usage';
 import { extractUsageSentinel } from '@/lib/ai/usage-sentinel';
+import { abortableDelay } from '@/lib/ai/abortable-delay';
 import type { BackgroundRouteSnapshot } from '@/types/scene';
 import type { SamplerParams } from '@/lib/ai/conversation-context';
 import {
@@ -258,13 +259,9 @@ async function tryModelChain(params: ChainAttemptParams): Promise<BackgroundAIRe
                                     provider === 'nanogpt'
                                         ? (billingScope ?? 'subscription')
                                         : undefined,
-                                // Flex tier + web_search times out (504): the slow flex queue
-                                // plus the server-side search loop exceeds the deadline.
-                                useFlexTier:
-                                    provider === 'openrouter' && !webSearch
-                                        ? (sampler?.useFlexTier ??
-                                          useSettingsStore.getState().useFlexTier)
-                                        : false,
+                                // No batch flag here on purpose: the OpenRouter Batch API is a
+                                // foreground-only choice (visible reply, impersonation). An
+                                // agent needs its answer within the beat.
                                 webSearch: provider === 'openrouter' ? webSearch : false,
                                 webMaxResults,
                                 // The visible generation never sends this; a full-payload
@@ -354,21 +351,6 @@ async function tryModelChain(params: ChainAttemptParams): Promise<BackgroundAIRe
         }
     }
     return null;
-}
-
-function abortableDelay(ms: number, signal?: AbortSignal): Promise<void> {
-    if (signal?.aborted) return Promise.reject(new DOMException('Aborted', 'AbortError'));
-    return new Promise((resolve, reject) => {
-        const timer = setTimeout(resolve, ms);
-        signal?.addEventListener(
-            'abort',
-            () => {
-                clearTimeout(timer);
-                reject(new DOMException('Aborted', 'AbortError'));
-            },
-            { once: true }
-        );
-    });
 }
 
 /** Resolve the user's background choice once; critical scene calls reuse this snapshot. */

@@ -308,7 +308,7 @@ function buildHarness(
             temperature: 0.9,
             maxTokens: 512,
             enableReasoning: false,
-            useFlexTier: false,
+            useBatchMode: false,
         },
         direct: async ({ profiles, maxSpeakers, context }) => {
             harness.calls.director++;

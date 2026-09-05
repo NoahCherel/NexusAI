@@ -306,7 +306,7 @@ export async function runReplay(options: RunReplayOptions): Promise<ReplayTrace>
     const sampler: SamplerParams = buildSamplerParams(null, {
         temperature: 0.8,
         enableReasoning: false,
-        useFlexTier: false,
+        useBatchMode: false,
     });
 
     const trace: ReplayTrace = {

@@ -321,6 +321,7 @@ export default function ChatPage() {
     // extracted to useChatGeneration; behaviour unchanged.
     const {
         isLoading,
+        batchWait,
         isSceneRunning,
         sceneProgress,
         lastSceneBeat,
@@ -746,6 +747,7 @@ export default function ChatPage() {
                                                         usage={
                                                             showUsageBadge ? msg.usage : undefined
                                                         }
+                                                        batch={msg.batch}
                                                         avatar={
                                                             msg.role === 'user'
                                                                 ? // Persona AT SEND TIME (by id,
@@ -865,6 +867,7 @@ export default function ChatPage() {
                                     isLoading={isLoading || isSceneRunning}
                                     disabled={!currentApiKey}
                                     onImpersonate={handleImpersonate}
+                                    batchWait={batchWait}
                                     onDraftChange={(draft) => {
                                         draftMessageRef.current = draft;
                                     }}

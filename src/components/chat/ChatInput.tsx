@@ -12,6 +12,8 @@ import {
     DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
+import { BatchWaitLine } from '@/components/chat/BatchWaitLine';
+import type { BatchWaitStep } from '@/lib/ai/batch-client';
 
 // Animation variants
 const containerVariants: Variants = {
@@ -35,6 +37,8 @@ interface ChatInputProps {
      */
     onImpersonate?: (draft?: string) => Promise<string | void>;
     onDraftChange?: (draft: string) => void;
+    /** OpenRouter Batch mode: an impersonation draft still waiting for its batch. */
+    batchWait?: { step: BatchWaitStep; submittedAt: number } | null;
 }
 
 export function ChatInput({
@@ -45,6 +49,7 @@ export function ChatInput({
     disabled = false,
     onImpersonate,
     onDraftChange,
+    batchWait = null,
 }: ChatInputProps) {
     const [message, setMessage] = useState('');
     const [isImpersonating, setIsImpersonating] = useState(false);
@@ -109,6 +114,14 @@ export function ChatInput({
             animate="animate"
             className="w-full max-w-4xl mx-auto p-2"
         >
+            {batchWait && (
+                <BatchWaitLine
+                    label="Brouillon en attente (batch)"
+                    step={batchWait.step}
+                    submittedAt={batchWait.submittedAt}
+                    className="px-3 pb-1.5"
+                />
+            )}
             <div className="flex items-end gap-2 bg-white/5 p-2 rounded-xl border border-white/10 shadow-sm backdrop-blur-sm relative transition-colors focus-within:bg-white/10 focus-within:border-white/20">
                 {/* Action Menu */}
                 <DropdownMenu>

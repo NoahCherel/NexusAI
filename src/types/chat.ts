@@ -1,5 +1,6 @@
 // Chat and conversation types
 import type { Provider } from '@/lib/ai/providers';
+import type { BatchWaitStep } from '@/lib/ai/openrouter-batch';
 import type { CharacterRef } from './scene';
 
 export interface Message {
@@ -19,6 +20,17 @@ export interface Message {
     // Message ordering and regeneration tracking
     messageOrder: number; // Sequential position in timeline (1, 2, 3...)
     regenerationIndex: number; // Which regeneration attempt (0 = original, 1+ = regens)
+
+    // OpenRouter Batch mode: the deferred generation this message is waiting for. Persisted
+    // so a reload can resume polling the same batch instead of paying for a new one.
+    batch?: {
+        id: string;
+        status: 'pending' | 'completed' | 'failed' | 'cancelled';
+        submittedAt: number;
+        step?: BatchWaitStep;
+        /** True for a continue-in-place: cannot be resumed after a reload. */
+        continuation?: boolean;
+    };
 
     // Token accounting for this generation (assistant messages). Provider-reported when
     // available; `estimated` marks a local tokenizer estimate.

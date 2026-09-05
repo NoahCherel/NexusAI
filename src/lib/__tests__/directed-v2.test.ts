@@ -182,7 +182,7 @@ describe('directed narrative V2', () => {
                 temperature: 0.5,
                 maxTokens: 100,
                 enableReasoning: false,
-                useFlexTier: false,
+                useBatchMode: false,
             },
             direct: async () => ({
                 participants: [],

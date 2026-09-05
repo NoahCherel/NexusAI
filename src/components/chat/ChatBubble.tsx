@@ -18,6 +18,8 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { ActionTooltip } from '@/components/ui/action-tooltip';
 import { ChatFormatter } from '@/components/chat/ChatFormatter';
+import { BatchWaitLine } from '@/components/chat/BatchWaitLine';
+import type { Message } from '@/types/chat';
 import { normalizeCoT } from '@/lib/ai/cot-middleware';
 import {
     Dialog,
@@ -82,6 +84,8 @@ interface ChatBubbleProps {
     error?: string;
     /** Token accounting for this generation (assistant messages, when enabled). */
     usage?: UsageInfo;
+    /** OpenRouter Batch mode: the deferred generation this message is waiting for. */
+    batch?: Message['batch'];
     avatar?: string;
     name?: string;
     /** Scene Mode: narration by the AI director — rendered italic and slightly muted. */
@@ -113,6 +117,7 @@ export const ChatBubble = memo(function ChatBubble({
     thought,
     error,
     usage,
+    batch,
     avatar,
     name,
     narrator = false,
@@ -139,6 +144,7 @@ export const ChatBubble = memo(function ChatBubble({
         [content, isUser]
     );
     const displayContent = normalized.content;
+    const batchPending = batch?.status === 'pending';
     const displayThought = [thought, normalized.thought].filter(Boolean).join('\n\n');
     const previewContent = isUser ? editContent : normalizeCoT(editContent).content;
 
@@ -287,13 +293,25 @@ export const ChatBubble = memo(function ChatBubble({
                         } ${narrator ? 'italic text-muted-foreground text-center' : ''}`}
                     >
                         {!displayContent && !isUser && !error ? (
-                            <div className="flex gap-1 py-1">
-                                <span className="w-1 h-1 bg-foreground/40 rounded-full" />
-                                <span className="w-1 h-1 bg-foreground/40 rounded-full opacity-60" />
-                                <span className="w-1 h-1 bg-foreground/40 rounded-full opacity-30" />
-                            </div>
+                            batchPending ? null : (
+                                <div className="flex gap-1 py-1">
+                                    <span className="w-1 h-1 bg-foreground/40 rounded-full" />
+                                    <span className="w-1 h-1 bg-foreground/40 rounded-full opacity-60" />
+                                    <span className="w-1 h-1 bg-foreground/40 rounded-full opacity-30" />
+                                </div>
+                            )
                         ) : (
                             <ChatFormatter content={displayContent} isUser={isUser} />
+                        )}
+                        {/* OpenRouter Batch: the reply lands whole after a few minutes. For a
+                            continue-in-place the existing text stays above this line. */}
+                        {batchPending && !isUser && (
+                            <BatchWaitLine
+                                label="Réponse en file d'attente OpenRouter (batch)"
+                                step={batch?.step}
+                                submittedAt={batch!.submittedAt}
+                                className={displayContent ? 'mt-2' : 'py-1'}
+                            />
                         )}
                     </motion.div>
                 )}

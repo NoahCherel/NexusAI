@@ -1,5 +1,13 @@
 import OpenAI from 'openai';
 import { NextRequest } from 'next/server';
+import {
+    applyClaudeCacheBreakpoints,
+    buildOpenRouterChatBody,
+    isClaudeModelId,
+    withSystemMessage,
+    type OpenRouterMessageParam,
+    type OpenRouterRequestBody,
+} from '@/lib/ai/openrouter-request';
 
 export const runtime = 'edge';
 
@@ -9,8 +17,6 @@ type OpenRouterMessage = OpenAI.Chat.Completions.ChatCompletionMessage & {
     reasoning_details?: unknown;
 };
 
-type OpenRouterRequestBody = Record<string, unknown>;
-
 export function nanogptBaseURL(billingScope?: string): string {
     return billingScope === 'paygo'
         ? 'https://nano-gpt.com/api/v1'
@@ -19,6 +25,9 @@ export function nanogptBaseURL(billingScope?: string): string {
 
 export async function POST(req: NextRequest) {
     try {
+        // The client body uses the same field names as `OpenRouterChatParams`, so the
+        // OpenRouter branch forwards it whole; the other providers pick what they need.
+        const params = await req.json();
         const {
             messages,
             provider,
@@ -26,27 +35,19 @@ export async function POST(req: NextRequest) {
             temperature,
             maxTokens,
             topP,
-            topK,
             frequencyPenalty,
             presencePenalty,
-            repetitionPenalty,
-            minP,
             stoppingStrings,
             apiKey,
             systemPrompt,
             userPersona,
-            enableReasoning,
-            useFlexTier,
-            webSearch,
-            webMaxResults,
-            disableReasoning,
             // NanoGPT calls selected from the subscription model list must use the
             // subscription-only endpoint. `paygo` is reserved for a future explicit UI.
             billingScope,
             // Number of leading messages forming the cache-stable prefix (system + history).
             // Used to place explicit cache_control breakpoints for Claude models.
             cachePrefixLength,
-        } = await req.json();
+        } = params;
 
         if (!apiKey) {
             return new Response(JSON.stringify({ error: 'API key is required' }), {
@@ -58,23 +59,11 @@ export async function POST(req: NextRequest) {
         const origin = req.headers.get('origin') || 'http://localhost:3000';
 
         // Build system message (only if provided explicit systemPrompt or userPersona)
-        const fullMessages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [...messages];
-
-        let effectiveSystem = '';
-        if (systemPrompt) {
-            effectiveSystem = systemPrompt;
-        }
-
-        if (userPersona) {
-            // If we have an existing system prompt, append. If not, start one.
-            const prefix = effectiveSystem ? '\n\n' : '';
-            effectiveSystem += `${prefix}[USER INFO]\nName: ${userPersona.name}\nBio: ${userPersona.bio}\n\n[INSTRUCTION]\nAdapt your responses to address the user as "${userPersona.name}" and take into account their bio.`;
-        }
-
-        // Only prepend a system message if we actually constructed one
-        if (effectiveSystem) {
-            fullMessages.unshift({ role: 'system', content: effectiveSystem });
-        }
+        const fullMessages = withSystemMessage(
+            messages as OpenRouterMessageParam[],
+            systemPrompt,
+            userPersona
+        );
 
         // Determine effective model ID
         let effectiveModelId = model;
@@ -98,76 +87,13 @@ export async function POST(req: NextRequest) {
                 },
             });
 
-            // Build request body for OpenRouter
-            requestBody = {
-                model: effectiveModelId,
+            // One builder for the live stream and the Batch API (see /api/batch).
+            requestBody = buildOpenRouterChatBody({
+                ...params,
                 messages: fullMessages,
-                temperature: temperature ?? 0.8,
-                max_tokens: maxTokens ?? 4096,
-                top_p: topP,
-                frequency_penalty: frequencyPenalty,
-                presence_penalty: presencePenalty,
-                stop: stoppingStrings,
-            } as OpenRouterRequestBody;
-
-            // Add OpenRouter-specific parameters
-            if (topK) requestBody.top_k = topK;
-            if (minP) requestBody.min_p = minP;
-            if (repetitionPenalty) requestBody.repetition_penalty = repetitionPenalty;
-            if (useFlexTier) requestBody.service_tier = 'flex';
-
-            // Web search for canon retrieval. We use the `web` PLUGIN (search runs BEFORE the
-            // model and results are injected as context) rather than the `openrouter:web_search`
-            // server tool, because the server tool requires agentic tool-calling that some models
-            // (DeepSeek) don't honour — they leak the tool call as text and never finish. The
-            // plugin is model-agnostic and works for DeepSeek, Gemini, etc.
-            if (webSearch) {
-                requestBody.plugins = [{ id: 'web', max_results: webMaxResults ?? 5 }];
-            }
-
-            // Add reasoning configuration per OpenRouter docs
-            if (disableReasoning) {
-                // Structured/extraction calls (e.g. canon retrieval): turn thinking off so
-                // reasoning tokens don't eat the output budget and truncate the JSON.
-                requestBody.reasoning = { enabled: false };
-            } else if (enableReasoning) {
-                const isGeminiModel = effectiveModelId.toLowerCase().includes('gemini');
-                const isDeepSeekModel = effectiveModelId.toLowerCase().includes('deepseek');
-                const isAnthropicModel =
-                    effectiveModelId.toLowerCase().includes('claude') ||
-                    effectiveModelId.toLowerCase().includes('anthropic');
-                const isOpenAIReasoning =
-                    effectiveModelId.toLowerCase().includes('o1') ||
-                    effectiveModelId.toLowerCase().includes('o3');
-
-                if (isGeminiModel) {
-                    // Gemini thinking models support max_tokens
-                    requestBody.reasoning = {
-                        enabled: true,
-                        max_tokens: Math.min(maxTokens ? Math.floor(maxTokens * 0.5) : 4096, 8192),
-                    };
-                } else if (isDeepSeekModel) {
-                    // DeepSeek R1 uses effort
-                    requestBody.reasoning = {
-                        effort: 'high',
-                    };
-                } else if (isAnthropicModel) {
-                    // Anthropic models use max_tokens
-                    requestBody.reasoning = {
-                        max_tokens: Math.min(maxTokens ? Math.floor(maxTokens * 0.5) : 4096, 8000),
-                    };
-                } else if (isOpenAIReasoning) {
-                    // OpenAI o-series uses effort
-                    requestBody.reasoning = {
-                        effort: 'high',
-                    };
-                } else {
-                    // Default: enable with medium effort
-                    requestBody.reasoning = {
-                        effort: 'medium',
-                    };
-                }
-            }
+                model: effectiveModelId,
+                mode: 'stream',
+            });
         } else if (provider === 'openai') {
             client = new OpenAI({ apiKey });
             requestBody = {
@@ -179,6 +105,7 @@ export async function POST(req: NextRequest) {
                 frequency_penalty: frequencyPenalty,
                 presence_penalty: presencePenalty,
                 stop: stoppingStrings,
+                stream_options: { include_usage: true },
             };
         } else if (provider === 'anthropic') {
             // Use OpenRouter for Anthropic to maintain consistency
@@ -190,6 +117,7 @@ export async function POST(req: NextRequest) {
                     'X-Title': 'NexusAI',
                 },
             });
+            applyClaudeCacheBreakpoints(fullMessages, cachePrefixLength);
             requestBody = {
                 model: effectiveModelId.startsWith('anthropic/')
                     ? effectiveModelId
@@ -199,15 +127,23 @@ export async function POST(req: NextRequest) {
                 max_tokens: maxTokens ?? 4096,
                 top_p: topP,
                 stop: stoppingStrings,
+                stream_options: { include_usage: true },
+                usage: { include: true },
             };
         } else if (provider === 'nanogpt') {
             // NanoGPT is OpenAI-compatible. Model IDs are namespaced (e.g. "openai/gpt-5.2") and
-            // MUST be passed through intact — the truncation above (line ~69) only runs for
+            // MUST be passed through intact — the truncation above only runs for
             // openai/anthropic, so `effectiveModelId` is already the untouched id here.
             client = new OpenAI({
                 baseURL: nanogptBaseURL(billingScope),
                 apiKey,
             });
+            // A Claude model on NanoGPT still benefits from explicit cache breakpoints.
+            if (isClaudeModelId(String(effectiveModelId))) {
+                applyClaudeCacheBreakpoints(fullMessages, cachePrefixLength);
+            }
+            // Usage reporting is skipped defensively for NanoGPT (compatibility unverified —
+            // a 400 here would break the user's main RP flow); the client estimates locally.
             requestBody = {
                 model: effectiveModelId,
                 messages: fullMessages,
@@ -220,39 +156,6 @@ export async function POST(req: NextRequest) {
             };
         } else {
             throw new Error('Invalid provider');
-        }
-
-        // Explicit prompt-cache breakpoints for Claude models (OpenRouter passes
-        // `cache_control` through to Anthropic). Mark the system message and the last
-        // message of the stable prefix; Anthropic then prefix-matches on earlier
-        // breakpoints as the window grows. Requires multipart content.
-        const isClaudeModel =
-            provider === 'anthropic' || /claude|anthropic/i.test(String(effectiveModelId));
-        if (isClaudeModel && typeof cachePrefixLength === 'number' && cachePrefixLength >= 1) {
-            const marks = new Set([0, Math.min(cachePrefixLength, fullMessages.length) - 1]);
-            for (const i of marks) {
-                const m = fullMessages[i] as { content: unknown };
-                if (typeof m.content === 'string') {
-                    m.content = [
-                        {
-                            type: 'text',
-                            text: m.content,
-                            cache_control: { type: 'ephemeral' },
-                        },
-                    ];
-                }
-            }
-        }
-
-        // Token usage reporting: ask for the usage chunk at the end of the stream, and (on
-        // OpenRouter) for the accounted cost. Forwarded to the client as a trailing
-        // sentinel line. NanoGPT is skipped defensively (compatibility unverified — a 400
-        // here would break the user's main RP flow); the client estimates locally instead.
-        if (provider === 'openrouter' || provider === 'anthropic' || provider === 'openai') {
-            requestBody.stream_options = { include_usage: true };
-        }
-        if (provider === 'openrouter' || provider === 'anthropic') {
-            requestBody.usage = { include: true };
         }
 
         // Create streaming response using OpenAI SDK

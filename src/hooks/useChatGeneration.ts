@@ -31,6 +31,12 @@ import { directorDecide, applySceneChange } from '@/lib/ai/scene-orchestrator';
 import { NANOGPT_USAGE_REFRESH_EVENT, fetchNanoGPTUsage } from '@/lib/ai/nanogpt-usage';
 import { countTokens } from '@/lib/tokenizer';
 import { extractUsageSentinel } from '@/lib/ai/usage-sentinel';
+import {
+    BatchUnsupportedError,
+    submitBatchReply,
+    waitForBatchReply,
+    type BatchWaitStep,
+} from '@/lib/ai/batch-client';
 import type { PostBeatParams } from '@/lib/ai/post-beat';
 import type { DirectedTriggerKind, SceneBeatRecord, SceneGenerationProgress } from '@/types/scene';
 import { directSceneBeat } from '@/lib/ai/directed-scene';
@@ -100,6 +106,13 @@ interface UseChatGenerationParams {
     runPostBeat: (params: PostBeatParams) => void;
 }
 
+/**
+ * Message ids whose OpenRouter batch is being polled right now (live call or resumed after
+ * a reload). Module-level so a conversation switch can never start a second poll for the
+ * same batch.
+ */
+const awaitedBatches = new Set<string>();
+
 export function useChatGeneration({
     character,
     activeConversationId,
@@ -109,6 +122,11 @@ export function useChatGeneration({
 }: UseChatGenerationParams) {
     const [isLoading, setIsLoading] = useState(false);
     const abortControllerRef = useRef<AbortController | null>(null);
+    /** Impersonation waiting on an OpenRouter batch (the draft has no bubble to show it). */
+    const [batchWait, setBatchWait] = useState<{
+        step: BatchWaitStep;
+        submittedAt: number;
+    } | null>(null);
     // Scene Mode: cancels the remaining character turns of a running beat (Stop button or
     // a new user message).
     const stopRequestedRef = useRef(false);
@@ -183,13 +201,185 @@ export function useChatGeneration({
         activePersonaId,
         personas,
         enableReasoning,
-        useFlexTier,
+        useBatchMode,
         getActivePreset,
         getActiveEngine,
     } = useSettingsStore();
     const { conversations, addMessage, updateMessage, deleteMessage, getActiveBranchBanList } =
         useChatStore();
     const { activeLorebook } = useLorebookStore();
+
+    /** Error toast: title line, then the detail. */
+    const notifyError = (title: string, detail: string) => {
+        const { addNotification, updateNotification } = useNotificationStore.getState();
+        updateNotification(addNotification(title, 'world'), 'error', detail);
+    };
+
+    type BatchInfo = NonNullable<CAMessage['batch']>;
+
+    /**
+     * Merge a patch into a message's `batch` field. No-op when the message has no batch yet
+     * (unless the patch brings the id). `persist: false` for step ticks, which are transient.
+     */
+    const patchMessageBatch = (
+        messageId: string,
+        patch: Partial<BatchInfo>,
+        persist = true
+    ): void => {
+        const current = useChatStore.getState().messages.find((m) => m.id === messageId)?.batch;
+        if (!current && !patch.id) return;
+        updateMessage(messageId, { batch: { ...current, ...patch } as BatchInfo }, { persist });
+    };
+
+    /**
+     * OpenRouter Batch mode, shared by the visible reply and the impersonation draft:
+     * submit, then wait. Resolves `null` when the model cannot batch (rejected at submit or
+     * failed at validation — nothing billed): the caller runs the same request live.
+     * Aborts and terminal failures propagate.
+     */
+    const runBatchedGeneration = async (params: {
+        body: Record<string, unknown>;
+        customId: string;
+        signal: AbortSignal;
+        onSubmitted: (batchId: string, submittedAt: number) => void;
+        onStep: (step: BatchWaitStep) => void;
+        /** Suffix of the fallback toast, e.g. « réponse générée en direct ». */
+        fallbackNotice: string;
+    }): Promise<Awaited<ReturnType<typeof waitForBatchReply>> | null> => {
+        try {
+            const { batchId } = await submitBatchReply(
+                { ...params.body, customId: params.customId },
+                params.signal
+            );
+            const submittedAt = Date.now();
+            params.onSubmitted(batchId, submittedAt);
+            return await waitForBatchReply({
+                apiKey: currentApiKey!,
+                batchId,
+                submittedAt,
+                signal: params.signal,
+                onStep: params.onStep,
+            });
+        } catch (error) {
+            if (!(error instanceof BatchUnsupportedError)) throw error;
+            notifyError(
+                'Batch OpenRouter indisponible pour ce modèle',
+                `${error.message} — ${params.fallbackNotice}.`
+            );
+            return null;
+        }
+    };
+
+    /**
+     * Shared tail of a generated reply, live or batched: thinking extraction, the speaker's
+     * own "Name: " prefix (Scene Mode histories carry them, so models imitate the pattern),
+     * and the <scratchpad> working memory, which is stored on the conversation.
+     */
+    const postProcessReply = (
+        raw: string,
+        speakerName?: string,
+        provider: string = activeProvider
+    ): { content: string; thought: string | null } => {
+        const parsed = normalizeCoT(raw, provider);
+        let content = parsed.content;
+        if (speakerName) {
+            const escaped = speakerName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            content = content.replace(new RegExp(`^\\s*${escaped}\\s*:\\s*`), '');
+        }
+        const scratchpadMatch = content.match(/<scratchpad>([\s\S]*?)<\/scratchpad>/i);
+        if (scratchpadMatch) {
+            if (activeConversationId) {
+                useChatStore
+                    .getState()
+                    .updateScratchpad(activeConversationId, scratchpadMatch[1].trim());
+            }
+            content = content.replace(/<scratchpad>[\s\S]*?<\/scratchpad>/i, '').trim();
+        }
+        return { content, thought: parsed.thought };
+    };
+
+    /**
+     * OpenRouter Batch mode, after a reload: finish a reply whose batch was still pending.
+     * The generation options are gone (supersededMessageId, beatPrefix, prefill), so this is
+     * the plain version of the live tail — attribution falls back to the message's speaker.
+     */
+    const resumeBatchReply = async (
+        msg: CAMessage,
+        batch: NonNullable<CAMessage['batch']>
+    ): Promise<void> => {
+        if (!currentApiKey || !character) return;
+        const conversationId = msg.conversationId;
+        try {
+            const result = await waitForBatchReply({
+                apiKey: currentApiKey,
+                batchId: batch.id,
+                submittedAt: batch.submittedAt,
+                onStep: (step) => patchMessageBatch(msg.id, { step }, false),
+            });
+            const finalResult = postProcessReply(
+                result.content,
+                msg.speaker?.kind === 'character' ? msg.speaker.name : undefined,
+                'openrouter'
+            );
+            if (result.usage.cost && result.usage.cost > 0) {
+                useSettingsStore.getState().addWeeklySpend(result.usage.cost);
+            }
+            updateMessage(msg.id, {
+                content: finalResult.content,
+                thought: finalResult.thought || result.reasoning || undefined,
+                usage: result.usage,
+                error: undefined,
+                batch: { ...batch, status: 'completed', step: undefined },
+            });
+            const history = useChatStore
+                .getState()
+                .getActiveBranchMessages(conversationId)
+                .filter((m) => m.messageOrder < msg.messageOrder);
+            runPostBeat({
+                character,
+                conversationId,
+                finalContent: finalResult.content,
+                targetId: msg.id,
+                history,
+                isImpersonation: false,
+                skipBeatAnalyses: false,
+                speakerNames: [
+                    msg.speaker?.kind === 'character' ? msg.speaker.name : character.name,
+                ],
+            });
+        } catch (error) {
+            console.error('[Batch] resume failed', error);
+            updateMessage(msg.id, {
+                batch: { ...batch, status: 'failed', step: undefined },
+                error: error instanceof Error ? error.message : 'Reprise du batch impossible.',
+            });
+        }
+    };
+
+    // OpenRouter Batch mode: a reload must not pay for a new batch. Resume polling the
+    // pending ones of the open conversation; a live call registers its id first, so the two
+    // paths never poll the same batch twice.
+    useEffect(() => {
+        if (!activeConversationId || !currentApiKey || !character) return;
+        for (const msg of messages) {
+            if (msg.role !== 'assistant' || msg.batch?.status !== 'pending') continue;
+            if (awaitedBatches.has(msg.id)) continue;
+            const batch = msg.batch;
+            if (batch.continuation) {
+                // The pre-continue text is not stored, so the suffix cannot be stitched back
+                // safely. Keep the message as it was; no Retry banner (it would delete it).
+                updateMessage(msg.id, { batch: { ...batch, status: 'failed', step: undefined } });
+                notifyError(
+                    'Suite en batch perdue au rechargement',
+                    'Relancez « Continuer » sur ce message.'
+                );
+                continue;
+            }
+            awaitedBatches.add(msg.id);
+            resumeBatchReply(msg, batch).finally(() => awaitedBatches.delete(msg.id));
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [activeConversationId, currentApiKey, character, messages]);
 
     const triggerAiReponse = async (
         history: CAMessage[],
@@ -474,75 +664,127 @@ export function useChatGeneration({
         }
 
         try {
-            const response = await fetch('/api/chat', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    messages: messagesPayload,
-                    provider: activeProvider,
-                    model: activeModel,
-                    apiKey: currentApiKey,
-                    // Sampler params: ONE definition, shared with every invisible agent, so
-                    // a preset change reaches the Director and the reflections too.
-                    ...buildSamplerParams(activePreset, {
-                        temperature,
-                        enableReasoning,
-                        useFlexTier,
-                    }),
-                    // System prompt is now in messages[0]
-                    systemInstruction: undefined,
-                    // Cache-stable prefix boundary (system + history) for Claude cache_control.
-                    cachePrefixLength: stablePrefixLength,
-                }),
-                signal: requestController.signal,
+            // Sampler params: ONE definition, shared with every invisible agent, so a preset
+            // change reaches the Director and the reflections too.
+            const sampler = buildSamplerParams(activePreset, {
+                temperature,
+                enableReasoning,
+                useBatchMode,
             });
-
-            if (!response.ok) {
-                const errorData = await response.json().catch(() => ({}));
-                throw new Error(
-                    errorData.error || `API Error: ${response.status} ${response.statusText}`
-                );
-            }
-
-            const reader = response.body?.getReader();
-            if (!reader) throw new Error('No reader');
-
-            const decoder = new TextDecoder();
-
-            // If we have a prefill that WASN'T sent to the API, we start with it. If it WAS
-            // sent (Anthropic), the stream continues AFTER it. Always maintain `fullContent`.
-            fullContent = initialContent;
-
-            // STREAMING HOT PATH: throttle the store flush (~20/s) and NEVER write
-            // IndexedDB per chunk — a put of the whole growing message per token is
-            // quadratic I/O. The single persisted write happens after the stream ends
-            // (and on the error/abort paths below).
-            let lastFlushAt = 0;
-            const flushStreamed = (force = false) => {
-                if (options.bufferedOnly) return;
-                const now = Date.now();
-                if (!force && now - lastFlushAt < 50) return;
-                lastFlushAt = now;
-                updateMessage(
-                    targetId,
-                    { content: fullContent, thought: assistantThought || undefined },
-                    { persist: false }
-                );
+            // ONE request body for both transports (live stream / OpenRouter Batch), so the
+            // preset governs the reply identically whichever way it travels.
+            const requestBody = {
+                messages: messagesPayload,
+                provider: activeProvider,
+                model: activeModel,
+                apiKey: currentApiKey,
+                ...sampler,
+                // System prompt is now in messages[0]
+                systemInstruction: undefined,
+                // Cache-stable prefix boundary (system + history) for Claude cache_control.
+                cachePrefixLength: stablePrefixLength,
             };
+            let usage: CAMessage['usage'];
 
-            while (true) {
-                const { done, value } = await reader.read();
-                if (done) break;
-
-                const chunk = decoder.decode(value, { stream: true });
-
-                // Special handling for thoughts:
-                const parsed = parseStreamingChunk(chunk, activeProvider);
-                if (parsed.thoughtContent) assistantThought += parsed.thoughtContent;
-                if (parsed.visibleContent) fullContent += parsed.visibleContent;
-                if (parsed.thoughtContent || parsed.visibleContent) flushStreamed();
+            // OpenRouter Batch mode: submit, wait, and land the whole reply at once (half
+            // price, a few minutes). Foreground only — agents keep the live route.
+            let batchDone = false;
+            if (activeProvider === 'openrouter' && sampler.useBatchMode) {
+                // Buffered Troupe turns have no bubble: the wait is silent for them.
+                const showBatch = !options.bufferedOnly && !!activeConversationId;
+                const mark = (patch: Partial<BatchInfo>, persist = true) => {
+                    if (showBatch) patchMessageBatch(targetId, patch, persist);
+                };
+                try {
+                    const result = await runBatchedGeneration({
+                        body: requestBody,
+                        customId: targetId,
+                        signal: requestController.signal,
+                        onSubmitted: (batchId, submittedAt) => {
+                            // Registered BEFORE the store write so the resume effect never
+                            // double-polls a batch this call is already waiting for.
+                            awaitedBatches.add(targetId);
+                            mark({
+                                id: batchId,
+                                status: 'pending',
+                                submittedAt,
+                                step: 'validating',
+                                continuation: continuing || undefined,
+                            });
+                        },
+                        onStep: (step) => mark({ step }, false),
+                        fallbackNotice: 'réponse générée en direct',
+                    });
+                    if (result) {
+                        fullContent = initialContent + result.content;
+                        assistantThought = result.reasoning ?? '';
+                        usage = result.usage;
+                        mark({ status: 'completed', step: undefined });
+                        batchDone = true;
+                    } else {
+                        mark({ status: 'failed', step: undefined });
+                    }
+                } finally {
+                    awaitedBatches.delete(targetId);
+                }
             }
-            flushStreamed(true);
+
+            if (!batchDone) {
+                const response = await fetch('/api/chat', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(requestBody),
+                    signal: requestController.signal,
+                });
+
+                if (!response.ok) {
+                    const errorData = await response.json().catch(() => ({}));
+                    throw new Error(
+                        errorData.error || `API Error: ${response.status} ${response.statusText}`
+                    );
+                }
+
+                const reader = response.body?.getReader();
+                if (!reader) throw new Error('No reader');
+
+                const decoder = new TextDecoder();
+
+                // If we have a prefill that WASN'T sent to the API, we start with it. If it
+                // WAS sent (Anthropic), the stream continues AFTER it. Always maintain
+                // `fullContent`.
+                fullContent = initialContent;
+
+                // STREAMING HOT PATH: throttle the store flush (~20/s) and NEVER write
+                // IndexedDB per chunk — a put of the whole growing message per token is
+                // quadratic I/O. The single persisted write happens after the stream ends
+                // (and on the error/abort paths below).
+                let lastFlushAt = 0;
+                const flushStreamed = (force = false) => {
+                    if (options.bufferedOnly) return;
+                    const now = Date.now();
+                    if (!force && now - lastFlushAt < 50) return;
+                    lastFlushAt = now;
+                    updateMessage(
+                        targetId,
+                        { content: fullContent, thought: assistantThought || undefined },
+                        { persist: false }
+                    );
+                };
+
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+
+                    const chunk = decoder.decode(value, { stream: true });
+
+                    // Special handling for thoughts:
+                    const parsed = parseStreamingChunk(chunk, activeProvider);
+                    if (parsed.thoughtContent) assistantThought += parsed.thoughtContent;
+                    if (parsed.visibleContent) fullContent += parsed.visibleContent;
+                    if (parsed.thoughtContent || parsed.visibleContent) flushStreamed();
+                }
+                flushStreamed(true);
+            }
 
             // NanoGPT quota was just consumed by this generation — ask the usage badge/panel to
             // refetch (no-op for other providers; the badge only renders for NanoGPT).
@@ -569,36 +811,18 @@ export function useChatGeneration({
                 fullContent = initialContent + (needsSpace ? ' ' : '') + streamed;
             }
 
-            // Extract the trailing usage sentinel (provider-reported token accounting).
+            // Extract the trailing usage sentinel (provider-reported token accounting). A
+            // batch reply carries none — its usage was set from the batch object above.
             const sentinel = extractUsageSentinel(fullContent);
             fullContent = sentinel.clean;
-            let usage: CAMessage['usage'] = sentinel.usage;
+            usage = usage ?? sentinel.usage;
 
-            // Final parse
-            const finalResult = normalizeCoT(fullContent, activeProvider);
-
-            // Extract scratchpad
-            let finalContent = finalResult.content;
-
-            // Scene Mode: the history carries "Name: " prefixes so models often imitate the
-            // pattern — strip the speaker's own prefix from their reply.
-            if (options.speaker?.kind === 'character') {
-                const escaped = options.speaker.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-                finalContent = finalContent.replace(new RegExp(`^\\s*${escaped}\\s*:\\s*`), '');
-            }
-            const scratchpadMatch = finalContent.match(/<scratchpad>([\s\S]*?)<\/scratchpad>/i);
-            if (scratchpadMatch) {
-                const scratchpadContent = scratchpadMatch[1].trim();
-                if (activeConversationId) {
-                    useChatStore
-                        .getState()
-                        .updateScratchpad(activeConversationId, scratchpadContent);
-                }
-                // Remove scratchpad from final content
-                finalContent = finalContent
-                    .replace(/<scratchpad>[\s\S]*?<\/scratchpad>/i, '')
-                    .trim();
-            }
+            // Final parse: thinking, speaker prefix, scratchpad.
+            const finalResult = postProcessReply(
+                fullContent,
+                options.speaker?.kind === 'character' ? options.speaker.name : undefined
+            );
+            const finalContent = finalResult.content;
 
             // Weekly OpenRouter budget: accumulate the REAL accounted cost (never the
             // local estimates — the tracker only counts what OpenRouter actually billed).
@@ -659,7 +883,26 @@ export function useChatGeneration({
             return { id: targetId, content: finalContent, usage };
         } catch (error) {
             if (options.bufferedOnly) throw error;
+            // A batch still waiting when this call gives up. OpenRouter documents no cancel:
+            // the batch still completes upstream and is billed, but nothing here needs it.
+            const pendingBatch = activeConversationId
+                ? useChatStore.getState().messages.find((m) => m.id === targetId)?.batch
+                : undefined;
+            const settledBatch =
+                pendingBatch?.status === 'pending'
+                    ? { ...pendingBatch, step: undefined }
+                    : undefined;
+
             if (error instanceof Error && error.name === 'AbortError') {
+                if (activeConversationId && settledBatch) {
+                    updateMessage(targetId, {
+                        batch: { ...settledBatch, status: 'cancelled' },
+                        // A continuation keeps its text and stays retry-free (Retry would
+                        // DELETE it); a fresh reply gets the banner with Retry.
+                        ...(continuing ? {} : { error: 'Attente batch interrompue.' }),
+                    });
+                    return;
+                }
                 // Streaming no longer persists per chunk — write the partial content once
                 // so a stopped generation survives a reload.
                 if (activeConversationId && fullContent) {
@@ -671,20 +914,20 @@ export function useChatGeneration({
                 return;
             }
 
-            const { addNotification, updateNotification } = useNotificationStore.getState();
-            const notifId = addNotification('Échec de la génération de la réponse', 'world');
-            updateNotification(
-                notifId,
-                'error',
+            notifyError(
+                'Échec de la génération de la réponse',
                 error instanceof Error ? error.message : 'Erreur inconnue'
             );
 
             if (activeConversationId) {
+                const failedBatch = settledBatch
+                    ? { batch: { ...settledBatch, status: 'failed' as const } }
+                    : {};
                 if (continuing) {
                     // A failed continuation must not damage the existing message (and must
                     // not flag it with `error` — Retry would DELETE it). Restore and let
                     // the notification carry the failure.
-                    updateMessage(targetId, { content: initialContent });
+                    updateMessage(targetId, { content: initialContent, ...failedBatch });
                 } else {
                     // Keep the error OUT of `content` (it would be sent back to the model on
                     // the next turn) — ChatBubble renders it as a banner with a Retry action.
@@ -694,6 +937,7 @@ export function useChatGeneration({
                             error instanceof Error
                                 ? error.message
                                 : 'Échec de la réponse. Vérifiez la clé API ou le réseau.',
+                        ...failedBatch,
                     });
                 }
             }
@@ -846,7 +1090,7 @@ export function useChatGeneration({
             sampler: buildSamplerParams(activePreset, {
                 temperature: settings.temperature,
                 enableReasoning: settings.enableReasoning,
-                useFlexTier: settings.useFlexTier,
+                useBatchMode: settings.useBatchMode,
             }),
             direct: directSceneBeat,
             compose: async ({ contract, history, frozenWindow }) => {
@@ -1352,47 +1596,93 @@ export function useChatGeneration({
                 maxOutputTokens: activePreset?.maxOutputTokens ?? 2048,
             });
 
-            // 2. API Call
-            const response = await fetch('/api/chat', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    messages: messagesPayload,
-                    provider: activeProvider,
-                    model: activeModel,
-                    apiKey: currentApiKey,
-                    temperature: activePreset?.temperature ?? temperature,
-                    maxTokens: activePreset?.maxOutputTokens ?? 2048,
-                    topP: activePreset?.topP,
-                    topK: activePreset?.topK,
-                    frequencyPenalty: activePreset?.frequencyPenalty,
-                    presencePenalty: activePreset?.presencePenalty,
-                    repetitionPenalty: activePreset?.repetitionPenalty,
-                    minP: activePreset?.minP,
-                    stoppingStrings: activePreset?.stoppingStrings,
-                    enableReasoning: activePreset?.enableReasoning ?? enableReasoning,
-                    useFlexTier: activePreset?.useFlexTier ?? useFlexTier,
-                }),
-            });
+            // 2. API Call — one body for both transports.
+            const wantBatch = activePreset?.useBatchMode ?? useBatchMode;
+            const requestBody = {
+                messages: messagesPayload,
+                provider: activeProvider,
+                model: activeModel,
+                apiKey: currentApiKey,
+                temperature: activePreset?.temperature ?? temperature,
+                maxTokens: activePreset?.maxOutputTokens ?? 2048,
+                topP: activePreset?.topP,
+                topK: activePreset?.topK,
+                frequencyPenalty: activePreset?.frequencyPenalty,
+                presencePenalty: activePreset?.presencePenalty,
+                repetitionPenalty: activePreset?.repetitionPenalty,
+                minP: activePreset?.minP,
+                stoppingStrings: activePreset?.stoppingStrings,
+                enableReasoning: activePreset?.enableReasoning ?? enableReasoning,
+                useBatchMode: wantBatch,
+            };
 
-            if (!response.ok) throw new Error('Impersonation failed');
+            // OpenRouter Batch mode: the draft arrives whole after a few minutes. The wait
+            // is shown next to the input (there is no bubble for a draft) and Stop cancels it.
+            let batchDone = false;
+            if (activeProvider === 'openrouter' && wantBatch) {
+                const controller = new AbortController();
+                abortControllerRef.current?.abort();
+                abortControllerRef.current = controller;
+                let submittedAt = 0;
+                try {
+                    const result = await runBatchedGeneration({
+                        body: requestBody,
+                        customId: crypto.randomUUID(),
+                        signal: controller.signal,
+                        onSubmitted: (_batchId, at) => {
+                            submittedAt = at;
+                            setBatchWait({ step: 'validating', submittedAt });
+                        },
+                        onStep: (step) => setBatchWait({ step, submittedAt }),
+                        fallbackNotice: 'brouillon généré en direct',
+                    });
+                    if (result) {
+                        // Same wire shape as the live route, so the shared parser below applies.
+                        generatedText =
+                            (result.reasoning ? `<think>${result.reasoning}</think>` : '') +
+                            result.content;
+                        if (result.usage.cost && result.usage.cost > 0) {
+                            useSettingsStore.getState().addWeeklySpend(result.usage.cost);
+                        }
+                        batchDone = true;
+                    }
+                } catch (error) {
+                    if (error instanceof Error && error.name === 'AbortError') return;
+                    throw error;
+                } finally {
+                    setBatchWait(null);
+                    if (abortControllerRef.current === controller)
+                        abortControllerRef.current = null;
+                }
+            }
 
-            const reader = response.body?.getReader();
-            if (!reader) throw new Error('No reader');
-            const decoder = new TextDecoder();
+            if (!batchDone) {
+                const response = await fetch('/api/chat', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(requestBody),
+                });
 
-            while (true) {
-                const { done, value } = await reader.read();
-                if (done) break;
-                const chunk = decoder.decode(value, { stream: true });
-                // We must accumulate the raw text first, because chunk-based parsing
-                // of thoughts split across chunks is unreliable.
-                generatedText += chunk;
+                if (!response.ok) throw new Error('Impersonation failed');
+
+                const reader = response.body?.getReader();
+                if (!reader) throw new Error('No reader');
+                const decoder = new TextDecoder();
+
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+                    const chunk = decoder.decode(value, { stream: true });
+                    // We must accumulate the raw text first, because chunk-based parsing
+                    // of thoughts split across chunks is unreliable.
+                    generatedText += chunk;
+                }
             }
 
             // Strip the trailing usage sentinel — the drafted text goes into the input box.
             // Impersonation runs on the PAID foreground model: its real cost counts toward
-            // the weekly budget like any other generation.
+            // the weekly budget like any other generation. (A batch draft has no sentinel;
+            // its cost was counted above.)
             const impSentinel = extractUsageSentinel(generatedText);
             generatedText = impSentinel.clean;
             if (impSentinel.usage?.cost && impSentinel.usage.cost > 0) {
@@ -1526,6 +1816,7 @@ export function useChatGeneration({
 
     return {
         isLoading,
+        batchWait,
         isSceneRunning,
         sceneProgress,
         lastSceneBeat,

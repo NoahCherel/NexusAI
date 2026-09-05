@@ -35,7 +35,7 @@ const sampler: SamplerParams = {
     minP: 0.05,
     stoppingStrings: ['###'],
     enableReasoning: true,
-    useFlexTier: false,
+    useBatchMode: false,
 };
 
 const payload: AgentPayload = {
@@ -250,5 +250,22 @@ describe('an invisible agent request', () => {
         expect(body.messages).toEqual([{ role: 'user', content: 'BEAT TEXT' }]);
         expect(body.temperature).toBe(0.2);
         expect(body.topP).toBeUndefined();
+    });
+
+    it('never carries the batch flag — agents need their answer within the beat', async () => {
+        useSettingsStore.setState({ useBatchMode: true } as never);
+        await callStructuredAgent({
+            context: {
+                buildPayload: async () => payload,
+                sampler: { ...sampler, useBatchMode: true },
+                route,
+            },
+            contract: '[BEAT DIRECTOR]',
+            parse: (raw) => JSON.parse(raw) as unknown,
+            stage: 'director',
+            failureMessage: 'no answer',
+        });
+        expect(bodies[0]).not.toHaveProperty('useBatchMode');
+        expect(bodies[0]).not.toHaveProperty('useFlexTier');
     });
 });

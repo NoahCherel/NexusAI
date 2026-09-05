@@ -160,12 +160,12 @@ export interface SamplerParams {
     minP?: number;
     stoppingStrings?: string[];
     enableReasoning: boolean;
-    useFlexTier: boolean;
+    useBatchMode: boolean;
 }
 
 export function buildSamplerParams(
     preset: APIPreset | null,
-    settings: { temperature: number; enableReasoning: boolean; useFlexTier: boolean }
+    settings: { temperature: number; enableReasoning: boolean; useBatchMode: boolean }
 ): SamplerParams {
     return {
         temperature: preset?.temperature ?? settings.temperature,
@@ -178,7 +178,7 @@ export function buildSamplerParams(
         minP: preset?.minP,
         stoppingStrings: preset?.stoppingStrings,
         enableReasoning: preset?.enableReasoning ?? settings.enableReasoning,
-        useFlexTier: preset?.useFlexTier ?? settings.useFlexTier,
+        useBatchMode: preset?.useBatchMode ?? settings.useBatchMode,
     };
 }
 

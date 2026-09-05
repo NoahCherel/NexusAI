@@ -87,7 +87,7 @@ export function SettingsPanel({ open, onOpenChange }: SettingsPanelProps) {
         apiKeys,
         showThoughts,
         enableReasoning,
-        useFlexTier,
+        useBatchMode,
         immersiveMode,
         backgroundModel,
         customModels,
@@ -95,7 +95,7 @@ export function SettingsPanel({ open, onOpenChange }: SettingsPanelProps) {
         setActiveProvider,
         setShowThoughts,
         setEnableReasoning,
-        setUseFlexTier,
+        setUseBatchMode,
         setImmersiveMode,
         setBackgroundModel,
         lorebookAutoExtract,
@@ -450,28 +450,30 @@ export function SettingsPanel({ open, onOpenChange }: SettingsPanelProps) {
                                     </div>
                                 </div>
 
-                                {/* OpenRouter Flex Tier Toggle */}
+                                {/* OpenRouter Batch API toggle */}
                                 {activeProvider === 'openrouter' && (
                                     <div className="space-y-4">
                                         <div className="flex items-center justify-between p-4 border rounded-lg bg-card/50">
                                             <div>
                                                 <p className="text-sm font-medium">
-                                                    Palier Flex OpenRouter
+                                                    Mode batch OpenRouter
                                                 </p>
                                                 <p className="text-xs text-muted-foreground mt-1">
-                                                    Route les requêtes via le palier flexible (tarif
-                                                    réduit) d&apos;OpenRouter quand il est
-                                                    disponible pour les modèles supportés (ex.
-                                                    Gemini 3.5 Flash)
+                                                    Réponse différée via l&apos;API Batch
+                                                    d&apos;OpenRouter : tarif divisé par deux,
+                                                    quelques minutes d&apos;attente au lieu du
+                                                    streaming. Ne concerne que la réponse visible et
+                                                    l&apos;impersonation ; les analyses de fond
+                                                    gardent leur modèle.
                                                 </p>
                                             </div>
                                             <Button
-                                                variant={useFlexTier ? 'default' : 'secondary'}
+                                                variant={useBatchMode ? 'default' : 'secondary'}
                                                 size="sm"
-                                                onClick={() => setUseFlexTier(!useFlexTier)}
+                                                onClick={() => setUseBatchMode(!useBatchMode)}
                                                 className="w-16"
                                             >
-                                                {useFlexTier ? 'On' : 'Off'}
+                                                {useBatchMode ? 'On' : 'Off'}
                                             </Button>
                                         </div>
                                     </div>

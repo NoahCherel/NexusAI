@@ -44,7 +44,7 @@ const preset = (): APIPreset => ({
     maxContextTokens: 8192,
     maxOutputTokens: 512,
     enableReasoning: true,
-    useFlexTier: true,
+    useBatchMode: true,
 });
 
 const conversation: Conversation = {
@@ -191,7 +191,7 @@ describe('preset parameters reach the agents', () => {
         const sampler = buildSamplerParams(preset(), {
             temperature: 0.1,
             enableReasoning: false,
-            useFlexTier: false,
+            useBatchMode: false,
         });
         expect(sampler).toEqual({
             temperature: 0.77,
@@ -204,7 +204,7 @@ describe('preset parameters reach the agents', () => {
             minP: 0.05,
             stoppingStrings: ['###'],
             enableReasoning: true,
-            useFlexTier: true,
+            useBatchMode: true,
         });
     });
 
@@ -212,11 +212,11 @@ describe('preset parameters reach the agents', () => {
         const sampler = buildSamplerParams(null, {
             temperature: 0.42,
             enableReasoning: true,
-            useFlexTier: true,
+            useBatchMode: true,
         });
         expect(sampler.temperature).toBe(0.42);
         expect(sampler.enableReasoning).toBe(true);
-        expect(sampler.useFlexTier).toBe(true);
+        expect(sampler.useBatchMode).toBe(true);
         expect(sampler.maxTokens).toBe(2048);
     });
 
