@@ -37,7 +37,7 @@ const sampler: SamplerParams = {
     temperature: 0.5,
     maxTokens: 256,
     enableReasoning: false,
-    useBatchMode: false,
+    useFlexTier: false,
 };
 
 const root: ResolvedCharacterProfile = {

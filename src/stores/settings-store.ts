@@ -160,9 +160,9 @@ interface SettingsState {
     nanogptModels: CustomModel[];
     temperature: number;
     enableReasoning: boolean;
-    // OpenRouter Batch API for the visible reply and impersonation (half price, a few
-    // minutes of wait, polled instead of streamed). Background agents never batch.
-    useBatchMode: boolean;
+    // OpenRouter flex service tier (service_tier: 'flex'): half price, slower capacity on
+    // the same live request. Unrelated to the Batch API, which a `:batch` model selects.
+    useFlexTier: boolean;
 
     // User Personas
     personas: Persona[];
@@ -233,7 +233,7 @@ interface SettingsState {
     setNanogptModels: (models: CustomModel[]) => void;
     setTemperature: (temp: number) => void;
     setEnableReasoning: (enabled: boolean) => void;
-    setUseBatchMode: (enabled: boolean) => void;
+    setUseFlexTier: (enabled: boolean) => void;
 
     // Persona Actions
     addPersona: (persona: Persona) => void;
@@ -279,26 +279,27 @@ interface SettingsState {
 }
 
 /**
- * Persisted-shape migrations. v0 → v1: the "Palier Flex" toggle (`useFlexTier`, which sent
- * `service_tier: 'flex'`) became the OpenRouter Batch toggle (`useBatchMode`). The user's
- * choice carries over, on the root state and on every preset.
+ * Persisted-shape migrations. v1 briefly renamed the "Palier Flex" toggle to `useBatchMode`;
+ * v2 restores `useFlexTier` (Flex and the Batch API are different products — a batch is
+ * chosen by picking a `:batch` model, not by a toggle). A v1 store gets its value back; a
+ * v0 store is already in the right shape.
  */
 export function migrateSettings(persisted: unknown, version: number): unknown {
     if (!persisted || typeof persisted !== 'object') return persisted;
     const state = persisted as Record<string, unknown>;
-    if (version < 1) {
-        const renameFlex = (obj: Record<string, unknown>) => {
-            if ('useFlexTier' in obj) {
-                if (obj.useBatchMode === undefined) obj.useBatchMode = obj.useFlexTier;
-                delete obj.useFlexTier;
+    if (version < 2) {
+        const restoreFlex = (obj: Record<string, unknown>) => {
+            if ('useBatchMode' in obj) {
+                if (obj.useFlexTier === undefined) obj.useFlexTier = obj.useBatchMode;
+                delete obj.useBatchMode;
             }
         };
-        renameFlex(state);
+        restoreFlex(state);
         if (Array.isArray(state.presets)) {
             state.presets = state.presets.map((preset) => {
                 if (!preset || typeof preset !== 'object') return preset;
                 const copy = { ...(preset as Record<string, unknown>) };
-                renameFlex(copy);
+                restoreFlex(copy);
                 return copy;
             });
         }
@@ -317,7 +318,7 @@ export const useSettingsStore = create<SettingsState>()(
             nanogptModels: [],
             temperature: 0.8,
             enableReasoning: false,
-            useBatchMode: false,
+            useFlexTier: false,
             personas: [],
             activePersonaId: null,
             presets: [],
@@ -375,7 +376,7 @@ export const useSettingsStore = create<SettingsState>()(
 
             setTemperature: (temperature) => set({ temperature }),
             setEnableReasoning: (enableReasoning) => set({ enableReasoning }),
-            setUseBatchMode: (useBatchMode) => set({ useBatchMode }),
+            setUseFlexTier: (useFlexTier) => set({ useFlexTier }),
 
             // Persona Actions
             addPersona: (persona) => set((state) => ({ personas: [...state.personas, persona] })),
@@ -547,7 +548,7 @@ export const useSettingsStore = create<SettingsState>()(
             name: 'nexusai-settings',
             // NOTE: everything persisted here is genuinely needed across reloads
             // (nanogptModels is only refetched when the key is saved) — no partialize.
-            version: 1,
+            version: 2,
             migrate: (persisted, version) => migrateSettings(persisted, version),
         }
     )

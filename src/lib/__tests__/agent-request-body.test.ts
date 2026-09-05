@@ -35,7 +35,7 @@ const sampler: SamplerParams = {
     minP: 0.05,
     stoppingStrings: ['###'],
     enableReasoning: true,
-    useBatchMode: false,
+    useFlexTier: false,
 };
 
 const payload: AgentPayload = {
@@ -252,12 +252,11 @@ describe('an invisible agent request', () => {
         expect(body.topP).toBeUndefined();
     });
 
-    it('never carries the batch flag — agents need their answer within the beat', async () => {
-        useSettingsStore.setState({ useBatchMode: true } as never);
+    it('forwards the preset flex tier like the visible reply does', async () => {
         await callStructuredAgent({
             context: {
                 buildPayload: async () => payload,
-                sampler: { ...sampler, useBatchMode: true },
+                sampler: { ...sampler, useFlexTier: true },
                 route,
             },
             contract: '[BEAT DIRECTOR]',
@@ -265,7 +264,6 @@ describe('an invisible agent request', () => {
             stage: 'director',
             failureMessage: 'no answer',
         });
-        expect(bodies[0]).not.toHaveProperty('useBatchMode');
-        expect(bodies[0]).not.toHaveProperty('useFlexTier');
+        expect(bodies[0].useFlexTier).toBe(true);
     });
 });

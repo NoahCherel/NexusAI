@@ -66,9 +66,17 @@ describe('buildOpenRouterChatBody', () => {
         });
     });
 
-    it('never emits the retired flex service tier', () => {
-        const body = buildOpenRouterChatBody({ ...base, mode: 'stream' });
-        expect(body).not.toHaveProperty('service_tier');
+    it('sends the flex service tier on the live request only, and only when asked', () => {
+        expect(buildOpenRouterChatBody({ ...base, mode: 'stream' })).not.toHaveProperty(
+            'service_tier'
+        );
+        expect(
+            buildOpenRouterChatBody({ ...base, useFlexTier: true, mode: 'stream' }).service_tier
+        ).toBe('flex');
+        // A batch is already discounted; the tier would be meaningless there.
+        expect(
+            buildOpenRouterChatBody({ ...base, useFlexTier: true, mode: 'batch' })
+        ).not.toHaveProperty('service_tier');
     });
 
     it('picks the reasoning shape by model family', () => {

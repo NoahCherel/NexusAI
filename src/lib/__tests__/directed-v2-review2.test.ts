@@ -89,7 +89,7 @@ function deps(overrides: Partial<DirectedBeatDeps> = {}): DirectedBeatDeps {
             },
             historyWindow: { action: 'unchanged', reason: 'test', recoverableMessageCount: 0 },
         }),
-        sampler: { temperature: 0.5, maxTokens: 100, enableReasoning: false, useBatchMode: false },
+        sampler: { temperature: 0.5, maxTokens: 100, enableReasoning: false, useFlexTier: false },
         direct: async () => ({ ...decision }),
         compose: async () => ({
             content: JSON.stringify({ narration: 'La porte grince.', turns: [] }),

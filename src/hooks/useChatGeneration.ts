@@ -37,6 +37,7 @@ import {
     waitForBatchReply,
     type BatchWaitStep,
 } from '@/lib/ai/batch-client';
+import { isBatchModel, stripBatchSuffix } from '@/lib/ai/openrouter-batch';
 import type { PostBeatParams } from '@/lib/ai/post-beat';
 import type { DirectedTriggerKind, SceneBeatRecord, SceneGenerationProgress } from '@/types/scene';
 import { directSceneBeat } from '@/lib/ai/directed-scene';
@@ -201,7 +202,7 @@ export function useChatGeneration({
         activePersonaId,
         personas,
         enableReasoning,
-        useBatchMode,
+        useFlexTier,
         getActivePreset,
         getActiveEngine,
     } = useSettingsStore();
@@ -669,7 +670,7 @@ export function useChatGeneration({
             const sampler = buildSamplerParams(activePreset, {
                 temperature,
                 enableReasoning,
-                useBatchMode,
+                useFlexTier,
             });
             // ONE request body for both transports (live stream / OpenRouter Batch), so the
             // preset governs the reply identically whichever way it travels.
@@ -686,10 +687,11 @@ export function useChatGeneration({
             };
             let usage: CAMessage['usage'];
 
-            // OpenRouter Batch mode: submit, wait, and land the whole reply at once (half
-            // price, a few minutes). Foreground only — agents keep the live route.
+            // OpenRouter Batch API, chosen by picking a `:batch` model: submit, wait, and land
+            // the whole reply at once (half price, a few minutes). Foreground only — agents
+            // keep the live route on their own model.
             let batchDone = false;
-            if (activeProvider === 'openrouter' && sampler.useBatchMode) {
+            if (activeProvider === 'openrouter' && isBatchModel(activeModel)) {
                 // Buffered Troupe turns have no bubble: the wait is silent for them.
                 const showBatch = !options.bufferedOnly && !!activeConversationId;
                 const mark = (patch: Partial<BatchInfo>, persist = true) => {
@@ -713,7 +715,7 @@ export function useChatGeneration({
                             });
                         },
                         onStep: (step) => mark({ step }, false),
-                        fallbackNotice: 'réponse générée en direct',
+                        fallbackNotice: 'réponse générée en direct au tarif standard',
                     });
                     if (result) {
                         fullContent = initialContent + result.content;
@@ -722,7 +724,10 @@ export function useChatGeneration({
                         mark({ status: 'completed', step: undefined });
                         batchDone = true;
                     } else {
+                        // The `:batch` variant is a batch-only listing: the live route needs
+                        // the base slug.
                         mark({ status: 'failed', step: undefined });
+                        requestBody.model = stripBatchSuffix(activeModel);
                     }
                 } finally {
                     awaitedBatches.delete(targetId);
@@ -1090,7 +1095,7 @@ export function useChatGeneration({
             sampler: buildSamplerParams(activePreset, {
                 temperature: settings.temperature,
                 enableReasoning: settings.enableReasoning,
-                useBatchMode: settings.useBatchMode,
+                useFlexTier: settings.useFlexTier,
             }),
             direct: directSceneBeat,
             compose: async ({ contract, history, frozenWindow }) => {
@@ -1597,7 +1602,6 @@ export function useChatGeneration({
             });
 
             // 2. API Call — one body for both transports.
-            const wantBatch = activePreset?.useBatchMode ?? useBatchMode;
             const requestBody = {
                 messages: messagesPayload,
                 provider: activeProvider,
@@ -1613,13 +1617,13 @@ export function useChatGeneration({
                 minP: activePreset?.minP,
                 stoppingStrings: activePreset?.stoppingStrings,
                 enableReasoning: activePreset?.enableReasoning ?? enableReasoning,
-                useBatchMode: wantBatch,
+                useFlexTier: activePreset?.useFlexTier ?? useFlexTier,
             };
 
-            // OpenRouter Batch mode: the draft arrives whole after a few minutes. The wait
-            // is shown next to the input (there is no bubble for a draft) and Stop cancels it.
+            // A `:batch` model: the draft arrives whole after a few minutes. The wait is
+            // shown next to the input (there is no bubble for a draft) and Stop cancels it.
             let batchDone = false;
-            if (activeProvider === 'openrouter' && wantBatch) {
+            if (activeProvider === 'openrouter' && isBatchModel(activeModel)) {
                 const controller = new AbortController();
                 abortControllerRef.current?.abort();
                 abortControllerRef.current = controller;
@@ -1634,7 +1638,7 @@ export function useChatGeneration({
                             setBatchWait({ step: 'validating', submittedAt });
                         },
                         onStep: (step) => setBatchWait({ step, submittedAt }),
-                        fallbackNotice: 'brouillon généré en direct',
+                        fallbackNotice: 'brouillon généré en direct au tarif standard',
                     });
                     if (result) {
                         // Same wire shape as the live route, so the shared parser below applies.
@@ -1645,6 +1649,9 @@ export function useChatGeneration({
                             useSettingsStore.getState().addWeeklySpend(result.usage.cost);
                         }
                         batchDone = true;
+                    } else {
+                        // Batch-only listing: the live route needs the base slug.
+                        requestBody.model = stripBatchSuffix(activeModel);
                     }
                 } catch (error) {
                     if (error instanceof Error && error.name === 'AbortError') return;

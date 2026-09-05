@@ -259,9 +259,13 @@ async function tryModelChain(params: ChainAttemptParams): Promise<BackgroundAIRe
                                     provider === 'nanogpt'
                                         ? (billingScope ?? 'subscription')
                                         : undefined,
-                                // No batch flag here on purpose: the OpenRouter Batch API is a
-                                // foreground-only choice (visible reply, impersonation). An
-                                // agent needs its answer within the beat.
+                                // Flex tier + web_search times out (504): the slow flex queue
+                                // plus the server-side search loop exceeds the deadline.
+                                useFlexTier:
+                                    provider === 'openrouter' && !webSearch
+                                        ? (sampler?.useFlexTier ??
+                                          useSettingsStore.getState().useFlexTier)
+                                        : false,
                                 webSearch: provider === 'openrouter' ? webSearch : false,
                                 webMaxResults,
                                 // The visible generation never sends this; a full-payload

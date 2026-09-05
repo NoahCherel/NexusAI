@@ -7,9 +7,27 @@ import { describe, expect, it } from 'vitest';
 import {
     buildBatchEnvelope,
     describeError,
+    isBatchModel,
     normalizeBatchStatus,
+    stripBatchSuffix,
     upstreamFailure,
 } from '@/lib/ai/openrouter-batch';
+
+describe('batch model variants', () => {
+    it('recognizes the :batch model variant and nothing else', () => {
+        expect(isBatchModel('google/gemini-3.8-flash:batch')).toBe(true);
+        expect(isBatchModel('openai/o3-pro:BATCH')).toBe(true);
+        expect(isBatchModel('google/gemini-3.8-flash')).toBe(false);
+        expect(isBatchModel('meta-llama/llama-3.3-70b-instruct:free')).toBe(false);
+        expect(isBatchModel('foo:batch-tuned')).toBe(false);
+        expect(isBatchModel(undefined)).toBe(false);
+    });
+
+    it('gives the live slug back for the fallback', () => {
+        expect(stripBatchSuffix('google/gemini-3.8-flash:batch')).toBe('google/gemini-3.8-flash');
+        expect(stripBatchSuffix('google/gemini-3.8-flash')).toBe('google/gemini-3.8-flash');
+    });
+});
 
 describe('route helpers', () => {
     it('reads a message out of every error shape OpenRouter uses', () => {

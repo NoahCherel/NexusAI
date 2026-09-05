@@ -164,13 +164,13 @@ export function PresetEditor() {
                         base.enableReasoning ??
                         false,
                     includeNames: json.names_in_completion ?? base.includeNames,
-                    useBatchMode:
-                        json.use_batch_mode ??
-                        json.useBatchMode ??
-                        // Presets exported before the Flex toggle became the batch toggle.
+                    useFlexTier:
                         json.use_flex_tier ??
                         json.useFlexTier ??
-                        base.useBatchMode ??
+                        // Presets exported while the toggle was briefly named "batch".
+                        json.use_batch_mode ??
+                        json.useBatchMode ??
+                        base.useFlexTier ??
                         false,
 
                     createdAt: new Date(),
@@ -782,25 +782,24 @@ export function PresetEditor() {
 
                                 <div className="flex items-center justify-between p-2 border rounded">
                                     <div>
-                                        <p className="text-sm font-medium">Mode batch OpenRouter</p>
+                                        <p className="text-sm font-medium">
+                                            Palier Flex OpenRouter
+                                        </p>
                                         <p className="text-xs text-muted-foreground">
-                                            Réponse visible et impersonation via l&apos;API Batch
-                                            d&apos;OpenRouter (moitié prix, quelques minutes
-                                            d&apos;attente)
+                                            Route les requêtes via le palier flexible (tarif réduit)
+                                            d&apos;OpenRouter quand il est disponible
                                         </p>
                                     </div>
                                     <Button
                                         size="sm"
-                                        variant={
-                                            activePreset.useBatchMode ? 'default' : 'secondary'
-                                        }
+                                        variant={activePreset.useFlexTier ? 'default' : 'secondary'}
                                         onClick={() =>
                                             update({
-                                                useBatchMode: !activePreset.useBatchMode,
+                                                useFlexTier: !activePreset.useFlexTier,
                                             })
                                         }
                                     >
-                                        {activePreset.useBatchMode ? 'On' : 'Off'}
+                                        {activePreset.useFlexTier ? 'On' : 'Off'}
                                     </Button>
                                 </div>
                             </div>

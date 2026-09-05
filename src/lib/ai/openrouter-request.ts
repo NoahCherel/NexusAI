@@ -37,6 +37,8 @@ export interface OpenRouterChatParams {
     userPersona?: UserPersonaParam;
     enableReasoning?: boolean;
     disableReasoning?: boolean;
+    /** OpenRouter flex tier: cheaper, slower capacity on the same live request. */
+    useFlexTier?: boolean;
     webSearch?: boolean;
     webMaxResults?: number;
     /** Number of leading messages forming the cache-stable prefix (system + history). */
@@ -142,6 +144,7 @@ export function buildOpenRouterChatBody(params: OpenRouterChatParams): OpenRoute
         stoppingStrings,
         enableReasoning,
         disableReasoning,
+        useFlexTier,
         webSearch,
         webMaxResults,
         cachePrefixLength,
@@ -185,12 +188,14 @@ export function buildOpenRouterChatBody(params: OpenRouterChatParams): OpenRoute
     }
 
     if (mode === 'stream') {
+        // Flex is a capacity grade of the live request; a batch is already discounted.
+        if (useFlexTier) body.service_tier = 'flex';
         // Token usage reporting: the usage chunk at the end of the stream, plus the
         // accounted cost. Forwarded to the client as a trailing sentinel line.
         body.stream_options = { include_usage: true };
         body.usage = { include: true };
     }
-    // Batch: no `stream`, no `stream_options`. The batch reports usage and cost itself.
+    // Batch: no `stream`, no `stream_options`, no tier. The batch reports usage itself.
 
     return body;
 }

@@ -10,6 +10,19 @@
 
 export const OPENROUTER_BATCHES_URL = 'https://openrouter.ai/api/beta/batches';
 
+/**
+ * OpenRouter lists batch pricing as a model variant (`google/gemini-3.8-flash:batch`).
+ * Picking such a model IS the choice of the Batch API; there is no separate toggle.
+ */
+export function isBatchModel(model: string | undefined | null): boolean {
+    return typeof model === 'string' && /:batch$/i.test(model.trim());
+}
+
+/** The live-endpoint slug behind a `:batch` variant (`google/gemini-3.8-flash`). */
+export function stripBatchSuffix(model: string): string {
+    return model.trim().replace(/:batch$/i, '');
+}
+
 export type BatchPendingStatus = 'validating' | 'in_progress' | 'finalizing' | 'cancelling';
 export type BatchTerminalStatus = 'completed' | 'failed' | 'expired' | 'cancelled';
 

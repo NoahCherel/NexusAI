@@ -34,7 +34,7 @@ export interface APIPreset {
     useLorebooks: boolean;
     useAutoSummarization: boolean;
     trimIncompleteSentences?: boolean;
-    useBatchMode?: boolean;
+    useFlexTier?: boolean;
 
     // Lorebook Settings
     lorebookScanDepth?: number;
@@ -107,7 +107,7 @@ export const DEFAULT_PRESETS: Omit<APIPreset, 'id' | 'createdAt'>[] = [
         banEmojis: false,
         useLorebooks: true,
         useAutoSummarization: true,
-        useBatchMode: false,
+        useFlexTier: false,
         isDefault: true,
         builtinKey: 'balanced',
         builtinVersion: 1,
@@ -131,7 +131,7 @@ export const DEFAULT_PRESETS: Omit<APIPreset, 'id' | 'createdAt'>[] = [
         banEmojis: true,
         useLorebooks: true,
         useAutoSummarization: true,
-        useBatchMode: false,
+        useFlexTier: false,
         isDefault: true,
         builtinKey: 'immersive-rp',
         builtinVersion: 1,
@@ -154,7 +154,7 @@ export const DEFAULT_PRESETS: Omit<APIPreset, 'id' | 'createdAt'>[] = [
         banEmojis: false,
         useLorebooks: true,
         useAutoSummarization: true,
-        useBatchMode: false,
+        useFlexTier: false,
         isDefault: true,
         builtinKey: 'creative',
         builtinVersion: 1,
@@ -177,7 +177,7 @@ export const DEFAULT_PRESETS: Omit<APIPreset, 'id' | 'createdAt'>[] = [
         banEmojis: false,
         useLorebooks: true,
         useAutoSummarization: true,
-        useBatchMode: false,
+        useFlexTier: false,
         isDefault: true,
         builtinKey: 'precise',
         builtinVersion: 1,
