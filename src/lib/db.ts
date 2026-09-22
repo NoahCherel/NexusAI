@@ -656,6 +656,59 @@ export async function deleteSummariesByConversation(conversationId: string): Pro
     await tx.done;
 }
 
+/**
+ * Fingerprint of a stored Chronicle. A full rebuild takes minutes of provider calls, during which
+ * the background pipeline can append a fragment or the user can rewrite one by hand; comparing
+ * this before the swap is what stops the rebuild from silently discarding that work.
+ */
+export function chronicleRevision(summaries: MemorySummary[]): string {
+    return summaries
+        .map((s) => `${s.id}:${s.editedAt ?? s.createdAt}:${s.content.length}`)
+        .sort()
+        .join('|');
+}
+
+/**
+ * All-or-nothing Chronicle swap: the old summaries are deleted and the new ones written inside a
+ * single transaction, so a failure leaves the previous Chronicle untouched rather than an empty
+ * or half-written one.
+ *
+ * Pass `expectedRevision` (from `chronicleRevision` read before the rebuild started) to refuse the
+ * swap when the stored Chronicle changed in the meantime — the caller should ask the user to retry
+ * rather than throw away whatever was written during the rebuild.
+ */
+export async function replaceSummariesForConversation(
+    conversationId: string,
+    summaries: MemorySummary[],
+    expectedRevision?: string
+): Promise<void> {
+    const db = await initDB();
+    const tx = db.transaction('summaries', 'readwrite');
+    const index = tx.store.index('by-conversation');
+
+    if (expectedRevision !== undefined) {
+        const existing = await index.getAll(IDBKeyRange.only(conversationId));
+        if (chronicleRevision(existing) !== expectedRevision) {
+            tx.abort();
+            await tx.done.catch(() => {});
+            throw new DOMException(
+                'La chronique a changé pendant la reconstruction.',
+                'StaleChronicleError'
+            );
+        }
+    }
+
+    let cursor = await index.openCursor(IDBKeyRange.only(conversationId));
+    while (cursor) {
+        await cursor.delete();
+        cursor = await cursor.continue();
+    }
+    for (const summary of summaries) {
+        await tx.store.put(summary);
+    }
+    await tx.done;
+}
+
 // ============ Canon Codex Operations ============
 
 /** Normalize a name fragment for use in storage keys (case-insensitive, trimmed). */

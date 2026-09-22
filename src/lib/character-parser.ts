@@ -12,6 +12,7 @@ export function parseCharacterCardPNGBuffer(arrayBuffer: ArrayBuffer): Character
 
     // Verify PNG signature
     const pngSignature = [137, 80, 78, 71, 13, 10, 26, 10];
+    if (dataView.byteLength < pngSignature.length) throw new Error('Fichier PNG incomplet');
     for (let i = 0; i < 8; i++) {
         if (dataView.getUint8(i) !== pngSignature[i]) {
             throw new Error('Fichier PNG invalide');
@@ -21,7 +22,11 @@ export function parseCharacterCardPNGBuffer(arrayBuffer: ArrayBuffer): Character
     // Search for tEXt chunk with 'chara' keyword
     let offset = 8;
     while (offset < dataView.byteLength) {
+        if (offset + 12 > dataView.byteLength) throw new Error('Fichier PNG incomplet');
         const chunkLength = dataView.getUint32(offset);
+        if (offset + 12 + chunkLength > dataView.byteLength) {
+            throw new Error('Données de personnage PNG incomplètes');
+        }
         const chunkType = String.fromCharCode(
             dataView.getUint8(offset + 4),
             dataView.getUint8(offset + 5),
@@ -36,10 +41,23 @@ export function parseCharacterCardPNGBuffer(arrayBuffer: ArrayBuffer): Character
             const keyword = new TextDecoder().decode(chunkData.slice(0, nullIndex));
 
             // 'chara' = V1/V2 cards; 'ccv3' = V3 cards (e.g. RisuAI png-v3 exports).
-            if (keyword === 'chara' || keyword === 'ccv3') {
+            if (nullIndex >= 0 && (keyword === 'chara' || keyword === 'ccv3')) {
                 // The rest is base64-encoded JSON
                 const base64Data = new TextDecoder().decode(chunkData.slice(nullIndex + 1));
-                const jsonString = atob(base64Data);
+                // atob returns BYTES represented as a Latin-1 string, not decoded
+                // Unicode. JSON.parse accepts that mojibake, silently corrupting every
+                // accent, curly quote, emoji, etc. Decode the UTF-8 bytes first.
+                const binary = atob(base64Data);
+                let jsonString: string;
+                try {
+                    jsonString = new TextDecoder('utf-8', { fatal: true }).decode(
+                        Uint8Array.from(binary, (char) => char.charCodeAt(0))
+                    );
+                } catch {
+                    // Compatibility with old exporters that used btoa(JSON) directly:
+                    // these are Latin-1 cards, and were readable before this fix.
+                    jsonString = binary;
+                }
                 const parsed = JSON.parse(jsonString);
 
                 return normalizeCharacterCard(parsed);

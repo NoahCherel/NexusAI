@@ -15,6 +15,8 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { SettingsRescue } from '@/components/settings/SettingsRescue';
+import { GlobalBackupControls } from '@/components/settings/GlobalBackupControls';
 
 type StoreCounts = Record<string, number | string>;
 
@@ -291,6 +293,13 @@ export default function RescuePage() {
             </div>
 
             {note && <p className="text-sm text-amber-400">{note}</p>}
+
+            <section className="rounded-xl border border-white/15 bg-white/5 p-4 space-y-3">
+                <h2 className="font-semibold">Sauvegarde globale</h2>
+                <GlobalBackupControls allowRestore />
+            </section>
+
+            <SettingsRescue />
 
             {/* Restore. Deliberately below the scan: read the state first, then decide. */}
             <section className="rounded-xl border border-white/10 bg-white/5 p-3 space-y-2">

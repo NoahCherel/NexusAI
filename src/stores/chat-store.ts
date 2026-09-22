@@ -211,6 +211,24 @@ export const getActiveBranchPath = (messages: Message[]): Message[] => {
     return [...legacyFlatPrefix, ...path];
 };
 
+/**
+ * Load fencing. Every asynchronous read races against the user clicking another conversation:
+ * IndexedDB reads settle out of order, so an older read could publish its messages *after* a
+ * newer one and leave the store showing conversation A while B is selected.
+ *
+ * Two counters rather than one, because the two reads publish different things: a newer message
+ * read must not cancel the conversation list an in-flight `loadConversations` is about to
+ * deliver. `loadConversations` bumps both — it publishes messages too.
+ */
+let conversationsLoadGeneration = 0;
+let messagesLoadGeneration = 0;
+
+/** Test seam: drop any in-flight load so suites do not leak fences into each other. */
+export const __resetChatLoadFences = () => {
+    conversationsLoadGeneration = 0;
+    messagesLoadGeneration = 0;
+};
+
 export const useChatStore = create<ChatState>()((set, get) => ({
     conversations: [],
     activeConversationId: null,
@@ -221,6 +239,8 @@ export const useChatStore = create<ChatState>()((set, get) => ({
 
     // Load all conversations for a character from IndexedDB (Metadata only)
     loadConversations: async (characterId) => {
+        const convToken = ++conversationsLoadGeneration;
+        const msgToken = ++messagesLoadGeneration;
         set({ isLoading: true });
         try {
             const convs = await getConversationsByCharacter(characterId);
@@ -256,24 +276,40 @@ export const useChatStore = create<ChatState>()((set, get) => ({
                 activeMessages = serializeMessages(dbMessages);
             }
 
-            set({
-                conversations,
-                messages: activeMessages,
-                activeConversationId: activeConvId,
-                isLoading: false,
-                loadedCharacterId: characterId,
-            });
+            // A newer loadConversations already owns the store — this whole read is stale.
+            if (convToken !== conversationsLoadGeneration) return;
+
+            // The list is still ours to publish, but the selection may have moved on while we
+            // were reading (a click on another conversation). In that case keep what the newer
+            // load selected and drop only our messages.
+            const selectionIsStale = msgToken !== messagesLoadGeneration;
+            set(
+                selectionIsStale
+                    ? { conversations, isLoading: false, loadedCharacterId: characterId }
+                    : {
+                          conversations,
+                          messages: activeMessages,
+                          activeConversationId: activeConvId,
+                          isLoading: false,
+                          loadedCharacterId: characterId,
+                      }
+            );
         } catch (error) {
             console.error('Failed to load conversations:', error);
+            if (convToken !== conversationsLoadGeneration) return;
             set({ isLoading: false, loadedCharacterId: null });
         }
     },
 
     // Load messages for a specific conversation
     loadMessages: async (conversationId) => {
+        const msgToken = ++messagesLoadGeneration;
         try {
             const dbMessages = await getConversationMessages(conversationId);
             const messages = serializeMessages(dbMessages);
+            // Superseded by a newer read, or the selection moved while we were reading.
+            if (msgToken !== messagesLoadGeneration) return;
+            if (get().activeConversationId !== conversationId) return;
             set({ messages });
         } catch (error) {
             console.error('Failed to load messages:', error);

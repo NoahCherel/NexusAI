@@ -470,7 +470,10 @@ export async function backgroundAICall(
         if (route) {
             const routeKey = await resolveKey(route.provider);
             if (!routeKey) return null;
-            return tryModelChain({
+            // `return await`, not `return`: the enclosing `finally` clears the timeout and the
+            // abort listeners. Returning the unawaited promise tears them down while the call is
+            // still in flight, so neither the deadline nor the caller's abort reaches the provider.
+            return await tryModelChain({
                 ...shared,
                 provider: route.provider,
                 apiKey: routeKey,

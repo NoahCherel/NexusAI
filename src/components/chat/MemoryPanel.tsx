@@ -368,194 +368,91 @@ export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
 
         try {
             const msgs = getActiveBranchMessages(activeConversationId);
-            if (msgs.length === 0) {
-                setReindexProgress('Aucun message à indexer.');
-                setIsReindexing(false);
+
+            const { planChronicleRebuild, buildChronicleReplacement } =
+                await import('@/lib/ai/chronicle-rebuild');
+
+            // Decided BEFORE anything is written: a rebuild that cannot produce a single
+            // fragment must leave the existing Chronicle exactly where it is.
+            const plan = planChronicleRebuild(msgs);
+            if (!plan.canRun) {
+                setReindexProgress(plan.reason);
                 return;
             }
 
-            // Get API key
-            const { apiKeys } = useSettingsStore.getState();
+            const { apiKeys, personas, activePersonaId, backgroundModel } =
+                useSettingsStore.getState();
             const orConfig = apiKeys.find((k) => k.provider === 'openrouter');
-            let apiKey = '';
-            if (orConfig) {
-                apiKey = (await decryptApiKey(orConfig.encryptedKey)) || '';
-            }
+            const apiKey = orConfig ? (await decryptApiKey(orConfig.encryptedKey)) || '' : '';
             if (!apiKey) {
                 setReindexProgress('Erreur : aucune clé API trouvée.');
-                setIsReindexing(false);
                 return;
             }
 
             const {
-                createSummary,
-                shouldCreateL1Summary,
-                getL0SummariesForL1,
-                shouldCreateL2Summary,
-                getL1SummariesForL2,
-                buildL0Prompt,
-                buildL1Prompt,
-                buildL2Prompt,
-                SUMMARIZATION_PROMPT_L0,
-                SUMMARIZATION_PROMPT_L1,
-                SUMMARIZATION_PROMPT_L2,
-                parseSummarizationResponse,
-                DEFAULT_CHUNK_SIZE,
-            } = await import('@/lib/ai/hierarchical-summarizer');
-            const { getAdaptiveChunkSize } = await import('@/lib/ai/message-quality');
-            const { getSummariesByConversation: getSummaries, deleteSummariesByConversation } =
-                await import('@/lib/db');
+                getSummariesByConversation: getSummaries,
+                chronicleRevision,
+                replaceSummariesForConversation,
+            } = await import('@/lib/db');
             const { backgroundAICall } = await import('@/lib/ai/background-ai');
-            const { getActivePersona, backgroundModel } =
-                await import('@/stores/settings-store').then((m) => {
-                    const state = m.useSettingsStore.getState();
-                    return {
-                        getActivePersona: () =>
-                            state.personas.find((p) => p.id === state.activePersonaId),
-                        backgroundModel: state.backgroundModel,
-                    };
-                });
 
-            const activePersona = getActivePersona();
-            const userName = activePersona?.name || 'You';
+            const userName = personas.find((p) => p.id === activePersonaId)?.name || 'You';
 
-            // Clear the whole Chronicle for a clean rebuild
-            setReindexProgress('Suppression de l’ancienne chronique…');
-            await deleteSummariesByConversation(activeConversationId);
+            // Snapshot taken before the long network phase; the swap refuses to run if the stored
+            // Chronicle moved in the meantime (background pipeline, or a hand-written summary).
+            const expectedRevision = chronicleRevision(await getSummaries(activeConversationId));
 
-            // Same adaptive sizing as the live pipeline — a fixed 10 here produced a Chronicle
-            // that did not line up with the one the background pipeline would have written.
-            const chunkSize = getAdaptiveChunkSize(
-                msgs.slice(-15).map((m) => ({ role: m.role, content: m.content })),
-                DEFAULT_CHUNK_SIZE
+            setReindexProgress(
+                `Traitement de ${plan.totalChunks} fragments de ${plan.chunkSize} messages…`
             );
-            const totalToProcess = Math.floor(msgs.length / chunkSize);
 
-            if (totalToProcess <= 0) {
+            const { summaries, failedChunks } = await buildChronicleReplacement({
+                conversationId: activeConversationId,
+                messages: msgs,
+                characterName: character.name,
+                userName,
+                plan,
+                onProgress: setReindexProgress,
+                call: async ({ systemPrompt, userPrompt }) => {
+                    const result = await backgroundAICall({
+                        systemPrompt,
+                        userPrompt,
+                        apiKey,
+                        temperature: 0.3,
+                        backgroundModel,
+                    });
+                    return result?.content ?? null;
+                },
+            });
+
+            if (summaries.length === 0) {
                 setReindexProgress(
-                    'Pas assez de messages pour un fragment de résumé (au moins 10 requis).'
+                    'Aucun résumé n’a pu être produit — la chronique existante est conservée.'
                 );
-                await loadRagData();
-                setIsReindexing(false);
                 return;
             }
 
-            setReindexProgress(`Traitement de ${totalToProcess} fragments de 10 messages…`);
+            setReindexProgress('Remplacement de la chronique…');
+            await replaceSummariesForConversation(
+                activeConversationId,
+                summaries,
+                expectedRevision
+            );
 
-            for (let i = 0; i < totalToProcess; i++) {
-                const startIdx = i * chunkSize;
-                const chunk = msgs.slice(startIdx, startIdx + chunkSize);
-                if (chunk.length < chunkSize) break;
-
-                setReindexProgress(`Résumé du fragment ${i + 1}/${totalToProcess}…`);
-
-                // Create L0 summary via backgroundAICall (handles 429 retries + model fallback)
-                const prompt = buildL0Prompt(chunk, character.name, userName);
-                const result = await backgroundAICall({
-                    systemPrompt: SUMMARIZATION_PROMPT_L0,
-                    userPrompt: prompt,
-                    apiKey,
-                    temperature: 0.3,
-                    backgroundModel,
-                });
-
-                if (result) {
-                    const parsed = parseSummarizationResponse(result.content);
-                    if (parsed) {
-                        await createSummary(
-                            activeConversationId,
-                            0,
-                            parsed.summary,
-                            parsed.keyFacts,
-                            [startIdx, startIdx + chunk.length],
-                            [],
-                            msgs.map((m) => m.id)
-                        );
-                    } else {
-                        console.warn(`[Reindex] Chunk ${i + 1}: failed to parse summary response`);
-                    }
-                } else {
-                    console.warn(`[Reindex] Chunk ${i + 1}: all models failed`);
-                }
-            }
-
-            // Create L1 summaries (loop to handle multiple batches)
-            setReindexProgress('Création des résumés de niveau supérieur…');
-            let currentSummaries = await getSummaries(activeConversationId);
-
-            while (shouldCreateL1Summary(currentSummaries)) {
-                const l0s = getL0SummariesForL1(currentSummaries);
-                if (!l0s) break;
-                const l1Prompt = buildL1Prompt(l0s);
-                const l1Result = await backgroundAICall({
-                    systemPrompt: SUMMARIZATION_PROMPT_L1,
-                    userPrompt: l1Prompt,
-                    apiKey,
-                    temperature: 0.3,
-                    backgroundModel,
-                });
-                if (l1Result) {
-                    const parsed = parseSummarizationResponse(l1Result.content);
-                    if (parsed) {
-                        const range: [number, number] = [
-                            Math.min(...l0s.map((s) => s.messageRange[0])),
-                            Math.max(...l0s.map((s) => s.messageRange[1])),
-                        ];
-                        await createSummary(
-                            activeConversationId,
-                            1,
-                            parsed.summary,
-                            parsed.keyFacts,
-                            range,
-                            l0s.map((s) => s.id),
-                            msgs.map((m) => m.id)
-                        );
-                    }
-                } else {
-                    break;
-                }
-                currentSummaries = await getSummaries(activeConversationId);
-            }
-
-            // Create L2 summaries (loop to handle multiple batches)
-            currentSummaries = await getSummaries(activeConversationId);
-            while (shouldCreateL2Summary(currentSummaries)) {
-                const l1s = getL1SummariesForL2(currentSummaries);
-                if (!l1s) break;
-                const l2Prompt = buildL2Prompt(l1s);
-                const l2Result = await backgroundAICall({
-                    systemPrompt: SUMMARIZATION_PROMPT_L2,
-                    userPrompt: l2Prompt,
-                    apiKey,
-                    temperature: 0.3,
-                    backgroundModel,
-                });
-                if (l2Result) {
-                    const parsed = parseSummarizationResponse(l2Result.content);
-                    if (parsed) {
-                        const range: [number, number] = [
-                            Math.min(...l1s.map((s) => s.messageRange[0])),
-                            Math.max(...l1s.map((s) => s.messageRange[1])),
-                        ];
-                        await createSummary(
-                            activeConversationId,
-                            2,
-                            parsed.summary,
-                            parsed.keyFacts,
-                            range,
-                            l1s.map((s) => s.id),
-                            msgs.map((m) => m.id)
-                        );
-                    }
-                } else {
-                    break;
-                }
-                currentSummaries = await getSummaries(activeConversationId);
-            }
-
-            setReindexProgress('Réindexation terminée !');
+            setReindexProgress(
+                failedChunks > 0
+                    ? `Réindexation terminée — ${failedChunks} fragment(s) sans résumé.`
+                    : 'Réindexation terminée !'
+            );
             await loadRagData();
         } catch (err) {
+            if (err instanceof DOMException && err.name === 'StaleChronicleError') {
+                // Nothing was replaced: the previous Chronicle is intact.
+                setReindexProgress(
+                    'La chronique a changé pendant la reconstruction — rien n’a été remplacé. Relancez la réindexation.'
+                );
+                return;
+            }
             console.error('[MemoryPanel] Reindex failed:', err);
             setReindexProgress(
                 `Erreur : ${err instanceof Error ? err.message : 'Échec de la réindexation'}`

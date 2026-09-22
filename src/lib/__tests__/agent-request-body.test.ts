@@ -13,7 +13,7 @@ import { useSettingsStore } from '@/stores/settings-store';
 vi.mock('@/lib/crypto', () => ({
     decryptApiKey: vi.fn(async () => 'test-key'),
     encryptApiKey: vi.fn(async (k: string) => k),
-    validateApiKey: vi.fn(() => true),
+    validateApiKey: vi.fn(() => ({ isValid: true })),
 }));
 
 const route = {

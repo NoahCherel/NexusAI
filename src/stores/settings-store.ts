@@ -1,5 +1,6 @@
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
+import { createJSONStorage, persist } from 'zustand/middleware';
+import { createSafeSettingsStorage, SETTINGS_KEY, SETTINGS_VERSION } from '@/lib/settings-storage';
 import type { APIPreset } from '@/types/preset';
 import { DEFAULT_PRESETS } from '@/types/preset';
 import type { RPEngine } from '@/types/engine';
@@ -545,10 +546,14 @@ export const useSettingsStore = create<SettingsState>()(
             },
         }),
         {
-            name: 'nexusai-settings',
+            name: SETTINGS_KEY,
+            storage: createJSONStorage(() => {
+                if (typeof window === 'undefined') throw new Error('Browser storage only');
+                return createSafeSettingsStorage(() => window.localStorage);
+            }),
             // NOTE: everything persisted here is genuinely needed across reloads
             // (nanogptModels is only refetched when the key is saved) — no partialize.
-            version: 2,
+            version: SETTINGS_VERSION,
             migrate: (persisted, version) => migrateSettings(persisted, version),
         }
     )

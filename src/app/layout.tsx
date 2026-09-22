@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from 'next';
 import { Inter } from 'next/font/google';
 import './globals.css';
+import { SettingsStorageWarning } from '@/components/settings/SettingsStorageWarning';
 
 const inter = Inter({
     variable: '--font-sans',
@@ -44,6 +45,7 @@ export default function RootLayout({
             </head>
             <body className={`${inter.variable} font-sans antialiased`}>
                 {children}
+                <SettingsStorageWarning />
                 <script
                     dangerouslySetInnerHTML={{
                         __html: `

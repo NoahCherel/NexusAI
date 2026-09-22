@@ -2,6 +2,20 @@ import { NextRequest } from 'next/server';
 
 export const runtime = 'edge';
 
+/**
+ * Why a key can be refused. `invalid` = the provider said no (401/403). `unreachable` = we never
+ * got an answer we can trust (429, 5xx, network). Collapsing the two made a rate-limited provider
+ * look like a bad key, and users deleted working keys because of it.
+ */
+type ValidationReason = 'invalid' | 'unreachable';
+
+function reply(isValid: boolean, reason?: ValidationReason, status = 200) {
+    return new Response(JSON.stringify(reason ? { isValid, reason } : { isValid }), {
+        status,
+        headers: { 'Content-Type': 'application/json' },
+    });
+}
+
 export async function POST(req: NextRequest) {
     try {
         const { provider, apiKey } = await req.json();
@@ -14,7 +28,10 @@ export async function POST(req: NextRequest) {
         }
 
         const endpoints = {
-            openrouter: 'https://openrouter.ai/api/v1/models',
+            // The key-scoped endpoint, NOT `/models`: the model catalogue is public and answers
+            // 200 to an unauthenticated request, so it validated literally any string.
+            // `/key` describes the calling key and returns 401 when there is none.
+            openrouter: 'https://openrouter.ai/api/v1/key',
             openai: 'https://api.openai.com/v1/models',
             anthropic: 'https://api.anthropic.com/v1/messages', // Different check for Anthropic
             // Use the PROTECTED subscription endpoint: it returns 401 without a key, so a bad key
@@ -30,6 +47,13 @@ export async function POST(req: NextRequest) {
             anthropic: apiKey,
             nanogpt: `Bearer ${apiKey}`,
         };
+
+        if (!(provider in endpoints)) {
+            return new Response(JSON.stringify({ error: 'Unknown provider', isValid: false }), {
+                status: 400,
+                headers: { 'Content-Type': 'application/json' },
+            });
+        }
 
         let response;
 
@@ -57,15 +81,11 @@ export async function POST(req: NextRequest) {
             });
         }
 
-        return new Response(JSON.stringify({ isValid: response.ok }), {
-            status: 200,
-            headers: { 'Content-Type': 'application/json' },
-        });
+        if (response.ok) return reply(true);
+        if (response.status === 401 || response.status === 403) return reply(false, 'invalid');
+        return reply(false, 'unreachable');
     } catch (error) {
         console.error('Validation error:', error);
-        return new Response(JSON.stringify({ error: 'Validation failed', isValid: false }), {
-            status: 500,
-            headers: { 'Content-Type': 'application/json' },
-        });
+        return reply(false, 'unreachable', 500);
     }
 }

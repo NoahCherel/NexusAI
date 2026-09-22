@@ -36,6 +36,18 @@ describe('htmlToPlainText', () => {
         expect(htmlToPlainText('<ul><li>Un</li><li>Deux</li></ul>')).toBe('• Un\n• Deux');
     });
 
+    it('preserves quotation marks and comparisons while stripping quoted HTML attributes', () => {
+        expect(
+            htmlToPlainText('<p title="Elle dit > ici">Elle dit "Bonjour" et “Salut”.</p>')
+        ).toBe('Elle dit "Bonjour" et “Salut”.');
+        expect(htmlToPlainText("<span title='2 > 1'>2 < 3 > 1 &amp; <3</span>")).toBe(
+            '2 < 3 > 1 & <3'
+        );
+        expect(
+            htmlToPlainText('&quot;Bonjour&quot; &#34;Salut&#34; &#x22;Oui&#x22; &ldquo;Été&rdquo;')
+        ).toBe('"Bonjour" "Salut" "Oui" “Été”');
+    });
+
     it('collapses excessive blank lines left by stripped markup', () => {
         const out = htmlToPlainText('<div>A</div><div></div><div></div><div>B</div>');
         expect(out).toBe('A\n\nB');

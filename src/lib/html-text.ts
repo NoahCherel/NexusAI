@@ -78,8 +78,9 @@ export function htmlToPlainText(input: string): string {
     t = t.replace(/<br\s*\/?>/gi, '\n');
     t = t.replace(/<\/(p|div|li|h[1-6]|tr|blockquote|section|article)>/gi, '\n');
     t = t.replace(/<li[^>]*>/gi, '• ');
-    // Strip every remaining tag.
-    t = t.replace(/<[^>]+>/g, '');
+    // A > inside a quoted HTML attribute is not the end of the tag. Also
+    // preserve literal comparisons / emoticons such as "2 < 3 > 1" and "<3".
+    t = t.replace(/<\/?[a-z][a-z0-9:-]*\b(?:[^<>"']|"[^"]*"|'[^']*')*>/gi, '');
     t = decodeEntities(t);
     // Tidy whitespace without flattening paragraphs.
     t = t

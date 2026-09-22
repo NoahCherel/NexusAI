@@ -88,7 +88,17 @@ export async function decryptApiKey(encryptedKey: string): Promise<string> {
     return new TextDecoder().decode(decrypted);
 }
 
-export async function validateApiKey(provider: Provider, apiKey: string): Promise<boolean> {
+/**
+ * `invalid` = the provider rejected the key. `unreachable` = we could not get a trustworthy
+ * answer (rate limit, provider outage, no network). The caller must not mark a key bad on
+ * `unreachable` — the key may be perfectly good.
+ */
+export interface KeyValidation {
+    isValid: boolean;
+    reason?: 'invalid' | 'unreachable';
+}
+
+export async function validateApiKey(provider: Provider, apiKey: string): Promise<KeyValidation> {
     try {
         const response = await fetch('/api/validate', {
             method: 'POST',
@@ -96,10 +106,11 @@ export async function validateApiKey(provider: Provider, apiKey: string): Promis
             body: JSON.stringify({ provider, apiKey }),
         });
 
-        if (!response.ok) return false;
-        const data = await response.json();
-        return data.isValid;
+        const data = (await response.json().catch(() => null)) as KeyValidation | null;
+        if (!data) return { isValid: false, reason: 'unreachable' };
+        if (data.isValid) return { isValid: true };
+        return { isValid: false, reason: data.reason ?? 'unreachable' };
     } catch {
-        return false;
+        return { isValid: false, reason: 'unreachable' };
     }
 }

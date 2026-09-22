@@ -31,6 +31,8 @@ import { encryptApiKey, decryptApiKey, validateApiKey } from '@/lib/crypto';
 import { type Provider } from '@/lib/ai';
 import { NanoGPTUsagePanel } from '@/components/layout/NanoGPTUsage';
 import { PresetEditor } from '@/components/settings/PresetEditor';
+import { GlobalBackupControls } from '@/components/settings/GlobalBackupControls';
+import { SETTINGS_VERSION } from '@/lib/settings-storage';
 import { BUILTIN_ENGINES } from '@/lib/ai/rp-engine';
 import {
     DropdownMenu,
@@ -146,6 +148,7 @@ export function SettingsPanel({ open, onOpenChange }: SettingsPanelProps) {
     const [newKey, setNewKey] = useState('');
     const [selectedProvider, setSelectedProvider] = useState<Provider>('openrouter');
     const [isValidating, setIsValidating] = useState(false);
+    const [keyNotice, setKeyNotice] = useState<string | null>(null);
     const [showKey, setShowKey] = useState(false);
     const [isFetchingModels, setIsFetchingModels] = useState(false);
 
@@ -186,15 +189,26 @@ export function SettingsPanel({ open, onOpenChange }: SettingsPanelProps) {
         if (!newKey.trim()) return;
 
         setIsValidating(true);
+        setKeyNotice(null);
         try {
-            const isValid = await validateApiKey(selectedProvider, newKey);
+            const { isValid, reason } = await validateApiKey(selectedProvider, newKey);
             const encrypted = await encryptApiKey(newKey);
 
             setApiKey({
                 provider: selectedProvider,
                 encryptedKey: encrypted,
-                isValid,
+                // `undefined` = unverified, and it renders as "no badge" rather than a red cross:
+                // a rate-limited or unreachable provider is not evidence that the key is bad.
+                isValid: reason === 'unreachable' ? undefined : isValid,
             });
+
+            setKeyNotice(
+                reason === 'invalid'
+                    ? 'Clé refusée par le fournisseur.'
+                    : reason === 'unreachable'
+                      ? 'Clé enregistrée sans vérification : le fournisseur est injoignable pour le moment.'
+                      : null
+            );
 
             setNewKey('');
             if (isValid) {
@@ -228,6 +242,12 @@ export function SettingsPanel({ open, onOpenChange }: SettingsPanelProps) {
                         Configurez vos clés API, vos préférences de chat et vos presets de
                         génération.
                     </DialogDescription>
+                    <GlobalBackupControls
+                        getLiveSettings={() => ({
+                            state: { ...useSettingsStore.getState() },
+                            version: SETTINGS_VERSION,
+                        })}
+                    />
                 </DialogHeader>
 
                 <div className="flex-1 overflow-hidden">
@@ -290,12 +310,12 @@ export function SettingsPanel({ open, onOpenChange }: SettingsPanelProps) {
                                                     {provider === 'openai' && 'OpenAI'}
                                                     {provider === 'anthropic' && 'Anthropic'}
                                                     {provider === 'nanogpt' && 'NanoGPT'}
-                                                    {key &&
-                                                        (key.isValid ? (
-                                                            <Check className="h-3 w-3 text-green-500" />
-                                                        ) : (
-                                                            <X className="h-3 w-3 text-red-500" />
-                                                        ))}
+                                                    {key?.isValid === true && (
+                                                        <Check className="h-3 w-3 text-green-500" />
+                                                    )}
+                                                    {key?.isValid === false && (
+                                                        <X className="h-3 w-3 text-red-500" />
+                                                    )}
                                                 </Button>
                                             );
                                         })}
@@ -338,10 +358,18 @@ export function SettingsPanel({ open, onOpenChange }: SettingsPanelProps) {
                                             {isValidating ? 'Validation…' : 'Enregistrer'}
                                         </Button>
                                     </div>
+                                    {keyNotice && (
+                                        <p className="text-xs text-amber-400 leading-relaxed">
+                                            {keyNotice}
+                                        </p>
+                                    )}
                                     <p className="text-xs text-muted-foreground leading-relaxed">
-                                        🔒 Votre clé est chiffrée localement en AES-256-GCM et
-                                        stockée uniquement dans le LocalStorage de votre navigateur.
-                                        Elle n&apos;est jamais envoyée à nos serveurs.
+                                        🔒 Votre clé est chiffrée en AES-256-GCM et stockée
+                                        uniquement dans votre navigateur. Elle n&apos;est jamais
+                                        partagée avec un tiers&nbsp;: elle transite en clair par le
+                                        serveur de cette application (validation et appels de
+                                        génération) puis part vers le fournisseur que vous avez
+                                        choisi.
                                     </p>
                                 </div>
 
