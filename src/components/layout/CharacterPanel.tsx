@@ -1,5 +1,6 @@
 'use client';
 
+import { startConversation } from '@/lib/start-conversation';
 import { useState, useEffect, useCallback } from 'react';
 import { useCharacterStore } from '@/stores';
 import { CharacterCard } from '@/components/character/CharacterCard';
@@ -7,6 +8,7 @@ import { CharacterFolder } from '@/components/character/CharacterFolder';
 import { CharacterEditor } from '@/components/character/CharacterEditor';
 import { CharacterImporter } from '@/components/character/CharacterImporter';
 import { buildCharacterGroups } from '@/lib/character-folders';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -21,16 +23,21 @@ import {
     DropdownMenuLabel,
 } from '@/components/ui/dropdown-menu';
 import { useCharacterFolderDrag } from '@/hooks/useCharacterFolderDrag';
-import { getConversationsByCharacter } from '@/lib/db';
+import { getAllConversations } from '@/lib/db';
 import type { CharacterCard as CharacterCardType } from '@/types';
 import { exportConversationForCharacter } from '@/lib/conversation-transfer';
 
 interface CharacterPanelProps {
     trigger?: React.ReactNode;
+    embedded?: boolean;
+    onSelected?: (id: string, createNew?: boolean) => void;
 }
 
-export function CharacterPanel({ trigger }: CharacterPanelProps) {
-    const [isOpen, setIsOpen] = useState(false);
+export function CharacterPanel({ trigger, embedded = false, onSelected }: CharacterPanelProps) {
+    const [isOpen, setIsOpen] = useState(embedded);
+    const [limit, setLimit] = useState(50);
+    const [deleteId, setDeleteId] = useState<string | null>(null);
+    const Content = embedded ? 'section' : SheetContent;
     const { characters, activeCharacterId, setActiveCharacterId, removeCharacter } =
         useCharacterStore();
     const [searchTerm, setSearchTerm] = useState('');
@@ -46,26 +53,25 @@ export function CharacterPanel({ trigger }: CharacterPanelProps) {
 
     const loadLastActivities = useCallback(async () => {
         const map: Record<string, number> = {};
-        for (const char of characters) {
-            try {
-                const convs = await getConversationsByCharacter(char.id);
-                if (convs.length > 0) {
-                    const latest = convs.reduce((best, c) => {
-                        const t = new Date(c.updatedAt).getTime();
-                        return t > best ? t : best;
-                    }, 0);
-                    map[char.id] = latest;
-                }
-            } catch {
-                // ignore
-            }
+        try {
+            const rows = await getAllConversations();
+            for (const row of rows)
+                map[row.characterId] = Math.max(
+                    map[row.characterId] || 0,
+                    +new Date(row.updatedAt)
+                );
+        } catch {
+            /* The character library remains usable if activity metadata is unavailable. */
         }
         setLastActivityMap(map);
-    }, [characters]);
+    }, []);
 
     useEffect(() => {
         if (!isOpen) return;
-        const timer = window.setTimeout(() => void loadLastActivities(), 0);
+        const timer = window.setTimeout(() => {
+            setRelativeTimeNow(Date.now());
+            void loadLastActivities();
+        }, 0);
         return () => window.clearTimeout(timer);
     }, [isOpen, loadLastActivities]);
 
@@ -118,10 +124,19 @@ export function CharacterPanel({ trigger }: CharacterPanelProps) {
     };
 
     const handleSelectCharacter = (id: string) => {
-        setActiveCharacterId(id);
+        if (onSelected) onSelected(id);
+        else setActiveCharacterId(id);
         setIsOpen(false);
     };
 
+    const handleNewDiscussion = async (card: CharacterCardType) => {
+        if (onSelected) onSelected(card.id, true);
+        else {
+            await startConversation(card);
+            setActiveCharacterId(card.id);
+            setIsOpen(false);
+        }
+    };
     const handleExport = async (character: CharacterCardType) => {
         await exportConversationForCharacter(character);
     };
@@ -145,10 +160,14 @@ export function CharacterPanel({ trigger }: CharacterPanelProps) {
                     if (open) setRelativeTimeNow(Date.now());
                 }}
             >
-                <SheetTrigger asChild>{trigger || defaultTrigger}</SheetTrigger>
-                <SheetContent
-                    side="left"
-                    className="w-[320px] sm:w-[380px] max-w-[90vw] p-0 flex flex-col overflow-x-hidden"
+                {!embedded && <SheetTrigger asChild>{trigger || defaultTrigger}</SheetTrigger>}
+                <Content
+                    {...(!embedded ? { side: 'left' as const } : {})}
+                    className={
+                        embedded
+                            ? 'h-full w-full min-h-0 flex flex-col overflow-hidden'
+                            : 'w-[320px] sm:w-[380px] max-w-[90vw] p-0 flex flex-col overflow-x-hidden'
+                    }
                 >
                     <SheetHeader className="p-4 pb-2 border-b border-border/40">
                         <SheetTitle className="flex items-center gap-2">
@@ -221,7 +240,7 @@ export function CharacterPanel({ trigger }: CharacterPanelProps) {
                         </div>
                     </div>
 
-                    <ScrollArea className="flex-1 w-full">
+                    <ScrollArea className="character-scroll flex-1 w-full min-w-0">
                         <div className="px-4 pb-6 space-y-2 w-full max-w-full">
                             {characterGroups.length === 0 ? (
                                 <div className="text-center py-12 px-4">
@@ -230,7 +249,7 @@ export function CharacterPanel({ trigger }: CharacterPanelProps) {
                                     </p>
                                 </div>
                             ) : (
-                                characterGroups.map((group) => (
+                                characterGroups.slice(0, limit).map((group) => (
                                     <div
                                         key={group.key}
                                         className="w-full max-w-full overflow-hidden"
@@ -241,8 +260,9 @@ export function CharacterPanel({ trigger }: CharacterPanelProps) {
                                                 members={group.members}
                                                 activeCharacterId={activeCharacterId}
                                                 onSelect={handleSelectCharacter}
+                                                onNewDiscussion={handleNewDiscussion}
                                                 onEdit={handleEdit}
-                                                onDelete={removeCharacter}
+                                                onDelete={setDeleteId}
                                                 onExport={handleExport}
                                                 onExportBackstage={handleExportBackstage}
                                                 onCharacterDragStart={startCharacterDrag}
@@ -258,8 +278,11 @@ export function CharacterPanel({ trigger }: CharacterPanelProps) {
                                                 onClick={() =>
                                                     handleSelectCharacter(group.character.id)
                                                 }
+                                                onNewDiscussion={() =>
+                                                    void handleNewDiscussion(group.character)
+                                                }
                                                 onEdit={() => handleEdit(group.character)}
-                                                onDelete={() => removeCharacter(group.character.id)}
+                                                onDelete={() => setDeleteId(group.character.id)}
                                                 onExport={() => handleExport(group.character)}
                                                 onExportBackstage={() =>
                                                     handleExportBackstage(group.character)
@@ -277,13 +300,31 @@ export function CharacterPanel({ trigger }: CharacterPanelProps) {
                             )}
                         </div>
                     </ScrollArea>
-                </SheetContent>
+                    {characterGroups.length > limit && (
+                        <Button variant="outline" onClick={() => setLimit((n) => n + 50)}>
+                            Afficher plus de personnages
+                        </Button>
+                    )}
+                </Content>
             </Sheet>
 
             <CharacterEditor
                 isOpen={isEditorOpen}
                 onClose={handleCloseEditor}
                 character={editingCharacter}
+            />
+            <ConfirmDialog
+                open={!!deleteId}
+                onOpenChange={(open) => {
+                    if (!open) setDeleteId(null);
+                }}
+                title="Supprimer ce personnage ?"
+                description="Cette suppression est définitive. Exportez une sauvegarde si vous souhaitez conserver ce personnage."
+                confirmLabel="Supprimer"
+                destructive
+                onConfirm={() => {
+                    if (deleteId) void removeCharacter(deleteId);
+                }}
             />
             {DragOverlay}
         </>

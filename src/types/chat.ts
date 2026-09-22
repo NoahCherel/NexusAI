@@ -75,6 +75,9 @@ export interface SceneEnsembleInfo {
 }
 
 export interface Conversation {
+    /** undefined: legacy association not resolved yet; null: explicitly no persona. */
+    lastPersonaId?: string | null;
+    draftText?: string;
     id: string;
     characterId: string;
     title: string;

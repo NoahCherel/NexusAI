@@ -1,4 +1,5 @@
 'use client';
+import { resolveConversationPersona } from '@/lib/conversation-persona';
 
 /**
  * Relationship analyst — the background pass that turns "what happened this beat" into
@@ -178,7 +179,12 @@ export async function analyzeAndUpdateRelationships(
         mentioned: getActiveCanonNames(card, conv, [{ content: newMessage } as never], 1),
     });
 
-    const activePersona = settings.personas.find((p) => p.id === settings.activePersonaId);
+    const activePersona = resolveConversationPersona(
+        conv,
+        chat.messages,
+        settings.personas,
+        settings.activePersonaId
+    ).persona;
     // Persona-at-send-time: the ledger must name the persona who actually played this
     // beat, not whichever persona is active when the analysis runs.
     const lastUserSpeaker = [...chat.messages]

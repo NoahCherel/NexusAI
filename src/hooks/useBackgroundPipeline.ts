@@ -10,6 +10,7 @@
  * keys — NanoGPT quota or free OpenRouter rotation).
  */
 
+import { getConversationPersona } from '@/hooks/useConversationPersona';
 import { useEffect, useRef } from 'react';
 import type { CharacterCard } from '@/types/character';
 import type { Message } from '@/types/chat';
@@ -87,9 +88,8 @@ export function useBackgroundPipeline({
 
             isSummarizingRef.current = true;
             try {
+                const activePersona = getConversationPersona(activeConversationId).persona;
                 const existingSummaries = await getSummariesByConversation(activeConversationId);
-                const { personas, activePersonaId } = useSettingsStore.getState();
-                const activePersona = personas.find((p) => p.id === activePersonaId);
                 // The persona stamped on the messages wins (persona-at-send-time); the
                 // active persona is only the legacy fallback for unstamped messages.
                 const lastUserSpeaker = [...messages]

@@ -1,4 +1,5 @@
 'use client';
+import { useConversationPersona, getConversationPersona } from '@/hooks/useConversationPersona';
 
 import { useRef, useEffect, useState, useMemo, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -6,6 +7,10 @@ import { Settings2, Sparkles, Users, ChevronUp } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import type { Message as CAMessage } from '@/types';
 import { ChatBubble, ChatInput, RelationshipPanel, ContextPreviewPanel } from '@/components/chat';
+import { ConversationPicker } from '@/components/chat/ConversationPicker';
+import { useMobileViewport } from '@/hooks/useMobileViewport';
+import { startConversation } from '@/lib/start-conversation';
+import { getConversationsByCharacter } from '@/lib/db';
 import { ChatHeader } from '@/components/chat/ChatHeader';
 import { ChatToolbar } from '@/components/chat/ChatToolbar';
 import {
@@ -14,6 +19,7 @@ import {
 } from '@/lib/conversation-transfer';
 import { SettingsPanel, CharacterPanel } from '@/components/layout';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import { ResponsiveSceneControls } from '@/components/chat/ResponsiveSceneControls';
 import { SceneBar } from '@/components/chat/SceneBar';
 import { CharacterEditor } from '@/components/character';
 import { useCharacterStore, useSettingsStore, useChatStore, useLorebookStore } from '@/stores';
@@ -41,6 +47,40 @@ import { buildCanonOptions } from '@/lib/ai/canon-context';
 import type { ContextSection } from '@/types/rag';
 
 export default function ChatPage() {
+    const { id: activePersonaId } = useConversationPersona();
+    const keyboardOpen = useMobileViewport();
+    const startupCharacterId = useCharacterStore((s) => s.activeCharacterId);
+    const charactersLoading = useCharacterStore((s) => s.isLoading);
+    const [mobileScreen, setMobileScreen] = useState<'chat' | 'characters'>('chat');
+    const [conversationPickerOpen, setConversationPickerOpen] = useState(false);
+    const [sceneControlsOpen, setSceneControlsOpen] = useState(false);
+    const [settingsSection, setSettingsSection] = useState('api');
+    const navigationToken = useRef(0);
+    const openDiscussion = (conversation: import('@/types').Conversation) => {
+        navigationToken.current++;
+        localStorage.setItem(`nexusai_active_conv_${conversation.characterId}`, conversation.id);
+        if (useCharacterStore.getState().activeCharacterId === conversation.characterId)
+            useChatStore.getState().setActiveConversation(conversation.id);
+        else useCharacterStore.getState().setActiveCharacterId(conversation.characterId);
+        setMobileScreen('chat');
+    };
+    const chooseCharacter = async (id: string, forceNew = false) => {
+        const token = ++navigationToken.current;
+        const rows = await getConversationsByCharacter(id);
+        if (token !== navigationToken.current) return;
+        const latest = rows.sort((a, b) => +new Date(b.updatedAt) - +new Date(a.updatedAt))[0];
+        if (!forceNew && latest) {
+            openDiscussion(latest);
+            return;
+        }
+        const card = useCharacterStore.getState().characters.find((c) => c.id === id);
+        if (!card) return;
+        const newId = await startConversation(card);
+        if (token !== navigationToken.current) return;
+        useCharacterStore.getState().setActiveCharacterId(id);
+        useChatStore.getState().setActiveConversation(newId);
+        setMobileScreen('chat');
+    };
     const [isSettingsOpen, setIsSettingsOpen] = useState(false);
     const [isDeleteCharacterOpen, setIsDeleteCharacterOpen] = useState(false);
     const [isLorebookOpen, setIsLorebookOpen] = useState(false);
@@ -70,6 +110,12 @@ export default function ChatPage() {
         | null
     >(null);
 
+    useEffect(() => {
+        if (!charactersLoading && !startupCharacterId) {
+            const timer = window.setTimeout(() => setMobileScreen('characters'), 0);
+            return () => window.clearTimeout(timer);
+        }
+    }, [charactersLoading, startupCharacterId]);
     // Draft message from ChatInput (for context preview)
     const draftMessageRef = useRef('');
 
@@ -177,7 +223,6 @@ export default function ChatPage() {
         showThoughts,
         showUsageBadge,
         enableTroupeMode,
-        activePersonaId,
         personas,
         immersiveMode,
         getActivePreset,
@@ -237,6 +282,10 @@ export default function ChatPage() {
             if (characterConvs.length > 0) {
                 setActiveConversation(characterConvs[0].id);
             } else {
+                if (window.innerWidth < 640) {
+                    setMobileScreen('characters');
+                    return;
+                }
                 const newId = await createConversation(
                     character.id,
                     `Discussion avec ${character.name}`,
@@ -550,7 +599,7 @@ export default function ChatPage() {
                     const settings = useSettingsStore.getState();
                     const preset = settings.getActivePreset();
                     const persona = settings.personas.find(
-                        (p) => p.id === settings.activePersonaId
+                        (p) => p.id === getConversationPersona(activeConversationId).id
                     );
                     const sceneContext = conversation
                         ? {
@@ -587,7 +636,14 @@ export default function ChatPage() {
                 })();
             }
         },
-        [updateMessage, messages, character, activeLorebook, getActiveBranchBanList]
+        [
+            updateMessage,
+            messages,
+            character,
+            activeLorebook,
+            getActiveBranchBanList,
+            activeConversationId,
+        ]
     );
 
     const handleDeleteMessage = useCallback(
@@ -663,6 +719,22 @@ export default function ChatPage() {
         setIsMounted(true);
     }, []);
 
+    const messagePresentation = useMemo(() => {
+        const userNames = new Map<string, string>();
+        let userName = personas.find((p) => p.id === activePersonaId)?.name || 'Vous';
+        let lastUserId: string | undefined;
+        let lastAssistantId: string | undefined;
+        for (const message of messages) {
+            if (message.role === 'user') {
+                lastUserId = message.id;
+                if (message.speaker?.kind === 'user') userName = message.speaker.name;
+            }
+            if (message.role === 'assistant') lastAssistantId = message.id;
+            userNames.set(message.id, userName);
+        }
+        return { userNames, lastUserId, lastAssistantId };
+    }, [messages, personas, activePersonaId]);
+
     if (!isMounted) {
         return null;
     }
@@ -670,8 +742,10 @@ export default function ChatPage() {
     return (
         // h-dvh (not h-screen/100vh): correct height on mobile Safari/Chrome where the URL
         // bar collapses; keeps the input visible with the keyboard open.
-        <div className="flex h-dvh bg-background overflow-hidden">
-            <main className="flex-1 flex flex-col min-w-0">
+        <div className="mobile-app flex flex-col h-dvh bg-background overflow-hidden">
+            <main
+                className={`flex-1 flex flex-col min-w-0 min-h-0 ${mobileScreen !== 'chat' ? 'max-sm:hidden' : ''}`}
+            >
                 {character ? (
                     <>
                         {/* Header - Hidden in immersive mode */}
@@ -679,6 +753,12 @@ export default function ChatPage() {
                             {!immersiveMode && (
                                 <ChatHeader
                                     character={character}
+                                    conversationTitle={
+                                        conversations.find((c) => c.id === activeConversationId)
+                                            ?.title
+                                    }
+                                    onBack={() => setMobileScreen('characters')}
+                                    onOpenConversations={() => setConversationPickerOpen(true)}
                                     activeModel={activeModel}
                                     onEditCharacter={handleEditCharacter}
                                     onImportConversation={handleImportConversation}
@@ -732,12 +812,18 @@ export default function ChatPage() {
                                                 // Replace {{user}} with persona name for display
                                                 const displayContent = msg.content.replace(
                                                     /{{user}}/gi,
-                                                    personas.find((p) => p.id === activePersonaId)
-                                                        ?.name || 'Vous'
+                                                    messagePresentation.userNames.get(msg.id) ||
+                                                        'Vous'
                                                 );
 
                                                 return (
                                                     <ChatBubble
+                                                        primaryAction={
+                                                            msg.id ===
+                                                            (msg.role === 'user'
+                                                                ? messagePresentation.lastUserId
+                                                                : messagePresentation.lastAssistantId)
+                                                        }
                                                         key={msg.id}
                                                         id={msg.id}
                                                         role={msg.role as 'user' | 'assistant'}
@@ -750,20 +836,14 @@ export default function ChatPage() {
                                                         batch={msg.batch}
                                                         avatar={
                                                             msg.role === 'user'
-                                                                ? // Persona AT SEND TIME (by id,
-                                                                  // then name); legacy messages
-                                                                  // fall back to the active one.
-                                                                  (personas.find(
+                                                                ? personas.find(
                                                                       (p) =>
                                                                           p.id ===
-                                                                          (msg.speaker?.personaId ??
-                                                                              activePersonaId)
-                                                                  )?.avatar ??
-                                                                  personas.find(
-                                                                      (p) =>
-                                                                          p.name ===
-                                                                          msg.speaker?.name
-                                                                  )?.avatar)
+                                                                          (msg.speaker
+                                                                              ? msg.speaker
+                                                                                    .personaId
+                                                                              : activePersonaId)
+                                                                  )?.avatar
                                                                 : msg.speaker?.kind === 'narrator'
                                                                   ? undefined
                                                                   : (characters.find(
@@ -831,21 +911,51 @@ export default function ChatPage() {
                                     (!immersiveMode ||
                                         conversations.find((c) => c.id === activeConversationId)
                                             ?.sceneMode) && (
-                                        <SceneBar
-                                            conversation={conversations.find(
-                                                (c) => c.id === activeConversationId
-                                            )}
-                                            character={character}
-                                            messages={messages}
-                                            isSceneRunning={isSceneRunning}
-                                            sceneProgress={sceneProgress}
-                                            lastSceneBeat={lastSceneBeat}
-                                            onRetrySceneBeat={() => void retrySceneBeat()}
-                                            onAdvanceScene={() => void runSceneBeat()}
-                                        />
+                                        <ResponsiveSceneControls
+                                            open={sceneControlsOpen}
+                                            onOpenChange={setSceneControlsOpen}
+                                        >
+                                            <SceneBar
+                                                conversation={conversations.find(
+                                                    (c) => c.id === activeConversationId
+                                                )}
+                                                character={character}
+                                                messages={messages}
+                                                isSceneRunning={isSceneRunning}
+                                                sceneProgress={sceneProgress}
+                                                lastSceneBeat={lastSceneBeat}
+                                                onRetrySceneBeat={() => void retrySceneBeat()}
+                                                onAdvanceScene={() => void runSceneBeat()}
+                                            />
+                                        </ResponsiveSceneControls>
+                                    )}
+                                {enableTroupeMode &&
+                                    conversations.find((c) => c.id === activeConversationId)
+                                        ?.sceneMode && (
+                                        <Button
+                                            variant="ghost"
+                                            className="sm:hidden text-xs"
+                                            onClick={() => setSceneControlsOpen((v) => !v)}
+                                        >
+                                            Scène active ·{' '}
+                                            {sceneControlsOpen
+                                                ? 'Masquer les contrôles'
+                                                : 'Contrôles'}
+                                        </Button>
                                     )}
                                 {!immersiveMode && (
                                     <ChatToolbar
+                                        onOpenScene={() => {
+                                            if (enableTroupeMode) setSceneControlsOpen(true);
+                                            else {
+                                                setSettingsSection('ai');
+                                                setIsSettingsOpen(true);
+                                            }
+                                        }}
+                                        onSettings={(section) => {
+                                            setSettingsSection(section);
+                                            setIsSettingsOpen(true);
+                                        }}
                                         onOpenLorebook={() => setIsLorebookOpen(true)}
                                         onOpenRelations={() => {
                                             // Desktop: dialog — Mobile: bottom sheet
@@ -862,6 +972,11 @@ export default function ChatPage() {
                                     />
                                 )}
                                 <ChatInput
+                                    key={activeConversationId}
+                                    draftText={
+                                        conversations.find((c) => c.id === activeConversationId)
+                                            ?.draftText || ''
+                                    }
                                     onSend={handleSend}
                                     onStop={handleStop}
                                     isLoading={isLoading || isSceneRunning}
@@ -870,6 +985,15 @@ export default function ChatPage() {
                                     batchWait={batchWait}
                                     onDraftChange={(draft) => {
                                         draftMessageRef.current = draft;
+                                        if (activeConversationId)
+                                            void useChatStore
+                                                .getState()
+                                                .setDraft(activeConversationId, draft)
+                                                .catch(() =>
+                                                    window.alert(
+                                                        'Le brouillon reste en mémoire mais son enregistrement a échoué.'
+                                                    )
+                                                );
                                     }}
                                     placeholder={
                                         !currentApiKey
@@ -882,11 +1006,13 @@ export default function ChatPage() {
                                         <Button
                                             variant="ghost"
                                             size="icon"
-                                            className="h-6 w-6 opacity-30 hover:opacity-100 transition-opacity"
-                                            onClick={() => setIsSettingsOpen(true)}
-                                            title="Réglages"
+                                            className="h-11 w-auto px-3 bg-background/90 border"
+                                            onClick={() =>
+                                                useSettingsStore.getState().setImmersiveMode(false)
+                                            }
+                                            title="Quitter le mode immersif"
                                         >
-                                            <Settings2 className="h-3 w-3" />
+                                            <span>Quitter le mode immersif</span>
                                         </Button>
                                     </div>
                                 )}
@@ -920,8 +1046,74 @@ export default function ChatPage() {
                     </>
                 )}
             </main>
+            {mobileScreen !== 'chat' && (
+                <div className="sm:hidden flex flex-col flex-1 min-h-0 overflow-hidden">
+                    <CharacterPanel
+                        embedded
+                        onSelected={(id, createNew) =>
+                            void chooseCharacter(id, createNew).catch(() =>
+                                window.alert(
+                                    'Impossible d’ouvrir cette discussion. Vos données sont conservées.'
+                                )
+                            )
+                        }
+                    />
+                </div>
+            )}
+            {!keyboardOpen && !immersiveMode && (
+                <nav
+                    aria-label="Navigation principale"
+                    className="mobile-bottom-nav sm:hidden grid grid-cols-2 border-t border-white/10 bg-background shrink-0"
+                >
+                    <Button
+                        variant="ghost"
+                        className="rounded-none"
+                        aria-current={mobileScreen === 'characters' ? 'page' : undefined}
+                        onClick={() => setMobileScreen('characters')}
+                    >
+                        Personnages
+                    </Button>
+                    <Button
+                        variant="ghost"
+                        className="rounded-none"
+                        onClick={() => {
+                            setSettingsSection('api');
+                            setIsSettingsOpen(true);
+                        }}
+                    >
+                        Réglages
+                    </Button>
+                </nav>
+            )}
 
-            <SettingsPanel open={isSettingsOpen} onOpenChange={setIsSettingsOpen} />
+            {character && (
+                <ConversationPicker
+                    open={conversationPickerOpen}
+                    onOpenChange={setConversationPickerOpen}
+                    characterName={character.displayName || character.name}
+                    conversations={conversations.filter((c) => c.characterId === character.id)}
+                    personas={personas}
+                    activeId={activeConversationId}
+                    onSelect={(id) => {
+                        setActiveConversation(id);
+                        setConversationPickerOpen(false);
+                    }}
+                    onNew={() => {
+                        setConversationPickerOpen(false);
+                        void chooseCharacter(character.id, true).catch(() =>
+                            window.alert(
+                                'Impossible de créer cette discussion. Vos données sont conservées.'
+                            )
+                        );
+                    }}
+                />
+            )}
+
+            <SettingsPanel
+                initialSection={settingsSection}
+                open={isSettingsOpen}
+                onOpenChange={setIsSettingsOpen}
+            />
 
             <ConfirmDialog
                 open={isDeleteCharacterOpen}
@@ -941,7 +1133,7 @@ export default function ChatPage() {
             />
 
             <Dialog open={isLorebookOpen} onOpenChange={setIsLorebookOpen}>
-                <DialogContent className="!max-w-[95vw] !w-[95vw] h-[90vh] p-0 overflow-hidden [&>button]:hidden flex flex-col max-sm:!w-screen max-sm:!max-w-none max-sm:h-dvh max-sm:rounded-none max-sm:border-0 max-sm:top-0 max-sm:left-0 max-sm:translate-x-0 max-sm:translate-y-0">
+                <DialogContent className="mobile-editor !max-w-[95vw] !w-[95vw] h-[90vh] p-0 overflow-hidden [&>button]:hidden flex flex-col max-sm:!w-screen max-sm:!max-w-none max-sm:h-dvh max-sm:rounded-none max-sm:border-0 max-sm:top-0 max-sm:left-0 max-sm:translate-x-0 max-sm:translate-y-0">
                     <DialogTitle className="sr-only">Éditeur de lorebook</DialogTitle>
                     <DialogDescription className="sr-only">
                         Modifier les entrées du lorebook de ce personnage.
@@ -955,7 +1147,7 @@ export default function ChatPage() {
             <MemoryPanel isOpen={isMemoryOpen} onClose={() => setIsMemoryOpen(false)} />
 
             <Dialog open={isCanonOpen} onOpenChange={setIsCanonOpen}>
-                <DialogContent className="!max-w-[95vw] !w-[95vw] h-[90vh] p-0 overflow-hidden [&>button]:hidden flex flex-col max-sm:!w-screen max-sm:!max-w-none max-sm:h-dvh max-sm:rounded-none max-sm:border-0 max-sm:top-0 max-sm:left-0 max-sm:translate-x-0 max-sm:translate-y-0">
+                <DialogContent className="mobile-editor !max-w-[95vw] !w-[95vw] h-[90vh] p-0 overflow-hidden [&>button]:hidden flex flex-col max-sm:!w-screen max-sm:!max-w-none max-sm:h-dvh max-sm:rounded-none max-sm:border-0 max-sm:top-0 max-sm:left-0 max-sm:translate-x-0 max-sm:translate-y-0">
                     <DialogTitle className="sr-only">Canon Codex</DialogTitle>
                     <DialogDescription className="sr-only">
                         Arc Compass, casting canon et outils du Directeur.
@@ -966,7 +1158,7 @@ export default function ChatPage() {
 
             {/* Desktop Relationships Dialog */}
             <Dialog open={isRelationsDialogOpen} onOpenChange={setIsRelationsDialogOpen}>
-                <DialogContent className="!max-w-[640px] !w-[640px] h-[85vh] p-0 overflow-hidden flex flex-col">
+                <DialogContent className="mobile-editor !max-w-[640px] !w-[640px] h-[85vh] p-0 overflow-hidden flex flex-col">
                     <DialogTitle className="sr-only">Relations</DialogTitle>
                     <DialogDescription className="sr-only">
                         Relations directionnelles multi-axes entre les personnages de cette

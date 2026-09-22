@@ -1,19 +1,6 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { cn } from '@/lib/utils';
-import {
-    Settings,
-    Key,
-    Sliders,
-    Eye,
-    EyeOff,
-    Check,
-    X,
-    Settings2,
-    Bot,
-    Brain,
-    ChevronDown,
-    RefreshCw,
-} from 'lucide-react';
+import { Settings, Eye, EyeOff, Check, X, Bot, ChevronDown, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -30,10 +17,11 @@ import { DEFAULT_MODELS, currentWeekStart, type CustomModel } from '@/stores/set
 import { encryptApiKey, decryptApiKey, validateApiKey } from '@/lib/crypto';
 import { type Provider } from '@/lib/ai';
 import { NanoGPTUsagePanel } from '@/components/layout/NanoGPTUsage';
+import { ResponseControls } from '@/components/settings/ResponseControls';
+import { ModelSelector } from '@/components/chat/ModelSelector';
 import { PresetEditor } from '@/components/settings/PresetEditor';
 import { GlobalBackupControls } from '@/components/settings/GlobalBackupControls';
 import { SETTINGS_VERSION } from '@/lib/settings-storage';
-import { BUILTIN_ENGINES } from '@/lib/ai/rp-engine';
 import {
     DropdownMenu,
     DropdownMenuContent,
@@ -44,6 +32,7 @@ import {
 
 interface SettingsPanelProps {
     open: boolean;
+    initialSection?: string;
     onOpenChange: (open: boolean) => void;
 }
 
@@ -70,7 +59,10 @@ function FeatureToggle({
         >
             <div className="min-w-0">
                 <p className="text-sm font-medium">{title}</p>
-                <p className="text-xs text-muted-foreground mt-1">{description}</p>
+                <details className="text-xs text-muted-foreground mt-1">
+                    <summary>Aide</summary>
+                    <p>{description}</p>
+                </details>
             </div>
             <Button
                 variant={value ? 'default' : 'secondary'}
@@ -84,20 +76,20 @@ function FeatureToggle({
     );
 }
 
-export function SettingsPanel({ open, onOpenChange }: SettingsPanelProps) {
+export function SettingsPanel({ open, onOpenChange, initialSection = 'api' }: SettingsPanelProps) {
+    const [section, setSection] = useState(initialSection);
+    useEffect(() => {
+        if (open) setSection(initialSection);
+    }, [open, initialSection]);
     const {
         apiKeys,
         showThoughts,
-        enableReasoning,
-        useFlexTier,
         immersiveMode,
         backgroundModel,
         customModels,
         setApiKey,
         setActiveProvider,
         setShowThoughts,
-        setEnableReasoning,
-        setUseFlexTier,
         setImmersiveMode,
         setBackgroundModel,
         lorebookAutoExtract,
@@ -106,12 +98,8 @@ export function SettingsPanel({ open, onOpenChange }: SettingsPanelProps) {
         setUseCanonCodex,
         useCanonAutoFetch,
         setUseCanonAutoFetch,
-        activeProvider,
         nanogptModels,
         setNanogptModels,
-        activeEngineId,
-        setActiveEngineId,
-        customEngines,
         backgroundProvider,
         setBackgroundProvider,
         nanogptBackgroundModel,
@@ -142,8 +130,6 @@ export function SettingsPanel({ open, onOpenChange }: SettingsPanelProps) {
     } = useSettingsStore();
 
     const allModels = [...DEFAULT_MODELS, ...customModels];
-    const allEngines = [...BUILTIN_ENGINES, ...customEngines];
-    const activeEngine = allEngines.find((e) => e.id === activeEngineId) || null;
 
     const [newKey, setNewKey] = useState('');
     const [selectedProvider, setSelectedProvider] = useState<Provider>('openrouter');
@@ -232,7 +218,7 @@ export function SettingsPanel({ open, onOpenChange }: SettingsPanelProps) {
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent className="max-w-5xl w-[95vw] h-[90vh] flex flex-col p-0 gap-0 overflow-hidden bg-background/95 backdrop-blur-xl border-border/50 max-sm:w-screen max-sm:h-dvh max-sm:max-w-none max-sm:rounded-none max-sm:border-0 max-sm:top-0 max-sm:left-0 max-sm:translate-x-0 max-sm:translate-y-0">
+            <DialogContent className="mobile-editor max-w-5xl w-[95vw] h-[90vh] flex flex-col p-0 gap-0 overflow-hidden bg-background/95 backdrop-blur-xl border-border/50 max-sm:w-screen max-sm:h-dvh max-sm:max-w-none max-sm:rounded-none max-sm:border-0 max-sm:top-0 max-sm:left-0 max-sm:translate-x-0 max-sm:translate-y-0">
                 <DialogHeader className="p-6 pb-2 border-b shrink-0">
                     <DialogTitle className="flex items-center gap-2 text-xl">
                         <Settings className="h-5 w-5" />
@@ -242,36 +228,38 @@ export function SettingsPanel({ open, onOpenChange }: SettingsPanelProps) {
                         Configurez vos clés API, vos préférences de chat et vos presets de
                         génération.
                     </DialogDescription>
-                    <GlobalBackupControls
-                        getLiveSettings={() => ({
-                            state: { ...useSettingsStore.getState() },
-                            version: SETTINGS_VERSION,
-                        })}
-                    />
                 </DialogHeader>
 
                 <div className="flex-1 overflow-hidden">
-                    <Tabs defaultValue="api" className="h-full flex flex-col">
+                    <Tabs
+                        value={section}
+                        onValueChange={setSection}
+                        className="h-full flex flex-col"
+                    >
                         {/* 4 columns can't fit 375px ("Fonctions IA" alone ≈ 118px min):
                             mobile switches to a scrollable row. */}
                         <div className="px-6 max-sm:px-3 py-2 border-b shrink-0 bg-muted/20">
-                            <TabsList className="w-full max-w-xl grid grid-cols-4 max-sm:flex max-sm:max-w-none max-sm:justify-start max-sm:overflow-x-auto no-scrollbar">
-                                <TabsTrigger value="api" className="gap-2 max-sm:shrink-0">
-                                    <Key className="h-4 w-4" />
-                                    API
-                                </TabsTrigger>
-                                <TabsTrigger value="chat" className="gap-2 max-sm:shrink-0">
-                                    <Sliders className="h-4 w-4" />
-                                    Chat
-                                </TabsTrigger>
-                                <TabsTrigger value="ai" className="gap-2 max-sm:shrink-0">
-                                    <Brain className="h-4 w-4" />
-                                    Fonctions IA
-                                </TabsTrigger>
-                                <TabsTrigger value="presets" className="gap-2 max-sm:shrink-0">
-                                    <Settings2 className="h-4 w-4" />
-                                    Presets
-                                </TabsTrigger>
+                            <label className="sm:hidden block text-sm space-y-1">
+                                Rubrique
+                                <select
+                                    aria-label="Rubrique des réglages"
+                                    className="block w-full p-3 rounded-md bg-background border"
+                                    value={section}
+                                    onChange={(e) => setSection(e.target.value)}
+                                >
+                                    <option value="api">Connexions</option>
+                                    <option value="chat">Réponse de l’IA</option>
+                                    <option value="ai">Mémoire et scènes</option>
+                                    <option value="appearance">Apparence</option>
+                                    <option value="backups">Sauvegardes</option>
+                                </select>
+                            </label>
+                            <TabsList className="max-sm:hidden w-full flex flex-wrap h-auto">
+                                <TabsTrigger value="api">Connexions</TabsTrigger>
+                                <TabsTrigger value="chat">Réponse de l’IA</TabsTrigger>
+                                <TabsTrigger value="ai">Mémoire et scènes</TabsTrigger>
+                                <TabsTrigger value="appearance">Apparence</TabsTrigger>
+                                <TabsTrigger value="backups">Sauvegardes</TabsTrigger>
                             </TabsList>
                         </div>
 
@@ -281,6 +269,10 @@ export function SettingsPanel({ open, onOpenChange }: SettingsPanelProps) {
                             className="flex-1 overflow-y-auto p-6 space-y-8 m-0 outline-none"
                         >
                             <div className="max-w-2xl mx-auto space-y-8">
+                                <div>
+                                    <h3 className="font-medium mb-2">Modèles personnalisés</h3>
+                                    <ModelSelector />
+                                </div>
                                 {/* Provider Selection */}
                                 <div className="space-y-4">
                                     <label className="text-sm font-medium">Fournisseur</label>
@@ -455,104 +447,12 @@ export function SettingsPanel({ open, onOpenChange }: SettingsPanelProps) {
                             className="flex-1 overflow-y-auto p-6 space-y-8 m-0 outline-none"
                         >
                             <div className="max-w-2xl mx-auto space-y-8">
-                                {/* Reasoning Mode Toggle */}
-                                <div className="space-y-4">
-                                    <div className="flex items-center justify-between p-4 border rounded-lg bg-card/50">
-                                        <div>
-                                            <p className="text-sm font-medium">
-                                                Mode réflexion (Reasoning)
-                                            </p>
-                                            <p className="text-xs text-muted-foreground mt-1">
-                                                Active les tokens de raisonnement pour les modèles
-                                                compatibles (ex. DeepSeek R1)
-                                            </p>
-                                        </div>
-                                        <Button
-                                            variant={enableReasoning ? 'default' : 'secondary'}
-                                            size="sm"
-                                            onClick={() => setEnableReasoning(!enableReasoning)}
-                                            className="w-16"
-                                        >
-                                            {enableReasoning ? 'On' : 'Off'}
-                                        </Button>
-                                    </div>
-                                </div>
-
-                                {/* OpenRouter Flex Tier Toggle */}
-                                {activeProvider === 'openrouter' && (
-                                    <div className="space-y-4">
-                                        <div className="flex items-center justify-between p-4 border rounded-lg bg-card/50">
-                                            <div>
-                                                <p className="text-sm font-medium">
-                                                    Palier Flex OpenRouter
-                                                </p>
-                                                <p className="text-xs text-muted-foreground mt-1">
-                                                    Route les requêtes via le palier flexible (tarif
-                                                    réduit) d&apos;OpenRouter quand il est
-                                                    disponible pour les modèles supportés (ex.
-                                                    Gemini 3.5 Flash). Un modèle en « :batch » passe
-                                                    de lui-même par l&apos;API Batch (réponse
-                                                    différée, moitié prix).
-                                                </p>
-                                            </div>
-                                            <Button
-                                                variant={useFlexTier ? 'default' : 'secondary'}
-                                                size="sm"
-                                                onClick={() => setUseFlexTier(!useFlexTier)}
-                                                className="w-16"
-                                            >
-                                                {useFlexTier ? 'On' : 'Off'}
-                                            </Button>
-                                        </div>
-                                    </div>
-                                )}
-
-                                {/* RP Engine */}
-                                <div className="space-y-4">
-                                    <div>
-                                        <label className="text-sm font-medium">Moteur RP</label>
-                                        <p className="text-xs text-muted-foreground mt-1">
-                                            Règles comportementales qui façonnent l&apos;écriture de
-                                            l&apos;IA — autonomie du joueur, limites de connaissance
-                                            des PNJ, dialogues naturels, prose disciplinée,
-                                            anti-cliché. Choisi indépendamment du preset API.
-                                        </p>
-                                    </div>
-                                    <div className="flex flex-wrap gap-2">
-                                        <Button
-                                            variant={
-                                                activeEngineId === null ? 'default' : 'secondary'
-                                            }
-                                            size="sm"
-                                            onClick={() => setActiveEngineId(null)}
-                                        >
-                                            Désactivé
-                                        </Button>
-                                        {allEngines.map((engine) => (
-                                            <Button
-                                                key={engine.id}
-                                                variant={
-                                                    activeEngineId === engine.id
-                                                        ? 'default'
-                                                        : 'secondary'
-                                                }
-                                                size="sm"
-                                                onClick={() => setActiveEngineId(engine.id)}
-                                            >
-                                                {engine.name}
-                                                {engine.experimental ? ' (exp.)' : ''}
-                                            </Button>
-                                        ))}
-                                    </div>
-                                    {activeEngine && (
-                                        <p className="text-xs text-muted-foreground p-3 border rounded-lg bg-card/50">
-                                            {activeEngine.description}
-                                        </p>
-                                    )}
-                                </div>
-
-                                <Separator />
-
+                                <ResponseControls />
+                                <PresetEditor />
+                            </div>
+                        </TabsContent>
+                        <TabsContent value="appearance" className="flex-1 overflow-y-auto p-4 m-0">
+                            <div className="max-w-2xl mx-auto space-y-6">
                                 {/* UI Options */}
                                 <div className="space-y-5">
                                     <label className="text-sm font-medium">
@@ -579,147 +479,6 @@ export function SettingsPanel({ open, onOpenChange }: SettingsPanelProps) {
                                                 {showThoughts ? 'On' : 'Off'}
                                             </Button>
                                         </div>
-
-                                        <div className="flex items-center justify-between p-3 border rounded-lg bg-card/50">
-                                            <div>
-                                                <p className="text-sm">Mode Troupe (scènes)</p>
-                                                <p className="text-xs text-muted-foreground mt-0.5">
-                                                    Active les scènes multi-personnages. Tours
-                                                    classiques, Tours dirigés et Unifiée restent
-                                                    sélectionnables par conversation.
-                                                </p>
-                                            </div>
-                                            <Button
-                                                variant={enableTroupeMode ? 'default' : 'secondary'}
-                                                size="sm"
-                                                onClick={() =>
-                                                    setEnableTroupeMode(!enableTroupeMode)
-                                                }
-                                                className="w-16"
-                                            >
-                                                {enableTroupeMode ? 'On' : 'Off'}
-                                            </Button>
-                                        </div>
-
-                                        {enableTroupeMode && (
-                                            <div className="space-y-2 ml-4">
-                                                <div className="flex items-center justify-between p-3 border rounded-lg bg-card/50">
-                                                    <div>
-                                                        <p className="text-sm">
-                                                            Tours dirigés (expérimental)
-                                                        </p>
-                                                        <p className="text-xs text-muted-foreground mt-0.5">
-                                                            Directeur, réflexions parallèles puis
-                                                            composition atomique en bulles séparées.
-                                                        </p>
-                                                    </div>
-                                                    <Button
-                                                        variant={
-                                                            enableDirectedSceneMode
-                                                                ? 'default'
-                                                                : 'secondary'
-                                                        }
-                                                        size="sm"
-                                                        onClick={() =>
-                                                            setEnableDirectedSceneMode(
-                                                                !enableDirectedSceneMode
-                                                            )
-                                                        }
-                                                        className="w-16"
-                                                    >
-                                                        {enableDirectedSceneMode ? 'On' : 'Off'}
-                                                    </Button>
-                                                </div>
-                                                <div className="flex items-center justify-between p-3 border rounded-lg bg-card/50">
-                                                    <div>
-                                                        <p className="text-sm">
-                                                            Intervenants max par beat
-                                                        </p>
-                                                        <p className="text-xs text-muted-foreground mt-0.5">
-                                                            Le directeur peut en sélectionner moins
-                                                            selon la scène.
-                                                        </p>
-                                                    </div>
-                                                    <select
-                                                        value={maxSceneSpeakers}
-                                                        onChange={(e) =>
-                                                            setMaxSceneSpeakers(
-                                                                Number(e.target.value)
-                                                            )
-                                                        }
-                                                        className="h-8 rounded-md border border-input bg-background px-2 text-sm shrink-0"
-                                                    >
-                                                        {[1, 2, 3, 4, 5, 6, 7, 8].map((n) => (
-                                                            <option key={n} value={n}>
-                                                                {n}
-                                                            </option>
-                                                        ))}
-                                                    </select>
-                                                </div>
-                                                {enableDirectedSceneMode && (
-                                                    <>
-                                                        <div className="flex items-center justify-between p-3 border rounded-lg bg-card/50">
-                                                            <div>
-                                                                <p className="text-sm">
-                                                                    Réflexions simultanées
-                                                                </p>
-                                                                <p className="text-xs text-muted-foreground mt-0.5">
-                                                                    Quatre par défaut ; le
-                                                                    planificateur respecte aussi les
-                                                                    limites du fournisseur.
-                                                                </p>
-                                                            </div>
-                                                            <select
-                                                                value={sceneReflectionConcurrency}
-                                                                onChange={(e) =>
-                                                                    setSceneReflectionConcurrency(
-                                                                        Number(e.target.value)
-                                                                    )
-                                                                }
-                                                                className="h-8 rounded-md border border-input bg-background px-2 text-sm shrink-0"
-                                                            >
-                                                                {[1, 2, 3, 4, 5, 6, 7, 8].map(
-                                                                    (n) => (
-                                                                        <option key={n} value={n}>
-                                                                            {n}
-                                                                        </option>
-                                                                    )
-                                                                )}
-                                                            </select>
-                                                        </div>
-                                                        <div className="flex items-center justify-between p-3 border rounded-lg bg-card/50">
-                                                            <div>
-                                                                <p className="text-sm">
-                                                                    Audit narratif V2
-                                                                </p>
-                                                                <p className="text-xs text-muted-foreground mt-0.5">
-                                                                    Shadow observe seulement ; Actif
-                                                                    autorise une réécriture qualité.
-                                                                </p>
-                                                            </div>
-                                                            <select
-                                                                value={directedAuditMode}
-                                                                onChange={(event) =>
-                                                                    setDirectedAuditMode(
-                                                                        event.target.value as
-                                                                            | 'shadow'
-                                                                            | 'enforce'
-                                                                    )
-                                                                }
-                                                                className="h-8 rounded-md border border-input bg-background px-2 text-sm shrink-0"
-                                                            >
-                                                                <option value="shadow">
-                                                                    Shadow
-                                                                </option>
-                                                                <option value="enforce">
-                                                                    Actif
-                                                                </option>
-                                                            </select>
-                                                        </div>
-                                                    </>
-                                                )}
-                                            </div>
-                                        )}
 
                                         <div className="flex items-center justify-between p-3 border rounded-lg bg-card/50">
                                             <div>
@@ -975,6 +734,137 @@ export function SettingsPanel({ open, onOpenChange }: SettingsPanelProps) {
                                 {/* Mémoire longue */}
                                 <div className="space-y-3">
                                     <label className="text-sm font-medium">Mémoire longue</label>
+                                    <div className="flex items-center justify-between p-3 border rounded-lg bg-card/50">
+                                        <div>
+                                            <p className="text-sm">Mode Troupe (scènes)</p>
+                                            <p className="text-xs text-muted-foreground mt-0.5">
+                                                Active les scènes multi-personnages. Tours
+                                                classiques, Tours dirigés et Unifiée restent
+                                                sélectionnables par conversation.
+                                            </p>
+                                        </div>
+                                        <Button
+                                            variant={enableTroupeMode ? 'default' : 'secondary'}
+                                            size="sm"
+                                            onClick={() => setEnableTroupeMode(!enableTroupeMode)}
+                                            className="w-16"
+                                        >
+                                            {enableTroupeMode ? 'On' : 'Off'}
+                                        </Button>
+                                    </div>
+
+                                    {enableTroupeMode && (
+                                        <div className="space-y-2 ml-4">
+                                            <div className="flex items-center justify-between p-3 border rounded-lg bg-card/50">
+                                                <div>
+                                                    <p className="text-sm">
+                                                        Tours dirigés (expérimental)
+                                                    </p>
+                                                    <p className="text-xs text-muted-foreground mt-0.5">
+                                                        Directeur, réflexions parallèles puis
+                                                        composition atomique en bulles séparées.
+                                                    </p>
+                                                </div>
+                                                <Button
+                                                    variant={
+                                                        enableDirectedSceneMode
+                                                            ? 'default'
+                                                            : 'secondary'
+                                                    }
+                                                    size="sm"
+                                                    onClick={() =>
+                                                        setEnableDirectedSceneMode(
+                                                            !enableDirectedSceneMode
+                                                        )
+                                                    }
+                                                    className="w-16"
+                                                >
+                                                    {enableDirectedSceneMode ? 'On' : 'Off'}
+                                                </Button>
+                                            </div>
+                                            <div className="flex items-center justify-between p-3 border rounded-lg bg-card/50">
+                                                <div>
+                                                    <p className="text-sm">
+                                                        Intervenants max par beat
+                                                    </p>
+                                                    <p className="text-xs text-muted-foreground mt-0.5">
+                                                        Le directeur peut en sélectionner moins
+                                                        selon la scène.
+                                                    </p>
+                                                </div>
+                                                <select
+                                                    value={maxSceneSpeakers}
+                                                    onChange={(e) =>
+                                                        setMaxSceneSpeakers(Number(e.target.value))
+                                                    }
+                                                    className="h-8 rounded-md border border-input bg-background px-2 text-sm shrink-0"
+                                                >
+                                                    {[1, 2, 3, 4, 5, 6, 7, 8].map((n) => (
+                                                        <option key={n} value={n}>
+                                                            {n}
+                                                        </option>
+                                                    ))}
+                                                </select>
+                                            </div>
+                                            {enableDirectedSceneMode && (
+                                                <>
+                                                    <div className="flex items-center justify-between p-3 border rounded-lg bg-card/50">
+                                                        <div>
+                                                            <p className="text-sm">
+                                                                Réflexions simultanées
+                                                            </p>
+                                                            <p className="text-xs text-muted-foreground mt-0.5">
+                                                                Quatre par défaut ; le planificateur
+                                                                respecte aussi les limites du
+                                                                fournisseur.
+                                                            </p>
+                                                        </div>
+                                                        <select
+                                                            value={sceneReflectionConcurrency}
+                                                            onChange={(e) =>
+                                                                setSceneReflectionConcurrency(
+                                                                    Number(e.target.value)
+                                                                )
+                                                            }
+                                                            className="h-8 rounded-md border border-input bg-background px-2 text-sm shrink-0"
+                                                        >
+                                                            {[1, 2, 3, 4, 5, 6, 7, 8].map((n) => (
+                                                                <option key={n} value={n}>
+                                                                    {n}
+                                                                </option>
+                                                            ))}
+                                                        </select>
+                                                    </div>
+                                                    <div className="flex items-center justify-between p-3 border rounded-lg bg-card/50">
+                                                        <div>
+                                                            <p className="text-sm">
+                                                                Audit narratif V2
+                                                            </p>
+                                                            <p className="text-xs text-muted-foreground mt-0.5">
+                                                                Shadow observe seulement ; Actif
+                                                                autorise une réécriture qualité.
+                                                            </p>
+                                                        </div>
+                                                        <select
+                                                            value={directedAuditMode}
+                                                            onChange={(event) =>
+                                                                setDirectedAuditMode(
+                                                                    event.target.value as
+                                                                        | 'shadow'
+                                                                        | 'enforce'
+                                                                )
+                                                            }
+                                                            className="h-8 rounded-md border border-input bg-background px-2 text-sm shrink-0"
+                                                        >
+                                                            <option value="shadow">Shadow</option>
+                                                            <option value="enforce">Actif</option>
+                                                        </select>
+                                                    </div>
+                                                </>
+                                            )}
+                                        </div>
+                                    )}
+
                                     {/* Un seul interrupteur : sans résumés la Chronique est
                                         vide, et sans injection elle ne sert à rien. Les deux
                                         réglages séparés d'avant ne pouvaient rien faire l'un
@@ -1038,11 +928,15 @@ export function SettingsPanel({ open, onOpenChange }: SettingsPanelProps) {
                         </TabsContent>
 
                         {/* Presets Tab */}
-                        <TabsContent
-                            value="presets"
-                            className="flex-1 overflow-hidden m-0 data-[state=inactive]:hidden"
-                        >
-                            <PresetEditor />
+                        <TabsContent value="backups" className="flex-1 overflow-y-auto p-4 m-0">
+                            {' '}
+                            <GlobalBackupControls
+                                allowRestore
+                                getLiveSettings={() => ({
+                                    state: { ...useSettingsStore.getState() },
+                                    version: SETTINGS_VERSION,
+                                })}
+                            />
                         </TabsContent>
                     </Tabs>
                 </div>

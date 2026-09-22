@@ -1,4 +1,5 @@
 'use client';
+import { EditorOverlay } from '@/components/ui/editor-overlay';
 
 import { useState, useMemo, useRef, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -39,6 +40,8 @@ export function TreeVisualization({ isOpen, onClose }: TreeVisualizationProps) {
     const dragStart = useRef({ x: 0, y: 0 });
     const svgRef = useRef<SVGSVGElement>(null);
 
+    const [showGraph, setShowGraph] = useState(false);
+    const [listLimit, setListLimit] = useState(80);
     const [isMobile, setIsMobile] = useState(false);
 
     useEffect(() => {
@@ -266,16 +269,70 @@ export function TreeVisualization({ isOpen, onClose }: TreeVisualizationProps) {
 
     if (!isOpen) return null;
 
-    return (
+    if (isMobile && !showGraph)
+        return (<EditorOverlay open={isOpen} onClose={onClose} title="Branches">
+            <div
+                className="mobile-editor fixed inset-0 z-50 bg-background flex flex-col"
+            >
+                <header className="p-4 flex flex-wrap items-center justify-between border-b gap-2">
+                    <h2 className="font-semibold">Branches</h2>
+                    <Button variant="outline" onClick={() => setShowGraph(true)}>
+                        Graphe
+                    </Button>
+                    <Button variant="ghost" onClick={onClose}>
+                        Retour
+                    </Button>
+                </header>
+                <div className="flex-1 overflow-y-auto p-3 space-y-2">
+                    {allMessages
+                        .filter(
+                            (m) => m.conversationId === activeConversationId && m.role !== 'system'
+                        )
+                        .sort(
+                            (a, b) =>
+                                a.messageOrder - b.messageOrder ||
+                                a.regenerationIndex - b.regenerationIndex
+                        )
+                        .slice(0, listLimit)
+                        .map((m) => (
+                            <button
+                                className="block w-full text-left p-3 rounded-lg border bg-white/5"
+                                key={m.id}
+                                onClick={() => {
+                                    navigateToMessage(m.id);
+                                    onClose();
+                                }}
+                            >
+                                <span className="text-xs text-primary">
+                                    {m.speaker?.name || (m.role === 'user' ? 'Vous' : 'Personnage')}{' '}
+                                    · étape {m.messageOrder} · variante {m.regenerationIndex + 1}{' '}
+                                    {m.isActiveBranch && '· active'}
+                                </span>
+                                <span className="block line-clamp-3 text-sm">{m.content}</span>
+                            </button>
+                        ))}
+                    {allMessages.length > listLimit && (
+                        <Button onClick={() => setListLimit((n) => n + 80)}>Afficher plus</Button>
+                    )}
+                </div>
+            </div>
+        </EditorOverlay>
+        );
+    return (<EditorOverlay open={isOpen} onClose={onClose} title="Branches">
         <AnimatePresence>
             <motion.div
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
-                className="fixed inset-0 z-50 bg-background/95 backdrop-blur-sm flex flex-col"
+                className="mobile-editor fixed inset-0 z-50 bg-background/95 backdrop-blur-sm flex flex-col"
             >
+                {isMobile && (
+                    <Button variant="outline" onClick={() => setShowGraph(false)}>
+                        Afficher la liste des branches
+                    </Button>
+                )}
                 {/* Header */}
-                <div className="flex items-center justify-between p-3 md:p-4 border-b bg-card/50 z-10 px-4 md:px-6">
+                <div className="flex flex-wrap items-center justify-between gap-2 p-3 md:p-4 border-b bg-card/50 z-10 px-4 md:px-6">
                     <div className="flex items-center gap-2 md:gap-3">
                         <div className="p-1.5 md:p-2 bg-primary/10 rounded-lg">
                             <GitBranch className="h-4 w-4 md:h-5 md:w-5 text-primary" />
@@ -437,5 +494,6 @@ export function TreeVisualization({ isOpen, onClose }: TreeVisualizationProps) {
                 </div>
             </motion.div>
         </AnimatePresence>
+        </EditorOverlay>
     );
 }

@@ -41,111 +41,19 @@ export interface CustomModel {
 // Default models available out of the box
 export const DEFAULT_MODELS: CustomModel[] = [
     {
-        id: 'llama-3.3-70b',
-        name: 'Llama 3.3 70B (Free)',
-        modelId: 'meta-llama/llama-3.3-70b-instruct:free',
-        provider: 'openrouter',
-        isFree: true,
-    },
-    {
-        id: 'deepseek-r1-0528',
-        name: 'DeepSeek R1 0528 (Free)',
-        modelId: 'deepseek/deepseek-r1-0528:free',
-        provider: 'openrouter',
-        isFree: true,
-    },
-
-    {
-        id: 'mistral-small-3.1',
-        name: 'Mistral Small 3.1 24B (Free)',
-        modelId: 'mistralai/mistral-small-3.1-24b-instruct:free',
-        provider: 'openrouter',
-        isFree: true,
-    },
-    {
-        id: 'qwen-coder',
-        name: 'Qwen 3 Coder (Free)',
-        modelId: 'qwen/qwen3-coder:free',
-        provider: 'openrouter',
-        isFree: true,
-    },
-    {
-        id: 'mistral-large',
-        name: 'Mistral Large 2411 (Free)',
-        modelId: 'mistralai/mistral-large-2411:free',
-        provider: 'openrouter',
-        isFree: true,
-    },
-    {
-        id: 'nvidia-nemotron-70b',
-        name: 'Nvidia Nemotron 70B (Free)',
-        modelId: 'nvidia/llama-3.1-nemotron-70b-instruct:free',
-        provider: 'openrouter',
-        isFree: true,
-    },
-    {
-        id: 'dolphin-24b',
-        name: 'Dolphin Mistral 24B (Free)',
-        modelId: 'cognitivecomputations/dolphin-mistral-24b-venice-edition:free',
-        provider: 'openrouter',
-        isFree: true,
-    },
-    {
-        id: 'gemma-3-27b',
-        name: 'Gemma 3 27B (Free)',
-        modelId: 'google/gemma-3-27b-it:free',
-        provider: 'openrouter',
-        isFree: true,
-    },
-    {
-        id: 'deepseek-v3',
-        name: 'DeepSeek V3 (Chat)',
-        modelId: 'deepseek/deepseek-chat',
+        id: 'gemini-3-1-pro',
+        name: 'Gemini 3.1 Pro',
+        modelId: 'google/gemini-3.1-pro-preview',
         provider: 'openrouter',
         isFree: false,
     },
     {
-        id: 'deepseek-r1-paid',
-        name: 'DeepSeek R1 (Full)',
-        modelId: 'deepseek/deepseek-r1',
+        id: 'Gemini-3.8-flash',
+        name: 'Gemini 3.8 Flash',
+        modelId: 'google/gemini-3.8-flash',
         provider: 'openrouter',
         isFree: false,
-    },
-    {
-        id: 'gemini-3-flash-preview',
-        name: 'Gemini 3.0 Flash (Preview)',
-        modelId: 'google/gemini-3-flash-preview',
-        provider: 'openrouter',
-        isFree: false,
-    },
-    {
-        id: 'deepseek-v3.2',
-        name: 'DeepSeek v3.2',
-        modelId: 'deepseek/deepseek-v3.2',
-        provider: 'openrouter',
-        isFree: false,
-    },
-    {
-        id: 'gemini-3-pro',
-        name: 'Gemini 3 Pro',
-        modelId: 'google/gemini-3-pro-preview',
-        provider: 'openrouter',
-        isFree: false,
-    },
-    {
-        id: 'gpt-4o',
-        name: 'GPT-4o',
-        modelId: 'openai/gpt-4o',
-        provider: 'openrouter',
-        isFree: false,
-    },
-    {
-        id: 'claude-sonnet',
-        name: 'Claude 3.5 Sonnet',
-        modelId: 'anthropic/claude-3.5-sonnet',
-        provider: 'openrouter',
-        isFree: false,
-    },
+    }
 ];
 
 interface SettingsState {

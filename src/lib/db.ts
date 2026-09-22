@@ -298,12 +298,73 @@ export async function saveConversation(conversation: Conversation): Promise<void
     const { messages, ...convData } = conversation as unknown as {
         messages?: unknown;
     } & Conversation;
-    await db.put('conversations', convData);
+    const tx = db.transaction('conversations', 'readwrite');
+    const existing = await tx.store.get(conversation.id);
+    // These fields have independent writers; a background snapshot must never roll them back.
+    if (existing?.lastPersonaId !== undefined) convData.lastPersonaId = existing.lastPersonaId;
+    if (existing?.draftText !== undefined) convData.draftText = existing.draftText;
+    await tx.store.put(convData);
+    await tx.done;
+}
+
+export async function getAllConversations(): Promise<Conversation[]> {
+    return (await initDB()).getAll('conversations');
+}
+
+/** The user's message and draft acknowledgement succeed or fail together. */
+export async function commitUserMessage(message: Message): Promise<Conversation> {
+    const db = await initDB();
+    const tx = db.transaction(['messages', 'conversations'], 'readwrite');
+    const conversations = tx.objectStore('conversations');
+    const current = await conversations.get(message.conversationId);
+    if (!current) {
+        tx.abort();
+        throw new Error('Conversation introuvable');
+    }
+    const next = {
+        ...current,
+        updatedAt: new Date(),
+        draftText: current.draftText?.trim() === message.content ? '' : current.draftText,
+    };
+    await tx.objectStore('messages').put(message);
+    await conversations.put(next);
+    await tx.done;
+    return next;
+}
+
+/** Read and patch in one transaction, without clobbering unrelated metadata. */
+export async function patchConversation(
+    id: string,
+    patch: Partial<Conversation>,
+    onlyUnassociated = false
+): Promise<Conversation | undefined> {
+    const db = await initDB();
+    const tx = db.transaction('conversations', 'readwrite');
+    const current = await tx.store.get(id);
+    if (!current || (onlyUnassociated && current.lastPersonaId !== undefined)) {
+        await tx.done;
+        return current;
+    }
+    const next = { ...current, ...patch, id: current.id, characterId: current.characterId };
+    await tx.store.put(next);
+    await tx.done;
+    return next;
 }
 
 export async function getConversation(id: string): Promise<Conversation | undefined> {
     const db = await initDB();
     return db.get('conversations', id);
+}
+
+/** A completed stream may belong to a conversation no longer loaded in the UI. */
+export async function patchStoredMessage(id: string, updates: Partial<Message>): Promise<void> {
+    const db = await initDB();
+    const tx = db.transaction('messages', 'readwrite');
+    const current = await tx.store.get(id);
+    // A message deliberately deleted during generation must not be resurrected.
+    if (current)
+        await tx.store.put({ ...current, ...updates, id, conversationId: current.conversationId });
+    await tx.done;
 }
 
 export async function getConversationsByCharacter(characterId: string): Promise<Conversation[]> {

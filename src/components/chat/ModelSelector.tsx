@@ -144,13 +144,15 @@ export function ModelSelector() {
                         role="button"
                         tabIndex={0}
                         onClick={() => {
-                            setSelectedModelId(model.id);
-                            setIsCreatingModel(false);
+                            setActiveProvider(model.provider);
+                            setActiveModel(model.modelId);
+                            setOpen(false);
                         }}
                         onKeyDown={(e) => {
                             if (e.key === 'Enter' || e.key === ' ') {
-                                setSelectedModelId(model.id);
-                                setIsCreatingModel(false);
+                                setActiveProvider(model.provider);
+                                setActiveModel(model.modelId);
+                                setOpen(false);
                             }
                         }}
                         className={cn(
@@ -194,6 +196,19 @@ export function ModelSelector() {
                                 />
                             </div>
                         )}
+                        <Button
+                            variant="ghost"
+                            size="sm"
+                            aria-label={`Détails de ${model.name}`}
+                            onKeyDown={(e) => e.stopPropagation()}
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                setSelectedModelId(model.id);
+                                setIsCreatingModel(false);
+                            }}
+                        >
+                            Détails
+                        </Button>
                     </div>
                 ))}
             </div>
@@ -213,7 +228,7 @@ export function ModelSelector() {
                 ) : (
                     <Zap className="w-3 h-3 text-yellow-500 shrink-0" />
                 )}
-                <span className="max-w-[120px] truncate hidden sm:inline-block">
+                <span className="max-w-[120px] truncate inline-block">
                     {currentActiveModel?.name || 'Choisir un modèle'}
                 </span>
                 <ChevronDown className="w-3 h-3 opacity-50 hidden sm:block shrink-0" />
@@ -222,7 +237,10 @@ export function ModelSelector() {
             <Dialog open={open} onOpenChange={handleOpenChange}>
                 <DialogContent
                     showCloseButton={false}
-                    className="max-w-4xl h-[80vh] p-0 flex flex-col overflow-hidden glass-heavy border-primary/20"
+                    className={cn(
+                        showEditorOnMobile ? 'mobile-editor' : 'mobile-picker',
+                        'max-sm:translate-x-0 max-sm:translate-y-0 max-w-4xl h-[80vh] p-0 flex flex-col overflow-hidden glass-heavy border-primary/20'
+                    )}
                 >
                     <DialogTitle className="sr-only">Sélecteur de modèle</DialogTitle>
 
@@ -254,6 +272,7 @@ export function ModelSelector() {
                         <Button
                             variant="ghost"
                             size="icon"
+                            aria-label="Fermer le sélecteur de modèle"
                             onClick={() => handleOpenChange(false)}
                             className="h-8 w-8 text-muted-foreground hover:text-primary"
                         >
@@ -470,7 +489,7 @@ export function ModelSelector() {
                                                     </span>
                                                 )}
                                                 {isCustomModel(autoSelectedModel.modelId) && (
-                                                    <span className="text-[10px] font-bold text-blue-500 bg-blue-500/10 px-2 py-1 rounded hidden sm:inline-block">
+                                                    <span className="text-[10px] font-bold text-blue-500 bg-blue-500/10 px-2 py-1 rounded inline-block">
                                                         PERSO
                                                     </span>
                                                 )}

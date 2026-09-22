@@ -1,23 +1,11 @@
 'use client';
 
 import { useEffect } from 'react';
-import {
-    Plus,
-    Trash2,
-    Sparkles,
-    MessageSquare,
-    Sliders,
-    BookOpen,
-    Zap,
-    Upload,
-    Download,
-} from 'lucide-react';
+import { Plus, Trash2, Sparkles, Upload, Download } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger } from '@/components/ui/select';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useSettingsStore } from '@/stores';
 import { DEFAULT_SYSTEM_PROMPT_TEMPLATE, DEFAULT_PRESETS, type APIPreset } from '@/types/preset';
 import { useNotificationStore } from '@/components/ui/api-notification';
@@ -46,10 +34,6 @@ export function PresetEditor() {
         deletePreset,
         setActivePreset,
         initializeDefaultPresets,
-        lorebookAutoExtract,
-        setLorebookAutoExtract,
-        enableHierarchicalSummaries,
-        setEnableHierarchicalSummaries,
     } = useSettingsStore();
 
     // Ensure defaults exist
@@ -58,6 +42,17 @@ export function PresetEditor() {
     }, [initializeDefaultPresets]);
 
     const activePreset = presets.find((p) => p.id === activePresetId);
+    const globals = useSettingsStore();
+    const reasoning = activePreset?.enableReasoning ?? globals.enableReasoning;
+    const flex = activePreset?.useFlexTier ?? globals.useFlexTier;
+    const setReasoning = () =>
+        activePreset?.enableReasoning !== undefined
+            ? updatePreset(activePreset.id, { enableReasoning: !reasoning })
+            : globals.setEnableReasoning(!reasoning);
+    const setFlex = () =>
+        activePreset?.useFlexTier !== undefined
+            ? updatePreset(activePreset.id, { useFlexTier: !flex })
+            : globals.setUseFlexTier(!flex);
 
     const handleCreatePreset = () => {
         const newPreset: APIPreset = {
@@ -219,28 +214,7 @@ export function PresetEditor() {
             {/* Header */}
             <div className="flex flex-wrap items-center justify-between p-4 border-b shrink-0 gap-3">
                 <div className="flex flex-wrap items-center gap-1 sm:gap-3 flex-1 min-w-0">
-                    <Select
-                        value={activePresetId || ''}
-                        onValueChange={(v: string) => setActivePreset(v)}
-                    >
-                        <SelectTrigger className="w-[130px] sm:w-[220px] shrink-0">
-                            <span className="truncate text-left font-medium">
-                                {activePreset.name}
-                            </span>
-                        </SelectTrigger>
-                        <SelectContent>
-                            {presets.map((p) => (
-                                <SelectItem key={p.id} value={p.id}>
-                                    {p.name}
-                                    {p.isDefault && (
-                                        <span className="text-xs text-muted-foreground ml-2">
-                                            (Défaut)
-                                        </span>
-                                    )}
-                                </SelectItem>
-                            ))}
-                        </SelectContent>
-                    </Select>
+                    <h3 className="font-medium truncate">{activePreset.name}</h3>
 
                     <Button
                         variant="ghost"
@@ -285,7 +259,7 @@ export function PresetEditor() {
             </div>
 
             {/* Main Content */}
-            <div className="flex-1 overflow-y-auto custom-scrollbar">
+            <div className="min-w-0">
                 <div className="p-1 space-y-6 max-w-3xl mx-auto pb-20">
                     {/* Basic Info */}
                     <div className="grid gap-4 p-4">
@@ -307,39 +281,10 @@ export function PresetEditor() {
                         </div>
                     </div>
 
-                    <Tabs defaultValue="prompt" className="w-full">
-                        <div className="px-4 max-sm:px-2">
-                            {/* grid-cols-4 overflows 375px — mobile scrolls horizontally. */}
-                            <TabsList className="w-full justify-start h-auto p-1 bg-muted/50 rounded-lg grid grid-cols-4 max-sm:flex max-sm:overflow-x-auto no-scrollbar">
-                                <TabsTrigger
-                                    value="prompt"
-                                    className="gap-2 data-[state=active]:bg-background max-sm:shrink-0"
-                                >
-                                    <MessageSquare className="h-3.5 w-3.5" /> Prompt
-                                </TabsTrigger>
-                                <TabsTrigger
-                                    value="generation"
-                                    className="gap-2 data-[state=active]:bg-background max-sm:shrink-0"
-                                >
-                                    <Sliders className="h-3.5 w-3.5" /> Génération
-                                </TabsTrigger>
-                                <TabsTrigger
-                                    value="lorebook"
-                                    className="gap-2 data-[state=active]:bg-background max-sm:shrink-0"
-                                >
-                                    <BookOpen className="h-3.5 w-3.5" /> Lorebook
-                                </TabsTrigger>
-                                <TabsTrigger
-                                    value="advanced"
-                                    className="gap-2 data-[state=active]:bg-background max-sm:shrink-0"
-                                >
-                                    <Zap className="h-3.5 w-3.5" /> Avancé
-                                </TabsTrigger>
-                            </TabsList>
-                        </div>
-
+                    <div className="space-y-3">
                         {/* --- Prompt Tab --- */}
-                        <TabsContent value="prompt" className="p-4 space-y-6">
+                        <details className="border rounded-lg p-4 space-y-6">
+                            <summary className="font-medium cursor-pointer">Instructions</summary>
                             <div className="space-y-2">
                                 <Label>Instructions pré-historique (note système)</Label>
                                 <p className="text-xs text-muted-foreground">
@@ -441,17 +386,26 @@ export function PresetEditor() {
                                     placeholder="[Write the next message from {{user}}'s perspective...]"
                                 />
                             </div>
-                        </TabsContent>
+                        </details>
 
                         {/* --- Generation Tab --- */}
-                        <TabsContent value="generation" className="p-4 space-y-8">
+                        <details className="border rounded-lg p-4 space-y-8" open>
+                            <summary className="font-medium cursor-pointer">Génération</summary>
                             <div className="space-y-4">
-                                <Label>Temperature: {activePreset.temperature}</Label>
+                                <Label>
+                                    Température : {activePreset.temperature ?? globals.temperature}{' '}
+                                    ·{' '}
+                                    {activePreset.temperature !== undefined
+                                        ? 'ce preset'
+                                        : 'réglage global'}
+                                </Label>
                                 <Input
                                     type="number"
-                                    value={activePreset.temperature}
+                                    value={activePreset.temperature ?? globals.temperature}
                                     onChange={(e) =>
-                                        update({ temperature: parseFloat(e.target.value) })
+                                        activePreset.temperature !== undefined
+                                            ? update({ temperature: parseFloat(e.target.value) })
+                                            : globals.setTemperature(parseFloat(e.target.value))
                                     }
                                     step={0.01}
                                     min={0}
@@ -593,10 +547,11 @@ export function PresetEditor() {
                                     </div>
                                 </div>
                             </div>
-                        </TabsContent>
+                        </details>
 
                         {/* --- Lorebook Tab --- */}
-                        <TabsContent value="lorebook" className="p-4 space-y-6">
+                        <details className="border rounded-lg p-4 space-y-6">
+                            <summary className="font-medium cursor-pointer">Lorebook</summary>
                             <div className="space-y-4">
                                 <div className="flex items-center justify-between">
                                     <div>
@@ -686,10 +641,24 @@ export function PresetEditor() {
                                     </Button>
                                 </div>
                             </div>
-                        </TabsContent>
+                        </details>
 
                         {/* --- Advanced Tab --- */}
-                        <TabsContent value="advanced" className="p-4 space-y-6">
+                        <details className="border rounded-lg p-4 space-y-6">
+                            <summary className="font-medium cursor-pointer">
+                                Options avancées
+                            </summary>
+                            <p className="text-sm text-muted-foreground">
+                                Raisonnement : {reasoning ? 'activé' : 'désactivé'} · source :{' '}
+                                {activePreset.enableReasoning !== undefined
+                                    ? 'ce preset'
+                                    : 'réglage global'}
+                                . Flex : {flex ? 'activé' : 'désactivé'} · source :{' '}
+                                {activePreset.useFlexTier !== undefined
+                                    ? 'ce preset'
+                                    : 'réglage global'}
+                                .
+                            </p>
                             <div className="space-y-4">
                                 <Label>Interrupteurs</Label>
 
@@ -704,16 +673,10 @@ export function PresetEditor() {
                                     </div>
                                     <Button
                                         size="sm"
-                                        variant={
-                                            activePreset.enableReasoning ? 'default' : 'secondary'
-                                        }
-                                        onClick={() =>
-                                            update({
-                                                enableReasoning: !activePreset.enableReasoning,
-                                            })
-                                        }
+                                        variant={reasoning ? 'default' : 'secondary'}
+                                        onClick={setReasoning}
                                     >
-                                        {activePreset.enableReasoning ? 'On' : 'Off'}
+                                        {reasoning ? 'On' : 'Off'}
                                     </Button>
                                 </div>
 
@@ -792,63 +755,10 @@ export function PresetEditor() {
                                     </div>
                                     <Button
                                         size="sm"
-                                        variant={activePreset.useFlexTier ? 'default' : 'secondary'}
-                                        onClick={() =>
-                                            update({
-                                                useFlexTier: !activePreset.useFlexTier,
-                                            })
-                                        }
+                                        variant={flex ? 'default' : 'secondary'}
+                                        onClick={setFlex}
                                     >
-                                        {activePreset.useFlexTier ? 'On' : 'Off'}
-                                    </Button>
-                                </div>
-                            </div>
-
-                            {/* RAG / Memory System */}
-                            <div className="space-y-4">
-                                <Label>Mémoire longue</Label>
-
-                                <div className="flex items-center justify-between p-2 border rounded">
-                                    <div>
-                                        <p className="text-sm font-medium">
-                                            Chronique (Arcs et Sections)
-                                        </p>
-                                        <p className="text-xs text-muted-foreground">
-                                            Résume l&apos;histoire en Fragments, Sections et Arcs,
-                                            et l&apos;injecte dans le contexte
-                                        </p>
-                                    </div>
-                                    <Button
-                                        size="sm"
-                                        variant={
-                                            enableHierarchicalSummaries ? 'default' : 'secondary'
-                                        }
-                                        onClick={() =>
-                                            setEnableHierarchicalSummaries(
-                                                !enableHierarchicalSummaries
-                                            )
-                                        }
-                                    >
-                                        {enableHierarchicalSummaries ? 'On' : 'Off'}
-                                    </Button>
-                                </div>
-
-                                <div className="flex items-center justify-between p-2 border rounded">
-                                    <div>
-                                        <p className="text-sm font-medium">
-                                            Auto-extraction lorebook
-                                        </p>
-                                        <p className="text-xs text-muted-foreground">
-                                            Suggère de nouvelles entrées de lorebook depuis les
-                                            réponses de l&apos;IA
-                                        </p>
-                                    </div>
-                                    <Button
-                                        size="sm"
-                                        variant={lorebookAutoExtract ? 'default' : 'secondary'}
-                                        onClick={() => setLorebookAutoExtract(!lorebookAutoExtract)}
-                                    >
-                                        {lorebookAutoExtract ? 'On' : 'Off'}
+                                        {flex ? 'On' : 'Off'}
                                     </Button>
                                 </div>
                             </div>
@@ -861,8 +771,8 @@ export function PresetEditor() {
                                     placeholder="Commencer la réponse par…"
                                 />
                             </div>
-                        </TabsContent>
-                    </Tabs>
+                        </details>
+                    </div>
                 </div>
             </div>
         </div>

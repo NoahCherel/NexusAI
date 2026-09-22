@@ -1,4 +1,5 @@
 'use client';
+import { EditorOverlay } from '@/components/ui/editor-overlay';
 
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { Button } from '@/components/ui/button';
@@ -32,6 +33,7 @@ import {
 } from '@/components/ui/dialog';
 import { loadRagDataByConversation } from '@/lib/rag-data-loader';
 import type { MemorySummary } from '@/types/rag';
+import { getConversationPersona } from '@/hooks/useConversationPersona';
 import { useSettingsStore } from '@/stores/settings-store';
 import { decryptApiKey } from '@/lib/crypto';
 
@@ -380,8 +382,7 @@ export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
                 return;
             }
 
-            const { apiKeys, personas, activePersonaId, backgroundModel } =
-                useSettingsStore.getState();
+            const { apiKeys, backgroundModel } = useSettingsStore.getState();
             const orConfig = apiKeys.find((k) => k.provider === 'openrouter');
             const apiKey = orConfig ? (await decryptApiKey(orConfig.encryptedKey)) || '' : '';
             if (!apiKey) {
@@ -396,7 +397,7 @@ export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
             } = await import('@/lib/db');
             const { backgroundAICall } = await import('@/lib/ai/background-ai');
 
-            const userName = personas.find((p) => p.id === activePersonaId)?.name || 'You';
+            const userName = getConversationPersona(activeConversationId).persona?.name || 'You';
 
             // Snapshot taken before the long network phase; the swap refuses to run if the stored
             // Chronicle moved in the meantime (background pipeline, or a hand-written summary).
@@ -491,9 +492,9 @@ export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
         { key: 'summaries', label: 'Résumés', icon: Layers, count: summaries.length },
     ];
 
-    return (
+    return (<EditorOverlay open={isOpen} onClose={onClose} title="Mémoire">
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-            <div className="w-full max-w-lg mx-4 bg-background border border-border/50 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[85vh] max-sm:mx-0 max-sm:h-dvh max-sm:max-h-none max-sm:rounded-none max-sm:border-0">
+            <div className="mobile-editor w-full max-w-lg mx-4 bg-background border border-border/50 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[85vh] max-sm:mx-0 max-sm:h-dvh max-sm:max-h-none max-sm:rounded-none max-sm:border-0">
                 {/* Header */}
                 <div className="flex items-center justify-between p-4 border-b bg-muted/30 shrink-0">
                     <div className="flex items-center gap-3 min-w-0">
@@ -510,6 +511,7 @@ export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
                     <Button
                         variant="ghost"
                         size="icon"
+                        aria-label="Retour à la discussion"
                         onClick={onClose}
                         className="h-8 w-8 shrink-0"
                     >
@@ -517,9 +519,24 @@ export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
                     </Button>
                 </div>
 
+                <label className="sm:hidden px-4 py-2 text-sm">
+                    Rubrique mémoire
+                    <select
+                        aria-label="Rubrique mémoire"
+                        className="mt-1 block w-full rounded-md bg-background border p-3"
+                        value={activeTab}
+                        onChange={(e) => setActiveTab(e.target.value as TabType)}
+                    >
+                        {tabs.map((tab) => (
+                            <option key={tab.key} value={tab.key}>
+                                {tab.label}
+                            </option>
+                        ))}
+                    </select>
+                </label>
                 {/* Tabs — 6 entries can't fit 375px as flex-1 (min-content ≈ 500px): on
                     mobile the bar scrolls horizontally instead of clipping tabs. */}
-                <div className="flex border-b bg-muted/10 shrink-0 overflow-x-auto no-scrollbar">
+                <div className="hidden sm:flex border-b bg-muted/10 shrink-0 overflow-x-auto no-scrollbar">
                     {tabs.map((tab) => (
                         <button
                             key={tab.key}
@@ -1235,5 +1252,6 @@ export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
                 </Dialog>
             </div>
         </div>
+        </EditorOverlay>
     );
 }

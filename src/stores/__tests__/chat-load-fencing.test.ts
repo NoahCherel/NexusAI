@@ -16,6 +16,7 @@ vi.mock('@/lib/db', () => ({
         new Promise((resolve) => deferred.messageReads.push({ conversationId, resolve })),
     getConversationsByCharacter: () =>
         new Promise((resolve) => deferred.conversationReads.push({ resolve })),
+    patchConversation: async () => undefined,
     saveConversation: async () => {},
     saveMessage: async () => {},
     deleteMessagedb: async () => {},

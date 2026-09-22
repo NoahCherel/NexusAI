@@ -8,11 +8,16 @@ import type {
 } from '@/types';
 import {
     saveConversation,
+    patchConversation,
+    patchStoredMessage,
+    commitUserMessage as persistUserMessage,
     getConversationsByCharacter,
     saveMessage,
     getConversationMessages,
     deleteMessagedb,
 } from '@/lib/db';
+import { useSettingsStore } from '@/stores/settings-store';
+import { resolvePersonaId } from '@/lib/conversation-persona';
 import { mainCharacterBond } from '@/lib/ai/relationship-context';
 
 interface ChatState {
@@ -23,6 +28,9 @@ interface ChatState {
     isLoading: boolean;
     loadedCharacterId: string | null;
 
+    setConversationPersona: (id: string, personaId: string | null) => Promise<void>;
+    setDraft: (id: string, text: string) => Promise<void>;
+    initializePersona: (id: string, messages: Message[]) => Promise<void>;
     // Actions
     loadConversations: (characterId: string) => Promise<void>;
     /**
@@ -35,7 +43,8 @@ interface ChatState {
         characterName?: string
     ) => Promise<string>;
     setActiveConversation: (id: string | null) => void;
-    addMessage: (message: Message) => void;
+    addMessage: (message: Message, persisted?: boolean) => void;
+    commitUserMessage: (message: Message) => Promise<void>;
     /** Apply messages already committed by one IndexedDB scene transaction in one render. */
     applyCommittedSceneBeat: (params: {
         conversationId: string;
@@ -220,11 +229,27 @@ export const getActiveBranchPath = (messages: Message[]): Message[] => {
  * read must not cancel the conversation list an in-flight `loadConversations` is about to
  * deliver. `loadConversations` bumps both — it publishes messages too.
  */
+// Serialize per-conversation acknowledgements, including draft writes queued just before Send.
+const metadataWrites = new Map<string, Promise<void>>();
+function queueConversationWrite<T>(id: string, write: () => Promise<T>): Promise<T> {
+    const result = (metadataWrites.get(id) || Promise.resolve()).then(write);
+    const settled = result.then(
+        () => {},
+        () => {}
+    );
+    metadataWrites.set(id, settled);
+    void settled.then(() => {
+        if (metadataWrites.get(id) === settled) metadataWrites.delete(id);
+    });
+    return result;
+}
+const localFields = new Map<string, Pick<Conversation, 'draftText' | 'lastPersonaId'>>();
 let conversationsLoadGeneration = 0;
 let messagesLoadGeneration = 0;
 
 /** Test seam: drop any in-flight load so suites do not leak fences into each other. */
 export const __resetChatLoadFences = () => {
+    localFields.clear();
     conversationsLoadGeneration = 0;
     messagesLoadGeneration = 0;
 };
@@ -237,6 +262,42 @@ export const useChatStore = create<ChatState>()((set, get) => ({
     isLoading: true,
     loadedCharacterId: null,
 
+    setConversationPersona: async (id, personaId) => {
+        await queueConversationWrite(id, () => patchConversation(id, { lastPersonaId: personaId }));
+        localFields.set(id, { ...localFields.get(id), lastPersonaId: personaId });
+        set((state) => ({
+            conversations: state.conversations.map((c) =>
+                c.id === id ? { ...c, lastPersonaId: personaId } : c
+            ),
+        }));
+    },
+    setDraft: async (id, text) => {
+        localFields.set(id, { ...localFields.get(id), draftText: text });
+        set((state) => ({
+            conversations: state.conversations.map((c) =>
+                c.id === id ? { ...c, draftText: text } : c
+            ),
+        }));
+        await queueConversationWrite(id, () => patchConversation(id, { draftText: text }));
+    },
+    initializePersona: async (id, messages) => {
+        const conversation = get().conversations.find((c) => c.id === id);
+        if (!conversation || conversation.lastPersonaId !== undefined) return;
+        const lastPersonaId = resolvePersonaId(
+            conversation,
+            messages,
+            useSettingsStore.getState().activePersonaId
+        );
+        const saved = await patchConversation(id, { lastPersonaId }, true);
+        if (saved)
+            set((state) => ({
+                conversations: state.conversations.map((c) =>
+                    c.id === id && c.lastPersonaId === undefined
+                        ? { ...c, lastPersonaId: saved.lastPersonaId }
+                        : c
+                ),
+            }));
+    },
     // Load all conversations for a character from IndexedDB (Metadata only)
     loadConversations: async (characterId) => {
         const convToken = ++conversationsLoadGeneration;
@@ -249,6 +310,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
             // allow-list silently dropped all of these on reload even though they were saved.
             const conversations: Conversation[] = convs.map((conv) => ({
                 ...conv,
+                ...localFields.get(conv.id),
                 createdAt: new Date(conv.createdAt),
                 updatedAt: new Date(conv.updatedAt),
             }));
@@ -260,7 +322,10 @@ export const useChatStore = create<ChatState>()((set, get) => ({
                 // Verify it belongs to loaded conversations
                 if (persistedId && conversations.some((c) => c.id === persistedId)) {
                     activeConvId = persistedId;
-                } else if (conversations.length > 0 && !activeConvId) {
+                } else if (
+                    conversations.length > 0 &&
+                    !conversations.some((c) => c.id === activeConvId)
+                ) {
                     // Default to most recent if none selected
                     const sorted = [...conversations].sort(
                         (a, b) => b.updatedAt.getTime() - a.updatedAt.getTime()
@@ -283,6 +348,8 @@ export const useChatStore = create<ChatState>()((set, get) => ({
             // were reading (a click on another conversation). In that case keep what the newer
             // load selected and drop only our messages.
             const selectionIsStale = msgToken !== messagesLoadGeneration;
+            for (const conversation of conversations)
+                Object.assign(conversation, localFields.get(conversation.id));
             set(
                 selectionIsStale
                     ? { conversations, isLoading: false, loadedCharacterId: characterId }
@@ -294,6 +361,8 @@ export const useChatStore = create<ChatState>()((set, get) => ({
                           loadedCharacterId: characterId,
                       }
             );
+            if (!selectionIsStale && activeConvId)
+                await get().initializePersona(activeConvId, activeMessages);
         } catch (error) {
             console.error('Failed to load conversations:', error);
             if (convToken !== conversationsLoadGeneration) return;
@@ -311,17 +380,25 @@ export const useChatStore = create<ChatState>()((set, get) => ({
             if (msgToken !== messagesLoadGeneration) return;
             if (get().activeConversationId !== conversationId) return;
             set({ messages });
+            await get().initializePersona(conversationId, messages);
         } catch (error) {
             console.error('Failed to load messages:', error);
         }
     },
 
     createConversation: async (characterId, title, characterName) => {
+        const selectionToken = ++messagesLoadGeneration;
         const id = generateId();
         const conversation: Conversation = {
             id,
             characterId,
             title,
+            lastPersonaId: resolvePersonaId(
+                get().conversations.find((c) => c.id === get().activeConversationId),
+                get().messages,
+                useSettingsStore.getState().activePersonaId
+            ),
+            draftText: '',
             createdAt: new Date(),
             updatedAt: new Date(),
             // The only bond seeded automatically, and only here: every other relationship is
@@ -330,17 +407,17 @@ export const useChatStore = create<ChatState>()((set, get) => ({
             ...(characterName ? { relationships: mainCharacterBond(characterName) } : {}),
         };
 
+        await saveConversation(conversation);
         set((state) => ({
             conversations: [...state.conversations, conversation],
-            activeConversationId: id,
+            ...(selectionToken === messagesLoadGeneration
+                ? { activeConversationId: id, messages: [] }
+                : {}),
         }));
 
-        if (typeof window !== 'undefined') {
+        if (typeof window !== 'undefined' && selectionToken === messagesLoadGeneration) {
             localStorage.setItem(`nexusai_active_conv_${characterId}`, id);
         }
-
-        // Persist immediately (Metadata only)
-        await saveConversation(conversation);
 
         return id;
     },
@@ -360,10 +437,44 @@ export const useChatStore = create<ChatState>()((set, get) => ({
         }
     },
 
-    addMessage: (message) => {
+    commitUserMessage: async (message) => {
+        const messages = get().messages;
+        const parent = messages.find((m) => m.id === message.parentId);
+        const enriched = {
+            ...message,
+            messageOrder: message.parentId ? (parent?.messageOrder ?? 1) + 1 : 1,
+            regenerationIndex: messages.filter((m) => m.parentId === message.parentId).length,
+        };
+        const saved = await queueConversationWrite(message.conversationId, () =>
+            persistUserMessage(enriched)
+        );
+        if (get().activeConversationId === message.conversationId) get().addMessage(enriched, true);
+        // A newer draft (including one typed after switching back) must survive this acknowledgement.
+        if (localFields.get(message.conversationId)?.draftText?.trim() === message.content) {
+            localFields.set(message.conversationId, {
+                ...localFields.get(message.conversationId),
+                draftText: saved.draftText,
+            });
+        }
+        set((state) => ({
+            conversations: state.conversations.map((c) =>
+                c.id === message.conversationId
+                    ? {
+                          ...c,
+                          updatedAt: saved.updatedAt,
+                          draftText:
+                              c.draftText?.trim() === message.content
+                                  ? saved.draftText
+                                  : c.draftText,
+                      }
+                    : c
+            ),
+        }));
+    },
+    addMessage: (message, persisted = false) => {
         // Calculate messageOrder and regenerationIndex
         const state = get();
-        const messages = state.messages;
+        const messages = state.messages.filter((m) => m.conversationId === message.conversationId);
         let changedExistingMessages: Message[] = [];
 
         // The parent already knows its depth — no need to walk the whole ancestor chain
@@ -385,6 +496,8 @@ export const useChatStore = create<ChatState>()((set, get) => ({
         };
 
         set((state) => {
+            if (state.activeConversationId && state.activeConversationId !== message.conversationId)
+                return {};
             const messagesInConversation = state.messages.filter(
                 (m) => m.conversationId === enrichedMessage.conversationId
             );
@@ -415,7 +528,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
         });
 
         changedExistingMessages.forEach((msg) => saveMessage(msg).catch(console.error));
-        saveMessage(enrichedMessage).catch(console.error);
+        if (!persisted) saveMessage(enrichedMessage).catch(console.error);
     },
 
     applyCommittedSceneBeat: ({
@@ -491,6 +604,8 @@ export const useChatStore = create<ChatState>()((set, get) => ({
         // Persist message (skipped on the streaming hot path — final write at stream end).
         if (updatedMessage && options?.persist !== false) {
             saveMessage(updatedMessage).catch(console.error);
+        } else if (!updatedMessage && options?.persist !== false) {
+            void patchStoredMessage(id, updates).catch(console.error);
         }
     },
 

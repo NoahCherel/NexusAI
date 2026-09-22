@@ -185,7 +185,7 @@ export function CharacterImporter({ trigger, onImported, isCollapsed }: Characte
             <DialogContent
                 className={cn(
                     mode === 'browse'
-                        ? 'sm:max-w-4xl w-[95vw] h-[85vh] flex flex-col overflow-hidden max-sm:w-screen max-sm:h-dvh max-sm:max-w-none max-sm:rounded-none max-sm:border-0 max-sm:top-0 max-sm:left-0 max-sm:translate-x-0 max-sm:translate-y-0 max-sm:p-3 max-sm:gap-3'
+                        ? 'mobile-editor sm:max-w-4xl w-[95vw] h-[85vh] flex flex-col overflow-hidden max-sm:w-screen max-sm:h-dvh max-sm:max-w-none max-sm:rounded-none max-sm:border-0 max-sm:top-0 max-sm:left-0 max-sm:translate-x-0 max-sm:translate-y-0 max-sm:p-3 max-sm:gap-3'
                         : 'sm:max-w-md'
                 )}
             >

@@ -24,8 +24,7 @@ export const viewport: Viewport = {
     themeColor: '#242525',
     width: 'device-width',
     initialScale: 1,
-    maximumScale: 1,
-    userScalable: false,
+    viewportFit: 'cover',
     // Android Chrome 108+: the keyboard only resizes the VISUAL viewport by default, so
     // h-dvh layouts keep the input bar hidden under it. This restores layout resizing.
     interactiveWidget: 'resizes-content',

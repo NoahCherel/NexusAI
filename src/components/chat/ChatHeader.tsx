@@ -1,7 +1,16 @@
 'use client';
 
 import { motion } from 'framer-motion';
-import { Settings2, MoreVertical, Edit, Trash2, Download, Upload, Users } from 'lucide-react';
+import {
+    ArrowLeft,
+    Settings2,
+    MoreVertical,
+    Edit,
+    Trash2,
+    Download,
+    Upload,
+    Users,
+} from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
     DropdownMenu,
@@ -14,6 +23,9 @@ import type { CharacterCard } from '@/types/character';
 
 interface ChatHeaderProps {
     character: CharacterCard;
+    conversationTitle?: string;
+    onBack?: () => void;
+    onOpenConversations: () => void;
     activeModel: string;
     onEditCharacter: () => void;
     onImportConversation: () => void;
@@ -25,6 +37,9 @@ interface ChatHeaderProps {
 /** Chat page header: character identity + actions menu. Hidden in immersive mode. */
 export function ChatHeader({
     character,
+    conversationTitle,
+    onBack,
+    onOpenConversations,
     activeModel,
     onEditCharacter,
     onImportConversation,
@@ -46,13 +61,24 @@ export function ChatHeader({
         >
             <div className="flex items-center gap-2 sm:gap-3 min-w-0">
                 {/* Character Panel Button */}
-                <CharacterPanel
-                    trigger={
-                        <Button variant="ghost" size="icon" className="shrink-0 h-8 w-8">
-                            <Users className="h-4 w-4" />
-                        </Button>
-                    }
-                />
+                <Button
+                    className="sm:hidden shrink-0"
+                    variant="ghost"
+                    size="icon"
+                    aria-label="Retour aux personnages"
+                    onClick={onBack}
+                >
+                    <ArrowLeft />
+                </Button>
+                <div className="max-sm:hidden">
+                    <CharacterPanel
+                        trigger={
+                            <Button variant="ghost" size="icon" className="shrink-0 h-8 w-8">
+                                <Users className="h-4 w-4" />
+                            </Button>
+                        }
+                    />
+                </div>
                 <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center overflow-hidden shrink-0">
                     {character.avatar ? (
                         <div className="w-8 h-8 rounded-full overflow-hidden border border-border/50 shrink-0">
@@ -71,9 +97,14 @@ export function ChatHeader({
                 </div>
                 <div className="flex flex-col min-w-0">
                     <h2 className="font-semibold text-xs sm:text-sm truncate">{character.name}</h2>
-                    <p className="text-[10px] text-muted-foreground truncate opacity-80">
-                        {activeModel}
-                    </p>
+                    <button
+                        type="button"
+                        onClick={onOpenConversations}
+                        aria-label="Choisir une discussion"
+                        className="max-w-full truncate text-left text-[10px] text-muted-foreground opacity-80 hover:text-foreground"
+                    >
+                        {conversationTitle || activeModel}
+                    </button>
                 </div>
             </div>
 
@@ -85,24 +116,27 @@ export function ChatHeader({
                         </Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end" className="w-48">
+                        <DropdownMenuItem onClick={onOpenConversations}>
+                            Changer de discussion
+                        </DropdownMenuItem>
                         <DropdownMenuItem onClick={onEditCharacter}>
                             <Edit className="h-4 w-4 mr-2" />
-                            Edit Character
+                            Modifier le personnage
                         </DropdownMenuItem>
                         <DropdownMenuItem onClick={onImportConversation}>
                             <Upload className="h-4 w-4 mr-2" />
-                            Import Conversation
+                            Importer une discussion
                         </DropdownMenuItem>
                         <DropdownMenuItem onClick={onExportConversation}>
                             <Download className="h-4 w-4 mr-2" />
-                            Export Conversation
+                            Exporter la discussion
                         </DropdownMenuItem>
                         <DropdownMenuItem
                             onClick={onDeleteCharacter}
                             className="text-destructive focus:text-destructive"
                         >
                             <Trash2 className="h-4 w-4 mr-2" />
-                            Delete Character
+                            Supprimer le personnage
                         </DropdownMenuItem>
                     </DropdownMenuContent>
                 </DropdownMenu>
@@ -110,7 +144,7 @@ export function ChatHeader({
                     variant="ghost"
                     size="icon"
                     onClick={onOpenSettings}
-                    className="shrink-0 h-8 w-8"
+                    className="max-sm:hidden shrink-0 h-8 w-8"
                 >
                     <Settings2 className="h-4 w-4" />
                 </Button>

@@ -2,15 +2,10 @@
 
 import { useState, useRef, useEffect, KeyboardEvent } from 'react';
 import { motion, Variants } from 'framer-motion';
-import { Send, User, Plus, StopCircle } from 'lucide-react';
+import { Send, User, StopCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
-import {
-    DropdownMenu,
-    DropdownMenuContent,
-    DropdownMenuItem,
-    DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
+
 import { cn } from '@/lib/utils';
 import { BatchWaitLine } from '@/components/chat/BatchWaitLine';
 import type { BatchWaitStep } from '@/lib/ai/batch-client';
@@ -26,7 +21,8 @@ const containerVariants: Variants = {
 };
 
 interface ChatInputProps {
-    onSend: (message: string) => void;
+    onSend: (message: string, onCommitted?: () => void) => void | Promise<void>;
+    draftText?: string;
     onStop?: () => void;
     isLoading?: boolean;
     placeholder?: string;
@@ -43,6 +39,7 @@ interface ChatInputProps {
 
 export function ChatInput({
     onSend,
+    draftText = '',
     onStop,
     isLoading = false,
     placeholder = 'Écrivez votre message...',
@@ -51,10 +48,24 @@ export function ChatInput({
     onDraftChange,
     batchWait = null,
 }: ChatInputProps) {
-    const [message, setMessage] = useState('');
+    const message = draftText;
+    const [sendError, setSendError] = useState('');
+    const [isSaving, setIsSaving] = useState(false);
+    const setMessage = (text: string) => onDraftChange?.(text);
     const [isImpersonating, setIsImpersonating] = useState(false);
 
     const textareaRef = useRef<HTMLTextAreaElement>(null);
+    const latestDraft = useRef(message);
+    const mounted = useRef(true);
+    useEffect(() => {
+        latestDraft.current = message;
+    }, [message]);
+    useEffect(() => {
+        mounted.current = true;
+        return () => {
+            mounted.current = false;
+        };
+    }, []);
 
     // Auto-resize textarea
     useEffect(() => {
@@ -71,19 +82,28 @@ export function ChatInput({
         }
     };
 
-    const handleSend = () => {
-        if (message.trim() && !isLoading && !disabled) {
-            onSend(message.trim());
-            setMessage('');
-            if (textareaRef.current) {
-                textareaRef.current.style.height = 'auto';
-            }
+    const handleSend = async () => {
+        if (!message.trim() || isLoading || isSaving || disabled) return;
+        setIsSaving(true);
+        setSendError('');
+        try {
+            await onSend(message.trim(), () => setIsSaving(false));
+        } catch {
+            setSendError('Enregistrement impossible. Votre brouillon est conservé.');
+        } finally {
+            setIsSaving(false);
         }
     };
 
     const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
         // Send on Enter (without Shift)
-        if (e.key === 'Enter' && !e.shiftKey) {
+        if (
+            e.key === 'Enter' &&
+            !e.shiftKey &&
+            !e.nativeEvent.isComposing &&
+            e.keyCode !== 229 &&
+            window.innerWidth >= 640
+        ) {
             e.preventDefault();
             handleSend();
         }
@@ -97,9 +117,13 @@ export function ChatInput({
         setIsImpersonating(true);
         try {
             const text = await onImpersonate(outline || undefined);
-            if (text && typeof text === 'string') {
+            if (
+                text &&
+                typeof text === 'string' &&
+                mounted.current &&
+                latestDraft.current.trim() === outline
+            ) {
                 setMessage(text);
-                onDraftChange?.(text);
                 adjustHeight();
             }
         } finally {
@@ -114,6 +138,11 @@ export function ChatInput({
             animate="animate"
             className="w-full max-w-4xl mx-auto p-2"
         >
+            {sendError && (
+                <p role="alert" className="text-sm text-destructive">
+                    {sendError}
+                </p>
+            )}
             {batchWait && (
                 <BatchWaitLine
                     label="Brouillon en attente (batch)"
@@ -122,60 +151,51 @@ export function ChatInput({
                     className="px-3 pb-1.5"
                 />
             )}
+            {onImpersonate && (
+                <Button
+                    variant="ghost"
+                    className="sm:hidden text-xs h-11 mb-1"
+                    disabled={isImpersonating || isLoading || disabled}
+                    onClick={handleImpersonateClick}
+                >
+                    <User className="h-4 w-4 mr-2" />
+                    {isImpersonating ? 'Rédaction…' : 'Rédiger pour moi'}
+                </Button>
+            )}
             <div className="flex items-end gap-2 bg-white/5 p-2 rounded-xl border border-white/10 shadow-sm backdrop-blur-sm relative transition-colors focus-within:bg-white/10 focus-within:border-white/20">
-                {/* Action Menu */}
-                <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                        <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-10 w-10 shrink-0 text-muted-foreground hover:text-foreground mb-[1px] rounded-lg"
-                            title="Actions"
-                        >
-                            <Plus className="h-5 w-5" />
-                        </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="start" className="w-56 mb-2">
-                        {onImpersonate && (
-                            <DropdownMenuItem
-                                onClick={handleImpersonateClick}
-                                disabled={isImpersonating || isLoading}
-                                title={
-                                    message.trim()
-                                        ? 'Rédige votre réplique à partir de ce que vous avez écrit'
-                                        : 'Rédige votre prochaine réplique à votre place'
-                                }
-                            >
-                                <User className="mr-2 h-4 w-4" />
-                                <span>
-                                    {isImpersonating
-                                        ? 'Impersonating...'
-                                        : message.trim()
-                                          ? 'Mettre en scène le brouillon'
-                                          : 'Impersonate Me'}
-                                </span>
-                            </DropdownMenuItem>
-                        )}
-                    </DropdownMenuContent>
-                </DropdownMenu>
+                {onImpersonate && (
+                    <Button
+                        variant="ghost"
+                        size="icon"
+                        className="hidden sm:inline-flex shrink-0"
+                        aria-label="Rédiger pour moi"
+                        title="Rédiger pour moi"
+                        disabled={isImpersonating || isLoading || disabled}
+                        onClick={handleImpersonateClick}
+                    >
+                        <User className="h-5 w-5" />
+                    </Button>
+                )}
 
                 <Textarea
                     ref={textareaRef}
                     value={message}
                     onChange={(e) => {
                         setMessage(e.target.value);
-                        onDraftChange?.(e.target.value);
                     }}
                     onKeyDown={handleKeyDown}
                     placeholder={placeholder}
                     className="flex-1 min-h-[40px] max-h-[80px] sm:max-h-[200px] resize-none border-0 bg-transparent focus-visible:ring-0 focus-visible:ring-offset-0 py-2.5 px-3 leading-relaxed custom-scrollbar placeholder:text-muted-foreground/50"
-                    disabled={isLoading || disabled}
+                    disabled={isSaving}
                     rows={1}
                 />
 
                 <Button
+                    aria-label={isLoading ? 'Arrêter' : 'Envoyer'}
                     onClick={isLoading ? onStop : handleSend}
-                    disabled={(!message.trim() && !isLoading) || disabled}
+                    disabled={
+                        (!message.trim() && !isLoading) || (!isLoading && (disabled || isSaving))
+                    }
                     size="icon"
                     className={cn(
                         'h-10 w-10 shrink-0 mb-[1px] transition-all duration-200 rounded-lg',

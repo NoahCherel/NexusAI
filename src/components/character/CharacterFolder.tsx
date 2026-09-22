@@ -22,6 +22,7 @@ interface CharacterFolderProps {
     members: CharacterWithMemory[];
     activeCharacterId: string | null;
     onSelect: (id: string) => void;
+    onNewDiscussion?: (character: CharacterWithMemory) => void;
     onEdit: (character: CharacterWithMemory) => void;
     onDelete: (id: string) => void;
     onExport?: (character: CharacterWithMemory) => void;
@@ -76,6 +77,7 @@ export function CharacterFolder({
     activeCharacterId,
     onSelect,
     onEdit,
+    onNewDiscussion,
     onDelete,
     onExport,
     onExportBackstage,
@@ -89,6 +91,7 @@ export function CharacterFolder({
     const containsActive = members.some((m) => m.id === activeCharacterId);
     // Open by default when the active variant lives inside this folder; the user's manual
     // toggle (if any) then takes precedence over that default.
+    const [memberLimit, setMemberLimit] = useState(50);
     const [manualOpen, setManualOpen] = useState<boolean | null>(null);
     const isExpanded = manualOpen ?? containsActive;
 
@@ -199,13 +202,14 @@ export function CharacterFolder({
                         className="overflow-hidden"
                     >
                         <div className="ml-3 mt-2 space-y-2 border-l-2 border-border/30 pl-3">
-                            {members.map((m) => (
+                            {members.slice(0, memberLimit).map((m) => (
                                 <CharacterCard
                                     key={m.id}
                                     character={m}
                                     isActive={m.id === activeCharacterId}
                                     onClick={() => onSelect(m.id)}
                                     onEdit={() => onEdit(m)}
+                                    onNewDiscussion={() => onNewDiscussion?.(m)}
                                     onDelete={() => onDelete(m.id)}
                                     onExport={onExport ? () => onExport(m) : undefined}
                                     onExportBackstage={
@@ -217,6 +221,14 @@ export function CharacterFolder({
                                     lastPlayed={getLastPlayed?.(m.id) ?? null}
                                 />
                             ))}
+                            {members.length > memberLimit && (
+                                <button
+                                    className="w-full p-3 text-sm text-primary"
+                                    onClick={() => setMemberLimit((n) => n + 50)}
+                                >
+                                    Afficher plus de personnages
+                                </button>
+                            )}
                         </div>
                     </motion.div>
                 )}

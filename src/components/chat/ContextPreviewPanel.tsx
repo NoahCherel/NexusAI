@@ -1,4 +1,5 @@
 'use client';
+import { EditorOverlay } from '@/components/ui/editor-overlay';
 
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -106,7 +107,7 @@ export function ContextPreviewPanel({
     const usageColor =
         usagePercent > 95 ? 'bg-red-500' : usagePercent > 80 ? 'bg-yellow-500' : 'bg-green-500';
 
-    return (
+    return (<EditorOverlay open={isOpen} onClose={onClose} title="Aperçu du contexte">
         <AnimatePresence>
             {isOpen && (
                 <motion.div
@@ -121,7 +122,7 @@ export function ContextPreviewPanel({
                         animate={{ scale: 1, opacity: 1 }}
                         exit={{ scale: 0.95, opacity: 0 }}
                         transition={{ type: 'spring', stiffness: 300, damping: 30 }}
-                        className="bg-background border border-white/10 rounded-xl w-full max-w-3xl max-h-[85vh] flex flex-col overflow-hidden shadow-2xl max-sm:h-dvh max-sm:max-h-none max-sm:rounded-none max-sm:border-0"
+                        className="mobile-editor bg-background border border-white/10 rounded-xl w-full max-w-3xl max-h-[85vh] flex flex-col overflow-hidden shadow-2xl max-sm:h-dvh max-sm:max-h-none max-sm:rounded-none max-sm:border-0"
                         onClick={(e) => e.stopPropagation()}
                     >
                         {/* Header */}
@@ -394,5 +395,6 @@ export function ContextPreviewPanel({
                 </motion.div>
             )}
         </AnimatePresence>
+        </EditorOverlay>
     );
 }

@@ -1,4 +1,5 @@
 'use client';
+import { useConversationPersona } from '@/hooks/useConversationPersona';
 
 /**
  * Chat generation hook — owns the full foreground generation flow of the chat page:
@@ -195,11 +196,11 @@ export function useChatGeneration({
         chronicle: (budget: number) => Promise<ChronicleResult>;
     } | null>(null);
 
+    const { id: activePersonaId } = useConversationPersona();
     const {
         activeProvider,
         activeModel,
         temperature,
-        activePersonaId,
         personas,
         enableReasoning,
         useFlexTier,
@@ -1454,7 +1455,7 @@ export function useChatGeneration({
         }
     };
 
-    const send = async (userMessage: string) => {
+    const send = async (userMessage: string, onCommitted?: () => void) => {
         if (!activeConversationId || !character) return;
 
         // Extraction on the PREVIOUS assistant message (the one the user is confirming by replying).
@@ -1519,7 +1520,9 @@ export function useChatGeneration({
             },
         };
 
-        addMessage(newUserMessage);
+        await useChatStore.getState().commitUserMessage(newUserMessage);
+        onCommitted?.();
+        if (useChatStore.getState().activeConversationId !== activeConversationId) return;
 
         const activePreset = getActivePreset();
         const prefill = activePreset?.assistantPrefill || undefined;

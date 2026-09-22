@@ -1,5 +1,7 @@
 'use client';
 
+import { useConversationPersona } from '@/hooks/useConversationPersona';
+import { useChatStore } from '@/stores/chat-store';
 import { useState, useEffect } from 'react';
 import { useSettingsStore } from '@/stores/settings-store';
 import { Button } from '@/components/ui/button';
@@ -27,14 +29,19 @@ function notify(message: string, status: 'success' | 'error' = 'success'): void 
 }
 
 export function PersonaSelector() {
-    const {
-        personas,
-        activePersonaId,
-        setActivePersonaId,
-        addPersona,
-        updatePersona,
-        deletePersona,
-    } = useSettingsStore();
+    const { id: activePersonaId, unavailable } = useConversationPersona();
+    const conversationId = useChatStore((s) => s.activeConversationId);
+    const setActivePersonaId = async (id: string | null) => {
+        try {
+            if (conversationId)
+                await useChatStore.getState().setConversationPersona(conversationId, id);
+            else useSettingsStore.getState().setActivePersonaId(id);
+            handleOpenChange(false);
+        } catch {
+            notify('Impossible d’enregistrer le persona. Réessayez.', 'error');
+        }
+    };
+    const { personas, addPersona, updatePersona, deletePersona } = useSettingsStore();
 
     const [open, setOpen] = useState(false);
     const [searchQuery, setSearchQuery] = useState('');
@@ -52,7 +59,9 @@ export function PersonaSelector() {
     } | null>(null);
 
     const activePersona = personas.find((p) => p.id === activePersonaId);
-    const displayName = activePersona?.displayName || activePersona?.name || 'Vous';
+    const displayName = unavailable
+        ? 'Persona indisponible'
+        : activePersona?.displayName || activePersona?.name || 'Aucun persona';
     const displayAvatar = activePersona?.avatar;
 
     useEffect(() => {
@@ -122,9 +131,6 @@ export function PersonaSelector() {
     const confirmDelete = () => {
         if (selectedPersonaId) {
             deletePersona(selectedPersonaId);
-            if (activePersonaId === selectedPersonaId) {
-                setActivePersonaId(null);
-            }
             setSelectedPersonaId(null);
             setConfirmDeleteOpen(false);
             notify('Persona supprimé');
@@ -160,14 +166,23 @@ export function PersonaSelector() {
                         {displayName[0].toUpperCase()}
                     </AvatarFallback>
                 </Avatar>
-                <span className="max-w-[80px] truncate hidden sm:inline-block">{displayName}</span>
+                <span className="sm:hidden flex flex-col min-w-0">
+                    <span>Persona</span>
+                    <span className="max-w-[90px] truncate text-[10px] opacity-70">
+                        {displayName}
+                    </span>
+                </span>
+                <span className="max-w-[120px] truncate hidden sm:inline-block">{displayName}</span>
                 <ChevronUp className="h-3 w-3 opacity-50 hidden sm:block shrink-0" />
             </Button>
 
             <Dialog open={open} onOpenChange={handleOpenChange}>
                 <DialogContent
                     showCloseButton={false}
-                    className="max-w-4xl h-[80vh] p-0 flex flex-col overflow-hidden glass-heavy border-primary/20"
+                    className={cn(
+                        showEditorOnMobile ? 'mobile-editor' : 'mobile-picker',
+                        'max-sm:translate-x-0 max-sm:translate-y-0 max-w-4xl h-[80vh] p-0 flex flex-col overflow-hidden glass-heavy border-primary/20'
+                    )}
                 >
                     <DialogTitle className="sr-only">Sélecteur de persona</DialogTitle>
 
@@ -194,6 +209,7 @@ export function PersonaSelector() {
                         <Button
                             variant="ghost"
                             size="icon"
+                            aria-label="Fermer le sélecteur de persona"
                             onClick={() => handleOpenChange(false)}
                             className="h-8 w-8 text-muted-foreground hover:text-primary"
                         >
@@ -230,15 +246,28 @@ export function PersonaSelector() {
 
                             <ScrollArea className="flex-1 min-h-0 custom-scrollbar">
                                 <div className="flex flex-col p-2 gap-1.5 pt-3">
+                                    <Button
+                                        variant="ghost"
+                                        className="justify-start"
+                                        onClick={() => void setActivePersonaId(null)}
+                                    >
+                                        Aucun persona {activePersonaId === null && '✓'}
+                                    </Button>
+                                    {unavailable && (
+                                        <p role="status" className="p-2 text-sm">
+                                            Persona indisponible. Aucun persona utilisé tant que
+                                            vous ne choisissez pas de remplaçant.
+                                        </p>
+                                    )}
                                     {filteredPersonas.map((persona) => (
                                         <div
                                             key={persona.id}
                                             role="button"
                                             tabIndex={0}
-                                            onClick={() => setSelectedPersonaId(persona.id)}
+                                            onClick={() => void setActivePersonaId(persona.id)}
                                             onKeyDown={(e) => {
                                                 if (e.key === 'Enter' || e.key === ' ') {
-                                                    setSelectedPersonaId(persona.id);
+                                                    void setActivePersonaId(persona.id);
                                                 }
                                             }}
                                             className={cn(
@@ -273,6 +302,18 @@ export function PersonaSelector() {
                                                     )}
                                                 </div>
                                             </div>
+                                            <Button
+                                                variant="ghost"
+                                                size="sm"
+                                                aria-label={`Modifier ${persona.name}`}
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    setSelectedPersonaId(persona.id);
+                                                }}
+                                                onKeyDown={(e) => e.stopPropagation()}
+                                            >
+                                                Modifier
+                                            </Button>
                                             {activePersonaId === persona.id && (
                                                 <div className="shrink-0 flex items-center mr-2">
                                                     <Check className="w-4 h-4 text-green-500" />

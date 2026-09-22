@@ -22,6 +22,8 @@ import {
     saveStoryState,
     saveSummary,
 } from '@/lib/db';
+import { resolvePersonaId } from '@/lib/conversation-persona';
+import { useSettingsStore } from '@/stores/settings-store';
 import { useNotificationStore } from '@/components/ui/api-notification';
 
 /**
@@ -124,7 +126,9 @@ export async function exportConversationForCharacter(
         return;
     }
 
-    const latestConv = charConvs[0];
+    const latestConv =
+        charConvs.find((c) => c.id === useChatStore.getState().activeConversationId) ||
+        charConvs[0];
     const messages = await getStoredConversationMessages(latestConv.id);
     const [storyStates, sceneBeats] = await Promise.all([
         getStoryStatesByConversation(latestConv.id),
@@ -143,6 +147,8 @@ export async function exportConversationForCharacter(
         },
         conversation: {
             title: latestConv.title,
+            lastPersonaId: latestConv.lastPersonaId,
+            draftText: latestConv.draftText,
             createdAt: latestConv.createdAt,
             updatedAt: latestConv.updatedAt,
             // Hand-authored data now: bonds are created in the Relations panel, not
@@ -268,6 +274,21 @@ export function importConversationFromFile(): void {
                 useChatStore.getState().setRelationships(convId, importedRels);
             }
             const importedConversation = data.conversation as Partial<Conversation>;
+            const importedPersonaId = resolvePersonaId(
+                { ...importedConversation, id: convId } as Conversation,
+                data.messages.map((m: ChatMessage) => ({ ...m, conversationId: convId })),
+                useSettingsStore.getState().activePersonaId
+            );
+            await useChatStore.getState().setConversationPersona(convId, importedPersonaId);
+            if (
+                importedPersonaId &&
+                !useSettingsStore.getState().personas.some((p) => p.id === importedPersonaId)
+            )
+                notify(
+                    'Persona indisponible : la référence importée est conservée, choisissez un persona pour cette discussion.'
+                );
+            if (typeof importedConversation.draftText === 'string')
+                await useChatStore.getState().setDraft(convId, importedConversation.draftText);
             if (importedConversation.storyGuidance) {
                 useChatStore
                     .getState()
@@ -671,7 +692,8 @@ export function importConversationFromFile(): void {
             // NOTE: legacy exports may carry a conversation.worldState — deliberately ignored
             // (the scalar world-state system is removed).
 
-            // Switch to the imported conversation
+            // Switch both identities together, including imports from a different character.
+            useCharacterStore.getState().setActiveCharacterId(characterId);
             useChatStore.getState().setActiveConversation(convId);
 
             notify(

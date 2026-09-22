@@ -1,4 +1,5 @@
 'use client';
+import { useConversationPersona } from '@/hooks/useConversationPersona';
 
 import { useEffect, useMemo, useState } from 'react';
 import { Button } from '@/components/ui/button';
@@ -80,7 +81,8 @@ const frAxisLabel = (axis: RelationshipAxis, v: number): string => {
 export function RelationshipPanel() {
     const { conversations, activeConversationId, setRelationships } = useChatStore();
     const { getActiveCharacter } = useCharacterStore();
-    const { personas, activePersonaId } = useSettingsStore();
+    const { personas } = useSettingsStore();
+    const { id: activePersonaId } = useConversationPersona();
     const conversation = conversations.find((c) => c.id === activeConversationId);
     const character = getActiveCharacter();
     const userName = personas.find((p) => p.id === activePersonaId)?.name || 'You';

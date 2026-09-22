@@ -1,4 +1,5 @@
 'use client';
+import { useConversationPersona } from '@/hooks/useConversationPersona';
 
 import { useState, useEffect } from 'react';
 import { useLorebookStore, useSettingsStore } from '@/stores';
@@ -227,7 +228,8 @@ export function LorebookEditor({ onClose }: { onClose: () => void }) {
         }
     };
 
-    const { personas, activePersonaId } = useSettingsStore();
+    const { personas } = useSettingsStore();
+    const { id: activePersonaId } = useConversationPersona();
     const activePersona = personas.find((p) => p.id === activePersonaId);
     const userPersonaName = activePersona?.name;
 

@@ -170,7 +170,7 @@ export function StoryStatePanel({
                 "Chargement…" stub and grows once the revision loads, and an anchored panel
                 positioned for the stub could end up hanging below a phone's viewport. A
                 dialog is sized by the viewport alone and scrolls inside itself. */}
-            <DialogContent className="block max-h-[85vh] w-[min(34rem,calc(100%-1rem))] max-w-none overflow-y-auto p-4 sm:max-w-[34rem] space-y-3">
+            <DialogContent className="mobile-editor max-sm:translate-x-0 max-sm:translate-y-0 block max-h-[85vh] w-[min(34rem,calc(100%-1rem))] max-w-none overflow-y-auto p-4 sm:max-w-[34rem] space-y-3">
                 <DialogHeader className="text-left">
                     <DialogTitle className="text-base">État de l’intrigue</DialogTitle>
                     <DialogDescription className="text-[11px]">

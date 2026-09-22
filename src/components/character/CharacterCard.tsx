@@ -19,6 +19,7 @@ interface CharacterCardProps {
     isActive?: boolean;
     isCollapsed?: boolean;
     onClick?: () => void;
+    onNewDiscussion?: () => void;
     onEdit?: () => void;
     onDelete?: () => void;
     onExport?: () => void;
@@ -37,6 +38,7 @@ export function CharacterCard({
     isCollapsed = false,
     onClick,
     onEdit,
+    onNewDiscussion,
     onDelete,
     onExport,
     onExportBackstage,
@@ -92,6 +94,10 @@ export function CharacterCard({
                     : 'border-border/30 hover:border-border/60 bg-card/40 hover:bg-card/60 backdrop-blur-sm',
                 isDragging && 'opacity-40'
             )}
+            role="button"
+            tabIndex={0}
+            aria-label={`Ouvrir ${character.displayName || character.name}`}
+            onKeyDown={e => { if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); onClick?.(); } }}
             onClick={onClick}
             style={{ width: '100%', maxWidth: '100%' }}
         >
@@ -179,6 +185,16 @@ export function CharacterCard({
                             </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end" className="w-40">
+                            {onNewDiscussion && (
+                                <DropdownMenuItem
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        onNewDiscussion();
+                                    }}
+                                >
+                                    Nouvelle discussion
+                                </DropdownMenuItem>
+                            )}
                             {onEdit && (
                                 <DropdownMenuItem
                                     onClick={(e) => {
@@ -187,7 +203,7 @@ export function CharacterCard({
                                     }}
                                 >
                                     <Edit className="h-4 w-4 mr-2" />
-                                    Edit
+                                    Modifier
                                 </DropdownMenuItem>
                             )}
                             <DropdownMenuItem
@@ -198,7 +214,7 @@ export function CharacterCard({
                                 }}
                             >
                                 <Trash2 className="h-4 w-4 mr-2" />
-                                Delete
+                                Supprimer
                             </DropdownMenuItem>
                             {onExport && (
                                 <DropdownMenuItem
@@ -208,7 +224,7 @@ export function CharacterCard({
                                     }}
                                 >
                                     <Download className="h-4 w-4 mr-2" />
-                                    Export JSON
+                                    Exporter la discussion
                                 </DropdownMenuItem>
                             )}
                             {onExportBackstage && (

@@ -16,6 +16,12 @@ import {
 import { useState, useRef, useEffect, memo, useMemo } from 'react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
+import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { ActionTooltip } from '@/components/ui/action-tooltip';
 import { ChatFormatter } from '@/components/chat/ChatFormatter';
 import { BatchWaitLine } from '@/components/chat/BatchWaitLine';
@@ -76,6 +82,7 @@ function formatTokens(n: number): string {
 }
 
 interface ChatBubbleProps {
+    primaryAction?: boolean;
     id: string;
     role: 'user' | 'assistant';
     content: string;
@@ -112,6 +119,7 @@ interface ChatBubbleProps {
 
 export const ChatBubble = memo(function ChatBubble({
     id,
+    primaryAction = false,
     role,
     content,
     thought,
@@ -364,94 +372,137 @@ export const ChatBubble = memo(function ChatBubble({
                             ? 'opacity-0 pointer-events-none'
                             : isHovered
                               ? 'opacity-100 pointer-events-auto'
-                              : 'opacity-0 pointer-events-none pointer-coarse:opacity-70 pointer-coarse:pointer-events-auto'
+                              : 'opacity-0 pointer-events-none max-sm:opacity-100 max-sm:pointer-events-auto pointer-coarse:opacity-70 pointer-coarse:pointer-events-auto'
                     }`}
                 >
-                    <ActionTooltip label="Edit">
-                        <motion.div
-                            variants={buttonVariants}
-                            initial="rest"
-                            whileHover="hover"
-                            whileTap="tap"
-                        >
-                            <Button
-                                variant="ghost"
-                                size="icon"
-                                className="h-7 w-7 pointer-coarse:h-10 pointer-coarse:w-10 text-muted-foreground hover:text-foreground"
-                                onClick={handleStartEdit}
-                            >
-                                <Edit2 className="h-3.5 w-3.5" />
-                            </Button>
-                        </motion.div>
-                    </ActionTooltip>
-
-                    {!isUser && (
-                        <>
-                            <ActionTooltip label="Regenerate">
-                                <motion.div
-                                    variants={buttonVariants}
-                                    initial="rest"
-                                    whileHover="hover"
-                                    whileTap="tap"
+                    {!isEditing && (
+                        <div className="sm:hidden flex flex-wrap items-center gap-2 w-full">
+                            {primaryAction && (
+                                <Button
+                                    variant="ghost"
+                                    onClick={isUser ? handleStartEdit : () => onRegenerate?.(id)}
                                 >
-                                    <Button
-                                        variant="ghost"
-                                        size="icon"
-                                        className="h-7 w-7 pointer-coarse:h-10 pointer-coarse:w-10 text-muted-foreground hover:text-foreground"
-                                        onClick={() => onRegenerate?.(id)}
-                                    >
-                                        <RefreshCw className="h-3.5 w-3.5" />
+                                    {isUser ? (
+                                        <Edit2 className="h-4 w-4 mr-2" />
+                                    ) : (
+                                        <RefreshCw className="h-4 w-4 mr-2" />
+                                    )}
+                                    {isUser ? 'Modifier' : 'Régénérer'}
+                                </Button>
+                            )}
+                            <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
+                                    <Button variant="ghost" aria-label="Actions du message">
+                                        …
                                     </Button>
-                                </motion.div>
-                            </ActionTooltip>
-                            <ActionTooltip label="Continue">
-                                <motion.div
-                                    variants={buttonVariants}
-                                    initial="rest"
-                                    whileHover="hover"
-                                    whileTap="tap"
-                                >
-                                    <Button
-                                        variant="ghost"
-                                        size="icon"
-                                        className="h-7 w-7 pointer-coarse:h-10 pointer-coarse:w-10 text-muted-foreground hover:text-foreground"
-                                        onClick={() => onContinue?.(id)}
-                                    >
-                                        <ArrowRight className="h-3.5 w-3.5" />
-                                    </Button>
-                                </motion.div>
-                            </ActionTooltip>
-                        </>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent align="end">
+                                    <DropdownMenuItem onClick={handleStartEdit}>
+                                        Modifier
+                                    </DropdownMenuItem>
+                                    {!isUser && (
+                                        <>
+                                            <DropdownMenuItem onClick={() => onRegenerate?.(id)}>
+                                                Régénérer
+                                            </DropdownMenuItem>
+                                            <DropdownMenuItem onClick={() => onContinue?.(id)}>
+                                                Continuer
+                                            </DropdownMenuItem>
+                                        </>
+                                    )}
+                                    <DropdownMenuItem onClick={() => setIsDeleteDialogOpen(true)}>
+                                        Supprimer
+                                    </DropdownMenuItem>
+                                </DropdownMenuContent>
+                            </DropdownMenu>
+                        </div>
                     )}
-
-                    <ActionTooltip label="Delete">
-                        <motion.div
-                            variants={buttonVariants}
-                            initial="rest"
-                            whileHover="hover"
-                            whileTap="tap"
-                        >
-                            <Button
-                                variant="ghost"
-                                size="icon"
-                                className="h-7 w-7 pointer-coarse:h-10 pointer-coarse:w-10 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
-                                onClick={() => setIsDeleteDialogOpen(true)}
+                    <div className="hidden sm:flex items-center">
+                        <ActionTooltip label="Modifier">
+                            <motion.div
+                                variants={buttonVariants}
+                                initial="rest"
+                                whileHover="hover"
+                                whileTap="tap"
                             >
-                                <Trash2 className="h-3.5 w-3.5" />
-                            </Button>
-                        </motion.div>
-                    </ActionTooltip>
+                                <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-7 w-7 pointer-coarse:h-10 pointer-coarse:w-10 text-muted-foreground hover:text-foreground"
+                                    onClick={handleStartEdit}
+                                >
+                                    <Edit2 className="h-3.5 w-3.5" />
+                                </Button>
+                            </motion.div>
+                        </ActionTooltip>
 
+                        {!isUser && (
+                            <>
+                                <ActionTooltip label="Régénérer">
+                                    <motion.div
+                                        variants={buttonVariants}
+                                        initial="rest"
+                                        whileHover="hover"
+                                        whileTap="tap"
+                                    >
+                                        <Button
+                                            variant="ghost"
+                                            size="icon"
+                                            className="h-7 w-7 pointer-coarse:h-10 pointer-coarse:w-10 text-muted-foreground hover:text-foreground"
+                                            onClick={() => onRegenerate?.(id)}
+                                        >
+                                            <RefreshCw className="h-3.5 w-3.5" />
+                                        </Button>
+                                    </motion.div>
+                                </ActionTooltip>
+                                <ActionTooltip label="Continuer">
+                                    <motion.div
+                                        variants={buttonVariants}
+                                        initial="rest"
+                                        whileHover="hover"
+                                        whileTap="tap"
+                                    >
+                                        <Button
+                                            variant="ghost"
+                                            size="icon"
+                                            className="h-7 w-7 pointer-coarse:h-10 pointer-coarse:w-10 text-muted-foreground hover:text-foreground"
+                                            onClick={() => onContinue?.(id)}
+                                        >
+                                            <ArrowRight className="h-3.5 w-3.5" />
+                                        </Button>
+                                    </motion.div>
+                                </ActionTooltip>
+                            </>
+                        )}
+
+                        <ActionTooltip label="Supprimer">
+                            <motion.div
+                                variants={buttonVariants}
+                                initial="rest"
+                                whileHover="hover"
+                                whileTap="tap"
+                            >
+                                <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-7 w-7 pointer-coarse:h-10 pointer-coarse:w-10 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                                    onClick={() => setIsDeleteDialogOpen(true)}
+                                >
+                                    <Trash2 className="h-3.5 w-3.5" />
+                                </Button>
+                            </motion.div>
+                        </ActionTooltip>
+                    </div>
                     <Dialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
                         <DialogContent className="sm:max-w-[425px]">
                             <DialogHeader>
                                 <DialogTitle className="flex items-center gap-2 text-destructive">
                                     <AlertTriangle className="h-5 w-5" />
-                                    Delete Message?
+                                    Supprimer ce message ?
                                 </DialogTitle>
                                 <DialogDescription>
-                                    This will delete this message and all subsequent messages in
-                                    this branch. This action cannot be undone.
+                                    Ce message et les messages suivants de cette branche seront
+                                    supprimés. Cette action est irréversible.
                                 </DialogDescription>
                             </DialogHeader>
                             <DialogFooter className="gap-2 sm:gap-0">
@@ -459,7 +510,7 @@ export const ChatBubble = memo(function ChatBubble({
                                     variant="ghost"
                                     onClick={() => setIsDeleteDialogOpen(false)}
                                 >
-                                    Cancel
+                                    Annuler
                                 </Button>
                                 <Button
                                     variant="destructive"
@@ -468,7 +519,7 @@ export const ChatBubble = memo(function ChatBubble({
                                         setIsDeleteDialogOpen(false);
                                     }}
                                 >
-                                    Delete Forever
+                                    Supprimer définitivement
                                 </Button>
                             </DialogFooter>
                         </DialogContent>
