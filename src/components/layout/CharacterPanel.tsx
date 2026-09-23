@@ -240,7 +240,7 @@ export function CharacterPanel({ trigger, embedded = false, onSelected }: Charac
                         </div>
                     </div>
 
-                    <ScrollArea className="character-scroll flex-1 w-full min-w-0">
+                    <ScrollArea className="character-scroll flex-1 min-h-0 w-full min-w-0">
                         <div className="px-4 pb-6 space-y-2 w-full max-w-full">
                             {characterGroups.length === 0 ? (
                                 <div className="text-center py-12 px-4">

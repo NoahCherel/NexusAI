@@ -259,6 +259,12 @@
     .mobile-chat-composer {
         padding-bottom: max(16px, env(safe-area-inset-bottom, 0px));
     }
+    .chat-message-scroll,
+    .character-scroll [data-slot='scroll-area-viewport'] {
+        touch-action: pan-y;
+        -webkit-overflow-scrolling: touch;
+        overscroll-behavior-y: contain;
+    }
     button,
     [role='button'],
     [role='menuitem'],

@@ -16,19 +16,11 @@ export function useMobileViewport() {
             const visualHeight = viewport?.height ?? window.innerHeight;
             const keyboard = !!focused && fullHeight - visualHeight > 120;
             setKeyboardOpen(keyboard);
-            // In an installed iOS app the visual viewport can be shorter than the actual
-            // screen even with the keyboard closed. Use CSS 100dvh then; only follow the
-            // visual viewport while the keyboard is genuinely occupying space.
-            if (keyboard) {
-                document.documentElement.style.setProperty('--visible-height', `${visualHeight}px`);
-                document.documentElement.style.setProperty(
-                    '--visible-top',
-                    `${viewport?.offsetTop ?? 0}px`
-                );
-            } else {
-                document.documentElement.style.removeProperty('--visible-height');
-                document.documentElement.style.removeProperty('--visible-top');
-            }
+            document.documentElement.style.setProperty('--visible-height', `${visualHeight}px`);
+            document.documentElement.style.setProperty(
+                '--visible-top',
+                `${viewport?.offsetTop ?? 0}px`
+            );
             document.documentElement.dataset.keyboard = String(keyboard);
         };
         update();
