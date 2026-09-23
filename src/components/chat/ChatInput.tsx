@@ -151,23 +151,12 @@ export function ChatInput({
                     className="px-3 pb-1.5"
                 />
             )}
-            {onImpersonate && (
-                <Button
-                    variant="ghost"
-                    className="sm:hidden text-xs h-11 mb-1"
-                    disabled={isImpersonating || isLoading || disabled}
-                    onClick={handleImpersonateClick}
-                >
-                    <User className="h-4 w-4 mr-2" />
-                    {isImpersonating ? 'Rédaction…' : 'Rédiger pour moi'}
-                </Button>
-            )}
             <div className="flex items-end gap-2 bg-white/5 p-2 rounded-xl border border-white/10 shadow-sm backdrop-blur-sm relative transition-colors focus-within:bg-white/10 focus-within:border-white/20">
                 {onImpersonate && (
                     <Button
                         variant="ghost"
                         size="icon"
-                        className="hidden sm:inline-flex shrink-0"
+                        className="inline-flex shrink-0"
                         aria-label="Rédiger pour moi"
                         title="Rédiger pour moi"
                         disabled={isImpersonating || isLoading || disabled}

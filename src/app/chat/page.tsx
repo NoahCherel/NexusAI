@@ -94,6 +94,8 @@ export default function ChatPage() {
 
     // Context preview state
     const [isContextPreviewOpen, setIsContextPreviewOpen] = useState(false);
+    const [contextPreviewLoading, setContextPreviewLoading] = useState(false);
+    const [contextPreviewError, setContextPreviewError] = useState<string | null>(null);
     const [contextPreviewData, setContextPreviewData] = useState<
         | ({
               sections: ContextSection[];
@@ -392,143 +394,160 @@ export default function ChatPage() {
 
     // Context Preview handler - builds a preview of what would be sent
     const handleContextPreview = async () => {
-        if (!character || !activeConversationId || !currentApiKey) return;
-
-        const activePreset = getActivePreset();
-        const activePersona = personas.find((p) => p.id === activePersonaId);
-
-        const activeEngine = getActiveEngine();
-
-        // Simulate what would be sent, including any draft message in the input
-        const draftText = draftMessageRef.current?.trim() || '';
-        const simulatedMessages = draftText
-            ? [
-                  ...messages,
-                  {
-                      id: 'draft-preview',
-                      conversationId: activeConversationId,
-                      parentId: messages[messages.length - 1]?.id || null,
-                      role: 'user' as const,
-                      content: draftText,
-                      isActiveBranch: true,
-                      createdAt: new Date(),
-                      messageOrder: messages.length + 1,
-                      regenerationIndex: 0,
-                  },
-              ]
-            : messages;
-
-        // Keyword-only lorebook scan (same shared resolver as generation, hybrid off).
-        const activeEntries = await resolveActiveLorebookEntries({
-            messages: simulatedMessages,
-            lorebook: activeLorebook,
-            preset: activePreset,
-            characterName: character.name,
-            userPersonaName: activePersona?.name,
-            tokenBudget: activePreset?.lorebookTokenBudget ?? 2000,
-        });
-
-        const conv = conversations.find((c) => c.id === activeConversationId);
-        const combinedMem = [...(conv?.notes || []), ...(character.longTermMemory || [])];
-        const previewCanonOptions = await buildCanonOptions(
-            character,
-            conv,
-            simulatedMessages,
-            activePersona?.name || 'the player'
-        );
-        const maxContextTokens = activePreset?.maxContextTokens ?? 16384;
-        const maxOutputTokens = activePreset?.maxOutputTokens ?? 2048;
-        const { enableHierarchicalSummaries: previewMemory, enableScratchpad: previewScratchpad } =
-            useSettingsStore.getState();
-
-        const {
-            systemPrompt,
-            effectivePostHistory,
-            ragSections,
-            chronicleStats,
-            templatePlacesLorebook,
-            messagesPayload,
-            includedMessageCount,
-            droppedMessageCount,
-            tokenBreakdown,
-            historyWindow,
-        } = await buildConversationPayload({
-            mode: 'preview',
-            character,
-            activeEntries,
-            history: simulatedMessages as CAMessage[],
-            recentMessages: simulatedMessages as CAMessage[],
-            activePreset,
-            activeEngine,
-            learnedBanList: activeConversationId
-                ? getActiveBranchBanList(activeConversationId)
-                : undefined,
-            userPersona: activePersona,
-            longTermMemory: combinedMem,
-            storyGuidance: conv?.storyGuidance,
-            scratchpad: conv?.scratchpad,
-            enableScratchpad: previewScratchpad,
-            canonOptions: previewCanonOptions,
-            activeProvider,
-            maxContextTokens,
-            maxOutputTokens,
-            // Read-only: the preview mirrors the real window but must never persist anything
-            // back onto the conversation (no anchor, no reserve).
-            historyCutMessageId: conv?.historyCutMessageId,
-            dynamicReserveTokens: conv?.dynamicReserveTokens,
-            // Mirrors generation exactly — same budget, same eviction gate — so the preview
-            // shows the Chronicle the real call would inject.
-            retrieveChronicle: previewMemory
-                ? (budget) =>
-                      buildChronicle(
-                          activeConversationId,
-                          budget,
-                          conv?.historyCutMessageId
-                              ? Math.max(
-                                    0,
-                                    simulatedMessages.findIndex(
-                                        (m) => m.id === conv.historyCutMessageId
-                                    )
-                                )
-                              : 0,
-                          simulatedMessages.map((m) => m.id)
-                      )
-                : undefined,
-        });
-
-        const previewData = await buildContextPreview({
-            systemPrompt,
-            ragSections,
-            historyMessages: messagesPayload.filter((m) => m.role !== 'system'),
-            postHistory: effectivePostHistory,
-            maxContextTokens,
-            maxOutputTokens,
-            activeLorebookEntries: activeEntries,
-            lorebookPlacement: templatePlacesLorebook ? 'system' : 'post-history',
-            canonInjection: previewCanonOptions.injectionMeta,
-            tokenBreakdown,
-            historyWindow,
-            chronicleStats,
-        });
-
-        setContextPreviewData({
-            ...previewData,
-            maxOutputTokens,
-            includedMessages: includedMessageCount,
-            droppedMessages: droppedMessageCount,
-            tokenBreakdown,
-            historyWindow,
-            chronicleStats,
-            warnings: [
-                ...previewData.warnings,
-                ...(draftText
-                    ? [
-                          `Brouillon inclus : « ${draftText.slice(0, 80)}${draftText.length > 80 ? '…' : ''} »`,
-                      ]
-                    : []),
-            ],
-        });
+        if (!character || !activeConversationId) return;
+        const previewConversationId = activeConversationId;
+        setContextPreviewData(null);
+        setContextPreviewError(null);
+        setContextPreviewLoading(true);
         setIsContextPreviewOpen(true);
+
+        try {
+            const activePreset = getActivePreset();
+            const activePersona = personas.find((p) => p.id === activePersonaId);
+
+            const activeEngine = getActiveEngine();
+
+            // Simulate what would be sent, including any draft message in the input
+            const draftText = draftMessageRef.current?.trim() || '';
+            const simulatedMessages = draftText
+                ? [
+                      ...messages,
+                      {
+                          id: 'draft-preview',
+                          conversationId: activeConversationId,
+                          parentId: messages[messages.length - 1]?.id || null,
+                          role: 'user' as const,
+                          content: draftText,
+                          isActiveBranch: true,
+                          createdAt: new Date(),
+                          messageOrder: messages.length + 1,
+                          regenerationIndex: 0,
+                      },
+                  ]
+                : messages;
+
+            // Keyword-only lorebook scan (same shared resolver as generation, hybrid off).
+            const activeEntries = await resolveActiveLorebookEntries({
+                messages: simulatedMessages,
+                lorebook: activeLorebook,
+                preset: activePreset,
+                characterName: character.name,
+                userPersonaName: activePersona?.name,
+                tokenBudget: activePreset?.lorebookTokenBudget ?? 2000,
+            });
+
+            const conv = conversations.find((c) => c.id === activeConversationId);
+            const combinedMem = [...(conv?.notes || []), ...(character.longTermMemory || [])];
+            const previewCanonOptions = await buildCanonOptions(
+                character,
+                conv,
+                simulatedMessages,
+                activePersona?.name || 'the player'
+            );
+            const maxContextTokens = activePreset?.maxContextTokens ?? 16384;
+            const maxOutputTokens = activePreset?.maxOutputTokens ?? 2048;
+            const {
+                enableHierarchicalSummaries: previewMemory,
+                enableScratchpad: previewScratchpad,
+            } = useSettingsStore.getState();
+
+            const {
+                systemPrompt,
+                effectivePostHistory,
+                ragSections,
+                chronicleStats,
+                templatePlacesLorebook,
+                messagesPayload,
+                includedMessageCount,
+                droppedMessageCount,
+                tokenBreakdown,
+                historyWindow,
+            } = await buildConversationPayload({
+                mode: 'preview',
+                character,
+                activeEntries,
+                history: simulatedMessages as CAMessage[],
+                recentMessages: simulatedMessages as CAMessage[],
+                activePreset,
+                activeEngine,
+                learnedBanList: activeConversationId
+                    ? getActiveBranchBanList(activeConversationId)
+                    : undefined,
+                userPersona: activePersona,
+                longTermMemory: combinedMem,
+                storyGuidance: conv?.storyGuidance,
+                scratchpad: conv?.scratchpad,
+                enableScratchpad: previewScratchpad,
+                canonOptions: previewCanonOptions,
+                activeProvider,
+                maxContextTokens,
+                maxOutputTokens,
+                // Read-only: the preview mirrors the real window but must never persist anything
+                // back onto the conversation (no anchor, no reserve).
+                historyCutMessageId: conv?.historyCutMessageId,
+                dynamicReserveTokens: conv?.dynamicReserveTokens,
+                // Mirrors generation exactly — same budget, same eviction gate — so the preview
+                // shows the Chronicle the real call would inject.
+                retrieveChronicle: previewMemory
+                    ? (budget) =>
+                          buildChronicle(
+                              activeConversationId,
+                              budget,
+                              conv?.historyCutMessageId
+                                  ? Math.max(
+                                        0,
+                                        simulatedMessages.findIndex(
+                                            (m) => m.id === conv.historyCutMessageId
+                                        )
+                                    )
+                                  : 0,
+                              simulatedMessages.map((m) => m.id)
+                          )
+                    : undefined,
+            });
+
+            const previewData = await buildContextPreview({
+                systemPrompt,
+                ragSections,
+                historyMessages: messagesPayload.filter((m) => m.role !== 'system'),
+                postHistory: effectivePostHistory,
+                maxContextTokens,
+                maxOutputTokens,
+                activeLorebookEntries: activeEntries,
+                lorebookPlacement: templatePlacesLorebook ? 'system' : 'post-history',
+                canonInjection: previewCanonOptions.injectionMeta,
+                tokenBreakdown,
+                historyWindow,
+                chronicleStats,
+            });
+
+            if (useChatStore.getState().activeConversationId !== previewConversationId) {
+                setIsContextPreviewOpen(false);
+                return;
+            }
+            setContextPreviewData({
+                ...previewData,
+                maxOutputTokens,
+                includedMessages: includedMessageCount,
+                droppedMessages: droppedMessageCount,
+                tokenBreakdown,
+                historyWindow,
+                chronicleStats,
+                warnings: [
+                    ...previewData.warnings,
+                    ...(draftText
+                        ? [
+                              `Brouillon inclus : « ${draftText.slice(0, 80)}${draftText.length > 80 ? '…' : ''} »`,
+                          ]
+                        : []),
+                ],
+            });
+        } catch (error) {
+            console.error('Failed to build context preview:', error);
+            setContextPreviewError('Impossible de préparer l’aperçu du contexte. Réessayez.');
+        } finally {
+            setContextPreviewLoading(false);
+        }
     };
 
     // Stable identities for the bubble callbacks: ChatBubble is memo'd, and fresh function
@@ -952,10 +971,6 @@ export default function ChatPage() {
                                                 setIsSettingsOpen(true);
                                             }
                                         }}
-                                        onSettings={(section) => {
-                                            setSettingsSection(section);
-                                            setIsSettingsOpen(true);
-                                        }}
                                         onOpenLorebook={() => setIsLorebookOpen(true)}
                                         onOpenRelations={() => {
                                             // Desktop: dialog — Mobile: bottom sheet
@@ -1060,7 +1075,7 @@ export default function ChatPage() {
                     />
                 </div>
             )}
-            {!keyboardOpen && !immersiveMode && (
+            {mobileScreen === 'characters' && !keyboardOpen && !immersiveMode && (
                 <nav
                     aria-label="Navigation principale"
                     className="mobile-bottom-nav sm:hidden grid grid-cols-2 border-t border-white/10 bg-background shrink-0"
@@ -1208,7 +1223,18 @@ export default function ChatPage() {
             <APINotificationToast />
 
             {/* Context Preview Panel */}
-            {contextPreviewData && (
+            {isContextPreviewOpen && !contextPreviewData && (
+                <Dialog open onOpenChange={setIsContextPreviewOpen}>
+                    <DialogContent className="max-w-sm">
+                        <DialogTitle>Aperçu du contexte</DialogTitle>
+                        <DialogDescription role={contextPreviewError ? 'alert' : 'status'}>
+                            {contextPreviewError ||
+                                (contextPreviewLoading ? 'Préparation de l’aperçu…' : '')}
+                        </DialogDescription>
+                    </DialogContent>
+                </Dialog>
+            )}
+            {contextPreviewData && !contextPreviewLoading && (
                 <ContextPreviewPanel
                     isOpen={isContextPreviewOpen}
                     onClose={() => setIsContextPreviewOpen(false)}

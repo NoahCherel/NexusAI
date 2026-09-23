@@ -245,7 +245,16 @@
         padding-inline: env(safe-area-inset-left) env(safe-area-inset-right);
     }
     .mobile-bottom-nav {
-        padding-bottom: env(safe-area-inset-bottom);
+        --bottom-safe: min(env(safe-area-inset-bottom, 0px), 36px);
+        height: calc(48px + var(--bottom-safe));
+        min-height: calc(48px + var(--bottom-safe));
+        max-height: calc(48px + var(--bottom-safe));
+        grid-template-rows: 48px;
+        flex: 0 0 auto;
+        padding-bottom: var(--bottom-safe);
+    }
+    .mobile-bottom-nav > button {
+        height: 48px;
     }
     button,
     [role='button'],

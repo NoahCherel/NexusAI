@@ -16,7 +16,6 @@ import { NanoGPTUsageBadge } from '@/components/layout/NanoGPTUsage';
 import { OpenRouterBudgetBadge } from '@/components/layout/OpenRouterBudget';
 
 interface ChatToolbarProps {
-    onSettings: (section: string) => void;
     onOpenScene: () => void;
     onOpenLorebook: () => void;
     /** Relations panel — the page decides dialog (desktop) vs sheet (mobile). */
@@ -29,7 +28,6 @@ interface ChatToolbarProps {
 
 /** Row of quick-access tools above the chat input (hidden in immersive mode). */
 export function ChatToolbar({
-    onSettings,
     onOpenScene,
     onOpenLorebook,
     onOpenRelations,
@@ -70,29 +68,7 @@ export function ChatToolbar({
             <Dialog open={aiOpen} onOpenChange={setAiOpen}>
                 <DialogContent className="max-w-md overflow-y-auto">
                     <DialogTitle>IA</DialogTitle>
-                    <ResponseControls />
-                    <div className="flex flex-wrap gap-2">
-                        <NanoGPTUsageBadge />
-                        <OpenRouterBudgetBadge />
-                    </div>
-                    <Button
-                        variant="outline"
-                        onClick={() => {
-                            setAiOpen(false);
-                            onSettings('chat');
-                        }}
-                    >
-                        Paramètres de réponse
-                    </Button>
-                    <Button
-                        variant="ghost"
-                        onClick={() => {
-                            setAiOpen(false);
-                            onSettings('api');
-                        }}
-                    >
-                        Consommation et budget
-                    </Button>
+                    <ResponseControls showEngine={false} />
                 </DialogContent>
             </Dialog>
             <div className="hidden sm:flex items-center gap-1 sm:gap-2 overflow-x-auto no-scrollbar pb-1">

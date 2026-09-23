@@ -95,17 +95,19 @@ export function ChatHeader({
                         </span>
                     )}
                 </div>
-                <div className="flex flex-col min-w-0">
-                    <h2 className="font-semibold text-xs sm:text-sm truncate">{character.name}</h2>
-                    <button
-                        type="button"
-                        onClick={onOpenConversations}
-                        aria-label="Choisir une discussion"
-                        className="max-w-full truncate text-left text-[10px] text-muted-foreground opacity-80 hover:text-foreground"
-                    >
+                <button
+                    type="button"
+                    onClick={onOpenConversations}
+                    aria-label="Choisir une discussion"
+                    className="flex h-11 min-w-0 flex-col justify-center text-left hover:text-primary"
+                >
+                    <h2 className="block truncate text-xs font-semibold sm:text-sm">
+                        {character.name}
+                    </h2>
+                    <span className="block truncate text-[10px] text-muted-foreground">
                         {conversationTitle || activeModel}
-                    </button>
-                </div>
+                    </span>
+                </button>
             </div>
 
             <div className="flex items-center gap-1 sm:gap-2">
