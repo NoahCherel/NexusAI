@@ -750,7 +750,13 @@ export function PresetEditor() {
                                         </p>
                                         <p className="text-xs text-muted-foreground">
                                             Route les requêtes via le palier flexible (tarif réduit)
-                                            d&apos;OpenRouter quand il est disponible
+                                            d&apos;OpenRouter quand il est disponible.
+                                            {globals.activeProvider !== 'openrouter' && (
+                                                <span className="block text-yellow-500">
+                                                    Inactif avec le fournisseur actuel : ce réglage
+                                                    ne s’applique qu’à OpenRouter.
+                                                </span>
+                                            )}
                                         </p>
                                     </div>
                                     <Button
@@ -758,7 +764,11 @@ export function PresetEditor() {
                                         variant={flex ? 'default' : 'secondary'}
                                         onClick={setFlex}
                                     >
-                                        {flex ? 'On' : 'Off'}
+                                        {flex
+                                            ? globals.activeProvider === 'openrouter'
+                                                ? 'On'
+                                                : 'On · inactif'
+                                            : 'Off'}
                                     </Button>
                                 </div>
                             </div>

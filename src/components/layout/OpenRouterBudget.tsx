@@ -61,7 +61,9 @@ export function OpenRouterBudgetBadge() {
     const activeModel = useSettingsStore((s) => s.activeModel);
     const weeklyBudgetUsd = useSettingsStore((s) => s.weeklyBudgetUsd);
     const weeklySpend = useSettingsStore((s) => s.weeklySpend);
-    const [price, setPrice] = useState<ModelPrice | null>(null);
+    const [pricing, setPricing] = useState<{ modelId: string; price: ModelPrice | null } | null>(
+        null
+    );
 
     const enabled =
         (activeProvider === 'openrouter' || activeProvider === 'anthropic') &&
@@ -72,7 +74,8 @@ export function OpenRouterBudgetBadge() {
         if (!enabled) return;
         let cancelled = false;
         getPricing().then((map) => {
-            if (!cancelled) setPrice(map.get(activeModel) ?? null);
+            if (!cancelled)
+                setPricing({ modelId: activeModel, price: map.get(activeModel) ?? null });
         });
         return () => {
             cancelled = true;
@@ -87,6 +90,7 @@ export function OpenRouterBudgetBadge() {
     const usedPct = Math.min(100, (spent / budget) * 100);
 
     // Blended RP price (prompt-heavy 3:1). Null when the model has no listed pricing.
+    const price = pricing?.modelId === activeModel ? pricing.price : null;
     const blended = price ? (3 * price.prompt + price.completion) / 4 : null;
     const tokensLeft = blended && blended > 0 ? remaining / blended : null;
 

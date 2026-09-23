@@ -13,7 +13,7 @@ import {
     AlertTriangle,
     ArrowRight,
 } from 'lucide-react';
-import { useState, useRef, useEffect, memo, useMemo } from 'react';
+import { useState, useRef, useEffect, useLayoutEffect, useCallback, memo, useMemo } from 'react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import {
@@ -75,6 +75,8 @@ interface UsageInfo {
     cachedTokens?: number;
     cost?: number;
     estimated?: boolean;
+    requestedFlex?: boolean;
+    serviceTier?: string | null;
 }
 
 function formatTokens(n: number): string {
@@ -91,6 +93,7 @@ interface ChatBubbleProps {
     error?: string;
     /** Token accounting for this generation (assistant messages, when enabled). */
     usage?: UsageInfo;
+    showUsageBadge?: boolean;
     /** OpenRouter Batch mode: the deferred generation this message is waiting for. */
     batch?: Message['batch'];
     avatar?: string;
@@ -125,6 +128,7 @@ export const ChatBubble = memo(function ChatBubble({
     thought,
     error,
     usage,
+    showUsageBadge = true,
     batch,
     avatar,
     name,
@@ -146,6 +150,7 @@ export const ChatBubble = memo(function ChatBubble({
     const [editContent, setEditContent] = useState(content);
     const [showPreview, setShowPreview] = useState(false);
     const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
+    const editFocusPendingRef = useRef(false);
     const isUser = role === 'user';
     const normalized = useMemo(
         () => (isUser ? { content, thought: null } : normalizeCoT(content)),
@@ -153,27 +158,84 @@ export const ChatBubble = memo(function ChatBubble({
     );
     const displayContent = normalized.content;
     const batchPending = batch?.status === 'pending';
+    const servedTier =
+        usage?.serviceTier === 'default'
+            ? 'standard'
+            : usage?.serviceTier === 'priority'
+              ? 'prioritaire'
+              : usage?.serviceTier;
     const displayThought = [thought, normalized.thought].filter(Boolean).join('\n\n');
     const previewContent = isUser ? editContent : normalizeCoT(editContent).content;
 
     const handleStartEdit = () => {
+        editFocusPendingRef.current = true;
         setEditContent(content);
         setIsEditing(true);
     };
 
     const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-    useEffect(() => {
-        if (isEditing && textareaRef.current) {
-            // Save cursor position before resize
-            const { selectionStart, selectionEnd } = textareaRef.current;
-            textareaRef.current.style.height = 'auto';
-            textareaRef.current.style.height = textareaRef.current.scrollHeight + 'px';
-            // Restore cursor position after resize
-            textareaRef.current.selectionStart = selectionStart;
-            textareaRef.current.selectionEnd = selectionEnd;
+    const resizeEditor = useCallback(() => {
+        const textarea = textareaRef.current;
+        if (!textarea) return;
+        const viewport = textarea.closest<HTMLElement>('.chat-message-scroll');
+        const maxHeight = Math.max(
+            96,
+            Math.min(320, (viewport?.clientHeight ?? innerHeight) * 0.65)
+        );
+        const { selectionStart, selectionEnd } = textarea;
+        const previousScrollTop = textarea.scrollTop;
+        textarea.style.height = 'auto';
+        textarea.style.maxHeight = `${maxHeight}px`;
+        textarea.style.height = `${Math.min(textarea.scrollHeight, maxHeight)}px`;
+        textarea.style.overflowY = textarea.scrollHeight > maxHeight ? 'auto' : 'hidden';
+        textarea.setSelectionRange(selectionStart, selectionEnd);
+        textarea.scrollTop =
+            selectionStart === textarea.value.length ? textarea.scrollHeight : previousScrollTop;
+    }, []);
+
+    const revealEditor = useCallback(() => {
+        const textarea = textareaRef.current;
+        const viewport = textarea?.closest<HTMLElement>('.chat-message-scroll');
+        if (!textarea || !viewport) return;
+        const field = textarea.getBoundingClientRect();
+        const visible = viewport.getBoundingClientRect();
+        if (field.bottom > visible.bottom - 8)
+            viewport.scrollTop += field.bottom - visible.bottom + 8;
+        else if (field.top < visible.top + 8) viewport.scrollTop += field.top - visible.top - 8;
+    }, []);
+
+    useLayoutEffect(() => {
+        if (!isEditing) return;
+        resizeEditor();
+        const textarea = textareaRef.current;
+        if (textarea && editFocusPendingRef.current) {
+            textarea.focus({ preventScroll: true });
+            textarea.setSelectionRange(textarea.value.length, textarea.value.length);
+            textarea.scrollTop = textarea.scrollHeight;
+            editFocusPendingRef.current = false;
         }
-    }, [isEditing, editContent]);
+        revealEditor();
+    }, [isEditing, editContent, resizeEditor, revealEditor]);
+
+    useEffect(() => {
+        if (!isEditing) return;
+        let frame = 0;
+        const onViewportChange = () => {
+            cancelAnimationFrame(frame);
+            frame = requestAnimationFrame(() => {
+                resizeEditor();
+                revealEditor();
+            });
+        };
+        window.visualViewport?.addEventListener('resize', onViewportChange);
+        window.addEventListener('resize', onViewportChange);
+        return () => {
+            cancelAnimationFrame(frame);
+            window.visualViewport?.removeEventListener('resize', onViewportChange);
+            window.removeEventListener('resize', onViewportChange);
+        };
+    }, [isEditing, resizeEditor, revealEditor]);
 
     const handleSaveEdit = () => {
         onEdit?.(id, editContent);
@@ -238,14 +300,16 @@ export const ChatBubble = memo(function ChatBubble({
 
                 {/* Main Content */}
                 {isEditing ? (
-                    <div className="w-full sm:w-[500px] max-w-full bg-[#242525] border border-white/10 rounded-xl p-3 shadow-2xl">
+                    <div
+                        data-message-editor
+                        className="w-full sm:w-[500px] max-w-full bg-[#242525] border border-white/10 rounded-xl p-3 shadow-2xl"
+                    >
                         <textarea
                             ref={textareaRef}
-                            className="w-full bg-transparent resize-none outline-none text-base text-foreground placeholder:text-muted-foreground min-h-[80px] overflow-hidden"
+                            className="w-full bg-transparent resize-none outline-none text-base text-foreground placeholder:text-muted-foreground min-h-[80px] overflow-y-auto"
                             value={editContent}
                             onChange={(e) => setEditContent(e.target.value)}
                             placeholder="Type your message..."
-                            autoFocus
                         />
 
                         {/* Live Preview */}
@@ -325,23 +389,51 @@ export const ChatBubble = memo(function ChatBubble({
                 )}
 
                 {/* Token/cost accounting for this generation ("≈" = local estimate). */}
-                {usage && !isUser && !isEditing && (
-                    <div className="flex items-center gap-3 px-1 text-[10px] text-muted-foreground/60 font-mono">
-                        <span>
-                            {usage.estimated ? '≈ ' : ''}
-                            {formatTokens(usage.promptTokens)} →{' '}
-                            {formatTokens(usage.completionTokens)} tok
-                        </span>
-                        {!!usage.cachedTokens && usage.promptTokens > 0 && (
-                            <span>
-                                cache {Math.round((usage.cachedTokens / usage.promptTokens) * 100)}%
-                            </span>
-                        )}
-                        {typeof usage.cost === 'number' && usage.cost > 0 && (
-                            <span>${usage.cost.toFixed(4)}</span>
-                        )}
-                    </div>
-                )}
+                {usage &&
+                    !isUser &&
+                    !isEditing &&
+                    (showUsageBadge || usage.requestedFlex || usage.serviceTier === 'flex') && (
+                        <div className="flex items-center gap-3 px-1 text-[10px] text-muted-foreground/60 font-mono">
+                            {showUsageBadge && (
+                                <span>
+                                    {usage.estimated ? '≈ ' : ''}
+                                    {formatTokens(usage.promptTokens)} →{' '}
+                                    {formatTokens(usage.completionTokens)} tok
+                                </span>
+                            )}
+                            {showUsageBadge && !!usage.cachedTokens && usage.promptTokens > 0 && (
+                                <span>
+                                    cache{' '}
+                                    {Math.round((usage.cachedTokens / usage.promptTokens) * 100)}%
+                                </span>
+                            )}
+                            {showUsageBadge && typeof usage.cost === 'number' && usage.cost > 0 && (
+                                <span>${usage.cost.toFixed(4)}</span>
+                            )}
+                            {(usage.requestedFlex || usage.serviceTier === 'flex') && (
+                                <span
+                                    className={
+                                        usage.serviceTier === 'flex'
+                                            ? 'text-green-500'
+                                            : 'text-yellow-500'
+                                    }
+                                    title={
+                                        usage.serviceTier === 'flex'
+                                            ? 'OpenRouter confirme le palier Flex pour cette réponse.'
+                                            : usage.serviceTier
+                                              ? `Flex demandé, mais OpenRouter indique le palier ${servedTier}.`
+                                              : 'Flex demandé ; OpenRouter n’a pas indiqué le palier appliqué.'
+                                    }
+                                >
+                                    {usage.serviceTier === 'flex'
+                                        ? 'Flex confirmé'
+                                        : usage.serviceTier
+                                          ? `Flex demandé · ${servedTier}`
+                                          : 'Flex demandé · non confirmé'}
+                                </span>
+                            )}
+                        </div>
+                    )}
 
                 {/* Generation error banner — the error lives outside `content` so it is never
                     sent back to the model; Retry replaces this failed message. */}

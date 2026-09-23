@@ -39,31 +39,38 @@ export function ChatToolbar({
     const [aiOpen, setAiOpen] = useState(false);
     return (
         <>
-            <div className="sm:hidden grid grid-cols-3 gap-1">
-                <PersonaSelector />
-                <Button variant="ghost" onClick={() => setAiOpen(true)}>
-                    IA
-                </Button>
-                <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                        <Button variant="ghost">Outils</Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
-                        {[
-                            ['Mémoire', onOpenMemory],
-                            ['Lorebook', onOpenLorebook],
-                            ['Relations', onOpenRelations],
-                            ['Contrôles de scène', onOpenScene],
-                            ['Scène et univers', onOpenCanon],
-                            ['Branches', onOpenTree],
-                            ['Aperçu du contexte', onContextPreview],
-                        ].map(([label, action]) => (
-                            <DropdownMenuItem key={label as string} onClick={action as () => void}>
-                                {label as string}
-                            </DropdownMenuItem>
-                        ))}
-                    </DropdownMenuContent>
-                </DropdownMenu>
+            <div className="sm:hidden flex items-center gap-1 min-w-0">
+                <div className="grid grid-cols-[minmax(0,1.4fr)_minmax(44px,.6fr)_minmax(58px,.8fr)] items-center gap-1 min-w-0 flex-1">
+                    <PersonaSelector />
+                    <Button variant="ghost" onClick={() => setAiOpen(true)}>
+                        IA
+                    </Button>
+                    <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                            <Button variant="ghost">Outils</Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                            {[
+                                ['Mémoire', onOpenMemory],
+                                ['Lorebook', onOpenLorebook],
+                                ['Relations', onOpenRelations],
+                                ['Contrôles de scène', onOpenScene],
+                                ['Scène et univers', onOpenCanon],
+                                ['Branches', onOpenTree],
+                                ['Aperçu du contexte', onContextPreview],
+                            ].map(([label, action]) => (
+                                <DropdownMenuItem
+                                    key={label as string}
+                                    onClick={action as () => void}
+                                >
+                                    {label as string}
+                                </DropdownMenuItem>
+                            ))}
+                        </DropdownMenuContent>
+                    </DropdownMenu>
+                </div>
+                <NanoGPTUsageBadge />
+                <OpenRouterBudgetBadge />
             </div>
             <Dialog open={aiOpen} onOpenChange={setAiOpen}>
                 <DialogContent className="max-w-md overflow-y-auto">

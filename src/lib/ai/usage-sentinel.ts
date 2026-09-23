@@ -10,6 +10,7 @@ export interface ProviderUsage {
     completionTokens: number;
     cachedTokens?: number;
     cost?: number;
+    serviceTier?: string | null;
 }
 
 export const USAGE_SENTINEL_RE = /\n?<\|nexus_usage\|>(\{[\s\S]*?\})\s*$/;
@@ -28,6 +29,7 @@ export function extractUsageSentinel(raw: string): { clean: string; usage?: Prov
                 completionTokens: u.completionTokens ?? 0,
                 cachedTokens: u.cachedTokens,
                 cost: u.cost,
+                serviceTier: u.serviceTier ?? null,
             },
         };
     } catch {

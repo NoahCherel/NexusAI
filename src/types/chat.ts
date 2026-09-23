@@ -40,6 +40,8 @@ export interface Message {
         cachedTokens?: number;
         cost?: number; // USD (OpenRouter credits)
         estimated?: boolean;
+        requestedFlex?: boolean;
+        serviceTier?: string | null;
     };
 
     // Who is talking: Scene Mode attribution (character/narrator) AND, for user messages,

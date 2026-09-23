@@ -177,10 +177,13 @@ export async function POST(req: NextRequest) {
                     cost?: number;
                 }
                 let usageData: StreamUsage | null = null;
+                let serviceTier: string | null = null;
                 try {
                     for await (const chunk of stream) {
                         const chunkUsage = (chunk as { usage?: StreamUsage }).usage;
                         if (chunkUsage) usageData = chunkUsage;
+                        const tier = (chunk as { service_tier?: string | null }).service_tier;
+                        if (typeof tier === 'string') serviceTier = tier;
 
                         const delta = chunk.choices[0]?.delta;
 
@@ -220,6 +223,7 @@ export async function POST(req: NextRequest) {
                                     completionTokens: usageData.completion_tokens,
                                     cachedTokens: usageData.prompt_tokens_details?.cached_tokens,
                                     cost: usageData.cost,
+                                    serviceTier,
                                 })}`
                             )
                         );

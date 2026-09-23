@@ -9,6 +9,9 @@ import type { Conversation, Message } from '@/types';
 const deferred = vi.hoisted(() => ({
     messageReads: [] as { conversationId: string; resolve: (messages: unknown[]) => void }[],
     conversationReads: [] as { resolve: (conversations: unknown[]) => void }[],
+    delaySaves: false,
+    messageSaves: [] as { message: Message; resolve: () => void }[],
+    messagePatches: [] as { id: string; updates: Partial<Message> }[],
 }));
 
 vi.mock('@/lib/db', () => ({
@@ -18,7 +21,13 @@ vi.mock('@/lib/db', () => ({
         new Promise((resolve) => deferred.conversationReads.push({ resolve })),
     patchConversation: async () => undefined,
     saveConversation: async () => {},
-    saveMessage: async () => {},
+    saveMessage: (message: Message) =>
+        deferred.delaySaves
+            ? new Promise<void>((resolve) => deferred.messageSaves.push({ message, resolve }))
+            : Promise.resolve(),
+    patchStoredMessage: async (id: string, updates: Partial<Message>) => {
+        deferred.messagePatches.push({ id, updates });
+    },
     deleteMessagedb: async () => {},
 }));
 
@@ -50,6 +59,9 @@ const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
 beforeEach(() => {
     deferred.messageReads.length = 0;
     deferred.conversationReads.length = 0;
+    deferred.messageSaves.length = 0;
+    deferred.messagePatches.length = 0;
+    deferred.delaySaves = false;
     __resetChatLoadFences();
     useChatStore.setState({
         conversations: [conversation('A'), conversation('B')],
@@ -61,6 +73,73 @@ beforeEach(() => {
 });
 
 describe('conversation switching under out-of-order reads', () => {
+    it('writes the completed reply after its initial placeholder, never before it', async () => {
+        deferred.delaySaves = true;
+        const store = useChatStore.getState();
+        store.setActiveConversation('A');
+        deferred.messageReads[0].resolve([]);
+        await flush();
+
+        store.addMessage({ ...message('reply', 'A'), content: '' });
+        store.updateMessage('reply', { content: 'Réponse finale' });
+        expect(deferred.messageSaves.map((write) => write.message.content)).toEqual(['']);
+
+        deferred.messageSaves[0].resolve();
+        await flush();
+        expect(deferred.messageSaves.map((write) => write.message.content)).toEqual([
+            '',
+            'Réponse finale',
+        ]);
+        deferred.messageSaves[1].resolve();
+        await flush();
+    });
+
+    it('retries a database snapshot taken just before a new message was saved', async () => {
+        const store = useChatStore.getState();
+        store.setActiveConversation('A');
+        store.addMessage(message('newest', 'A'));
+        await flush();
+
+        // The first read began before the write and returns an older snapshot.
+        deferred.messageReads[0].resolve([]);
+        await flush();
+        expect(deferred.messageReads.map((read) => read.conversationId)).toEqual(['A', 'A']);
+        deferred.messageReads[1].resolve([message('newest', 'A')]);
+        await flush();
+        expect(useChatStore.getState().messages.map((row) => row.id)).toEqual(['newest']);
+    });
+
+    it('waits for the newest message and its final content before reopening the conversation', async () => {
+        deferred.delaySaves = true;
+        const store = useChatStore.getState();
+        store.setActiveConversation('A');
+        deferred.messageReads[0].resolve([]);
+        await flush();
+
+        store.addMessage(message('reply', 'A'));
+        store.setActiveConversation('B');
+        store.updateMessage('reply', { content: 'Réponse finale' });
+        store.setActiveConversation('A');
+        await flush();
+
+        // The first save is still pending: neither the final patch nor the new read may race it.
+        expect(deferred.messagePatches).toEqual([]);
+        expect(deferred.messageReads.map((read) => read.conversationId)).toEqual(['A', 'B']);
+        deferred.messageSaves[0].resolve();
+        await flush();
+        expect(deferred.messagePatches).toEqual([
+            { id: 'reply', updates: { content: 'Réponse finale' } },
+        ]);
+        expect(deferred.messageReads.map((read) => read.conversationId)).toEqual(['A', 'B', 'A']);
+
+        deferred.messageReads[1].resolve([message('b1', 'B')]);
+        deferred.messageReads[2].resolve([{ ...message('reply', 'A'), content: 'Réponse finale' }]);
+        await flush();
+        expect(useChatStore.getState().messages.map((row) => row.content)).toEqual([
+            'Réponse finale',
+        ]);
+    });
+
     it('drops the messages of a conversation the user already left (A → B, A settles last)', async () => {
         const store = useChatStore.getState();
         store.setActiveConversation('A');

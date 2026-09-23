@@ -244,12 +244,63 @@ function queueConversationWrite<T>(id: string, write: () => Promise<T>): Promise
     return result;
 }
 const localFields = new Map<string, Pick<Conversation, 'draftText' | 'lastPersonaId'>>();
+// A conversation can be reopened before its newest message has finished writing to IndexedDB.
+// Keep writes ordered by message id and do not publish an older database snapshot over them.
+const messageWrites = new Map<string, Promise<void>>();
+const pendingConversationMessages = new Map<string, Set<Promise<void>>>();
+const messageRevisions = new Map<string, number>();
+const messageOwners = new Map<string, string>();
+
+function trackMessageWrite<T>(
+    conversationId: string,
+    id: string,
+    write: () => Promise<T>
+): Promise<T> {
+    messageOwners.set(id, conversationId);
+    messageRevisions.set(conversationId, (messageRevisions.get(conversationId) ?? 0) + 1);
+    const previous = messageWrites.get(id);
+    const result = previous ? previous.then(write) : write();
+    const settled = result.then(
+        () => {},
+        () => {}
+    );
+    messageWrites.set(id, settled);
+    const pending = pendingConversationMessages.get(conversationId) ?? new Set<Promise<void>>();
+    pending.add(settled);
+    pendingConversationMessages.set(conversationId, pending);
+    void settled.then(() => {
+        if (messageWrites.get(id) === settled) messageWrites.delete(id);
+        pending.delete(settled);
+        if (pending.size === 0) pendingConversationMessages.delete(conversationId);
+    });
+    return result;
+}
+
+async function readStableMessages(conversationId: string): Promise<Message[]> {
+    for (;;) {
+        const pending = pendingConversationMessages.get(conversationId);
+        if (pending?.size) await Promise.all([...pending]);
+        const revision = messageRevisions.get(conversationId) ?? 0;
+        const messages = serializeMessages(await getConversationMessages(conversationId));
+        if (
+            revision !== (messageRevisions.get(conversationId) ?? 0) ||
+            pendingConversationMessages.get(conversationId)?.size
+        )
+            continue;
+        for (const message of messages) messageOwners.set(message.id, conversationId);
+        return messages;
+    }
+}
 let conversationsLoadGeneration = 0;
 let messagesLoadGeneration = 0;
 
 /** Test seam: drop any in-flight load so suites do not leak fences into each other. */
 export const __resetChatLoadFences = () => {
     localFields.clear();
+    messageWrites.clear();
+    pendingConversationMessages.clear();
+    messageRevisions.clear();
+    messageOwners.clear();
     conversationsLoadGeneration = 0;
     messagesLoadGeneration = 0;
 };
@@ -337,8 +388,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
             // Load messages for the active conversation
             let activeMessages: Message[] = [];
             if (activeConvId) {
-                const dbMessages = await getConversationMessages(activeConvId);
-                activeMessages = serializeMessages(dbMessages);
+                activeMessages = await readStableMessages(activeConvId);
             }
 
             // A newer loadConversations already owns the store — this whole read is stale.
@@ -374,8 +424,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
     loadMessages: async (conversationId) => {
         const msgToken = ++messagesLoadGeneration;
         try {
-            const dbMessages = await getConversationMessages(conversationId);
-            const messages = serializeMessages(dbMessages);
+            const messages = await readStableMessages(conversationId);
             // Superseded by a newer read, or the selection moved while we were reading.
             if (msgToken !== messagesLoadGeneration) return;
             if (get().activeConversationId !== conversationId) return;
@@ -445,8 +494,8 @@ export const useChatStore = create<ChatState>()((set, get) => ({
             messageOrder: message.parentId ? (parent?.messageOrder ?? 1) + 1 : 1,
             regenerationIndex: messages.filter((m) => m.parentId === message.parentId).length,
         };
-        const saved = await queueConversationWrite(message.conversationId, () =>
-            persistUserMessage(enriched)
+        const saved = await trackMessageWrite(message.conversationId, message.id, () =>
+            queueConversationWrite(message.conversationId, () => persistUserMessage(enriched))
         );
         if (get().activeConversationId === message.conversationId) get().addMessage(enriched, true);
         // A newer draft (including one typed after switching back) must survive this acknowledgement.
@@ -527,8 +576,15 @@ export const useChatStore = create<ChatState>()((set, get) => ({
             return { messages: [...newMessages, enrichedMessage] };
         });
 
-        changedExistingMessages.forEach((msg) => saveMessage(msg).catch(console.error));
-        if (!persisted) saveMessage(enrichedMessage).catch(console.error);
+        changedExistingMessages.forEach((msg) =>
+            trackMessageWrite(msg.conversationId, msg.id, () => saveMessage(msg)).catch(
+                console.error
+            )
+        );
+        if (!persisted)
+            trackMessageWrite(enrichedMessage.conversationId, enrichedMessage.id, () =>
+                saveMessage(enrichedMessage)
+            ).catch(console.error);
     },
 
     applyCommittedSceneBeat: ({
@@ -603,17 +659,26 @@ export const useChatStore = create<ChatState>()((set, get) => ({
 
         // Persist message (skipped on the streaming hot path — final write at stream end).
         if (updatedMessage && options?.persist !== false) {
-            saveMessage(updatedMessage).catch(console.error);
+            trackMessageWrite(updatedMessage.conversationId, id, () =>
+                saveMessage(updatedMessage!)
+            ).catch(console.error);
         } else if (!updatedMessage && options?.persist !== false) {
-            void patchStoredMessage(id, updates).catch(console.error);
+            const owner = messageOwners.get(id);
+            if (owner)
+                void trackMessageWrite(owner, id, () => patchStoredMessage(id, updates)).catch(
+                    console.error
+                );
+            else void patchStoredMessage(id, updates).catch(console.error);
         }
     },
 
     deleteMessage: (id) => {
         const idsToDelete: string[] = [id];
+        let conversationId = messageOwners.get(id);
         set((state) => {
             const msgToDelete = state.messages.find((m) => m.id === id);
             if (!msgToDelete) return state;
+            conversationId = msgToDelete.conversationId;
 
             // The confirm dialog promises "this message and all subsequent messages in this
             // branch": delete the whole subtree. Leaving descendants orphaned (parentId
@@ -642,7 +707,11 @@ export const useChatStore = create<ChatState>()((set, get) => ({
         });
 
         // Persist deletions (subtree included)
-        idsToDelete.forEach((d) => deleteMessagedb(d).catch(console.error));
+        idsToDelete.forEach((d) => {
+            const owner = conversationId ?? messageOwners.get(d);
+            if (owner) trackMessageWrite(owner, d, () => deleteMessagedb(d)).catch(console.error);
+            else deleteMessagedb(d).catch(console.error);
+        });
     },
 
     getConversationMessages: (conversationId) => {
@@ -941,7 +1010,9 @@ export const useChatStore = create<ChatState>()((set, get) => ({
             set((state) => ({
                 messages: state.messages.map((m) => (m.id === leaf.id ? updatedLeaf : m)),
             }));
-            saveMessage(updatedLeaf).catch(console.error);
+            trackMessageWrite(updatedLeaf.conversationId, updatedLeaf.id, () =>
+                saveMessage(updatedLeaf)
+            ).catch(console.error);
             return;
         }
 
@@ -1036,7 +1107,11 @@ export const useChatStore = create<ChatState>()((set, get) => ({
                 const oldMsg = state.messages[idx];
                 return oldMsg && oldMsg.isActiveBranch !== newMsg.isActiveBranch;
             });
-            changedMessages.forEach((msg) => saveMessage(msg).catch(console.error));
+            changedMessages.forEach((msg) =>
+                trackMessageWrite(msg.conversationId, msg.id, () => saveMessage(msg)).catch(
+                    console.error
+                )
+            );
 
             return { messages: newMessages };
         }),
@@ -1069,7 +1144,11 @@ export const useChatStore = create<ChatState>()((set, get) => ({
                 const oldMsg = state.messages[idx];
                 return oldMsg && oldMsg.isActiveBranch !== newMsg.isActiveBranch;
             });
-            changedMessages.forEach((msg) => saveMessage(msg).catch(console.error));
+            changedMessages.forEach((msg) =>
+                trackMessageWrite(msg.conversationId, msg.id, () => saveMessage(msg)).catch(
+                    console.error
+                )
+            );
 
             return { messages: newMessages };
         }),

@@ -822,6 +822,8 @@ export function useChatGeneration({
             const sentinel = extractUsageSentinel(fullContent);
             fullContent = sentinel.clean;
             usage = usage ?? sentinel.usage;
+            const requestedFlex =
+                activeProvider === 'openrouter' && !batchDone && !!sampler.useFlexTier;
 
             // Final parse: thinking, speaker prefix, scratchpad.
             const finalResult = postProcessReply(
@@ -843,7 +845,10 @@ export function useChatGeneration({
                     promptTokens: Math.max(0, tokenBreakdown.total - maxOutputTokens),
                     completionTokens: countTokens(finalContent),
                     estimated: true,
+                    ...(requestedFlex ? { requestedFlex: true } : {}),
                 };
+            } else if (requestedFlex) {
+                usage = { ...usage, requestedFlex: true };
             }
 
             if (!options.bufferedOnly) {

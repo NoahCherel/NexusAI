@@ -11,9 +11,16 @@ describe('extractUsageSentinel', () => {
             completionTokens: 42,
             cachedTokens: undefined,
             cost: 0.0031,
+            serviceTier: null,
         });
         // The cleaned text must stay valid JSON for the Director/extractor parsers.
         expect(() => JSON.parse(clean)).not.toThrow();
+    });
+
+    it('preserves the tier OpenRouter says it actually used', () => {
+        const raw =
+            'reply\n<|nexus_usage|>{"promptTokens":100,"completionTokens":42,"serviceTier":"flex"}';
+        expect(extractUsageSentinel(raw).usage?.serviceTier).toBe('flex');
     });
 
     it('returns the text untouched when no sentinel is present', () => {
