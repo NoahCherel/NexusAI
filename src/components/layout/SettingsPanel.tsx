@@ -36,6 +36,14 @@ interface SettingsPanelProps {
     onOpenChange: (open: boolean) => void;
 }
 
+const SETTINGS_SECTIONS = [
+    { value: 'api', label: 'Connexions' },
+    { value: 'chat', label: 'Réponse de l’IA' },
+    { value: 'ai', label: 'Mémoire et scènes' },
+    { value: 'appearance', label: 'Apparence' },
+    { value: 'backups', label: 'Sauvegardes' },
+] as const;
+
 /** One AI-feature row: title, cost/effect explanation, On/Off. */
 function FeatureToggle({
     title,
@@ -218,7 +226,7 @@ export function SettingsPanel({ open, onOpenChange, initialSection = 'api' }: Se
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent className="mobile-editor max-w-5xl w-[95vw] h-[90vh] flex flex-col p-0 gap-0 overflow-hidden bg-background/95 backdrop-blur-xl border-border/50 max-sm:w-screen max-sm:h-dvh max-sm:max-w-none max-sm:rounded-none max-sm:border-0 max-sm:top-0 max-sm:left-0 max-sm:translate-x-0 max-sm:translate-y-0">
+            <DialogContent className="settings-screen mobile-editor max-w-5xl w-[95vw] h-[90vh] flex flex-col p-0 gap-0 overflow-hidden bg-background/95 backdrop-blur-xl border-border/50 max-sm:w-screen max-sm:h-dvh max-sm:max-w-none max-sm:rounded-none max-sm:border-0 max-sm:top-0 max-sm:left-0 max-sm:translate-x-0 max-sm:translate-y-0">
                 <DialogHeader className="p-6 pb-2 border-b shrink-0">
                     <DialogTitle className="flex items-center gap-2 text-xl">
                         <Settings className="h-5 w-5" />
@@ -236,30 +244,49 @@ export function SettingsPanel({ open, onOpenChange, initialSection = 'api' }: Se
                         onValueChange={setSection}
                         className="h-full flex flex-col"
                     >
-                        {/* 4 columns can't fit 375px ("Fonctions IA" alone ≈ 118px min):
-                            mobile switches to a scrollable row. */}
                         <div className="px-6 max-sm:px-3 py-2 border-b shrink-0 bg-muted/20">
-                            <label className="sm:hidden block text-sm space-y-1">
-                                Rubrique
-                                <select
-                                    aria-label="Rubrique des réglages"
-                                    className="block w-full p-3 rounded-md bg-background border"
-                                    value={section}
-                                    onChange={(e) => setSection(e.target.value)}
-                                >
-                                    <option value="api">Connexions</option>
-                                    <option value="chat">Réponse de l’IA</option>
-                                    <option value="ai">Mémoire et scènes</option>
-                                    <option value="appearance">Apparence</option>
-                                    <option value="backups">Sauvegardes</option>
-                                </select>
-                            </label>
+                            <div className="sm:hidden space-y-1">
+                                <p className="text-sm">Rubrique</p>
+                                <DropdownMenu>
+                                    <DropdownMenuTrigger asChild>
+                                        <Button
+                                            variant="outline"
+                                            aria-label="Rubrique des réglages"
+                                            className="h-12 w-full justify-between bg-background text-base font-normal"
+                                        >
+                                            {SETTINGS_SECTIONS.find(
+                                                (item) => item.value === section
+                                            )?.label || 'Connexions'}
+                                            <ChevronDown className="size-4" />
+                                        </Button>
+                                    </DropdownMenuTrigger>
+                                    <DropdownMenuContent
+                                        align="start"
+                                        side="bottom"
+                                        sideOffset={4}
+                                        className="w-[calc(100vw-1.5rem)]"
+                                    >
+                                        {SETTINGS_SECTIONS.map((item) => (
+                                            <DropdownMenuItem
+                                                key={item.value}
+                                                onSelect={() => setSection(item.value)}
+                                                className="flex items-center justify-between"
+                                            >
+                                                {item.label}
+                                                {section === item.value && (
+                                                    <Check className="size-4" />
+                                                )}
+                                            </DropdownMenuItem>
+                                        ))}
+                                    </DropdownMenuContent>
+                                </DropdownMenu>
+                            </div>
                             <TabsList className="max-sm:hidden w-full flex flex-wrap h-auto">
-                                <TabsTrigger value="api">Connexions</TabsTrigger>
-                                <TabsTrigger value="chat">Réponse de l’IA</TabsTrigger>
-                                <TabsTrigger value="ai">Mémoire et scènes</TabsTrigger>
-                                <TabsTrigger value="appearance">Apparence</TabsTrigger>
-                                <TabsTrigger value="backups">Sauvegardes</TabsTrigger>
+                                {SETTINGS_SECTIONS.map((item) => (
+                                    <TabsTrigger key={item.value} value={item.value}>
+                                        {item.label}
+                                    </TabsTrigger>
+                                ))}
                             </TabsList>
                         </div>
 

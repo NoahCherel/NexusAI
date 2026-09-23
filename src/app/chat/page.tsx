@@ -1,7 +1,7 @@
 'use client';
 import { useConversationPersona, getConversationPersona } from '@/hooks/useConversationPersona';
 
-import { useRef, useEffect, useState, useMemo, useCallback } from 'react';
+import { useRef, useEffect, useLayoutEffect, useState, useMemo, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Settings2, Sparkles, Users, ChevronUp } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -124,7 +124,8 @@ export default function ChatPage() {
     // Initialize IndexedDB and load data
     useAppInitialization();
 
-    const scrollRef = useRef<HTMLDivElement>(null);
+    const messageViewportRef = useRef<HTMLDivElement>(null);
+    const lastOpenedAtBottomRef = useRef<string | null>(null);
     const { getActiveCharacter, removeCharacter, characters } = useCharacterStore();
     const {
         conversations,
@@ -239,15 +240,30 @@ export default function ChatPage() {
         initializeDefaultPresets();
     }, [initializeDefaultPresets]);
 
-    // Auto-scroll to bottom when switching conversations or loading
-    useEffect(() => {
-        if (activeConversationId) {
-            // Small delay to ensure content is rendered
-            setTimeout(() => {
-                scrollRef.current?.scrollIntoView({ behavior: 'instant' });
-            }, 100);
+    // Message reads finish after selection changes. Jump only once the selected history
+    // has actually rendered, before paint; returning from the character library also
+    // resumes at the latest message without fighting deliberate upward scrolling.
+    useLayoutEffect(() => {
+        if (mobileScreen !== 'chat') {
+            lastOpenedAtBottomRef.current = null;
+            return;
         }
-    }, [activeConversationId]);
+        if (
+            !activeConversationId ||
+            messages.length === 0 ||
+            lastOpenedAtBottomRef.current === activeConversationId
+        )
+            return;
+        const viewport = messageViewportRef.current;
+        if (!viewport) return;
+        viewport.scrollTop = viewport.scrollHeight;
+        lastOpenedAtBottomRef.current = activeConversationId;
+        const frame = requestAnimationFrame(() => {
+            if (useChatStore.getState().activeConversationId === activeConversationId)
+                viewport.scrollTop = viewport.scrollHeight;
+        });
+        return () => cancelAnimationFrame(frame);
+    }, [activeConversationId, messages, mobileScreen]);
 
     // Sync lorebook when character changes
     useEffect(() => {
@@ -350,12 +366,11 @@ export default function ChatPage() {
         scrollRafPending.current = true;
         requestAnimationFrame(() => {
             scrollRafPending.current = false;
-            const sentinel = scrollRef.current;
-            if (!sentinel) return;
-            const rect = sentinel.getBoundingClientRect();
-            if (rect.top < window.innerHeight + 400) {
-                sentinel.scrollIntoView({ block: 'end' });
-            }
+            const viewport = messageViewportRef.current;
+            if (!viewport) return;
+            const distanceToBottom =
+                viewport.scrollHeight - viewport.clientHeight - viewport.scrollTop;
+            if (distanceToBottom < 400) viewport.scrollTop = viewport.scrollHeight;
         });
     }, [messages]);
 
@@ -790,7 +805,7 @@ export default function ChatPage() {
 
                         <div className="flex-1 flex flex-col min-h-0 relative">
                             {/* Messages Area */}
-                            <div className="flex-1 overflow-y-auto w-full scroll-smooth">
+                            <div ref={messageViewportRef} className="flex-1 overflow-y-auto w-full">
                                 <div className="max-w-3xl mx-auto p-4 space-y-6 pb-4">
                                     {messages.length === 0 ? (
                                         <div className="h-full flex flex-col items-center justify-center text-muted-foreground gap-4 py-20 opacity-50">
@@ -908,8 +923,6 @@ export default function ChatPage() {
                                             })}
                                         </>
                                     )}
-
-                                    <div ref={scrollRef} />
                                 </div>
                             </div>
                         </div>
@@ -920,7 +933,7 @@ export default function ChatPage() {
                             className={`z-20 ${
                                 immersiveMode
                                     ? 'absolute bottom-4 left-4 right-4 rounded-2xl glass-heavy shadow-2xl'
-                                    : 'p-4 border-t border-white/5 glass-heavy'
+                                    : 'mobile-chat-composer p-4 border-t border-white/5 glass-heavy'
                             }`}
                         >
                             <div

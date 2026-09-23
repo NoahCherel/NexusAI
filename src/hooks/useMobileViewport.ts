@@ -13,14 +13,22 @@ export function useMobileViewport() {
             if (!focused) fullHeight = window.innerHeight;
             // Zoom belongs to the reader; never resize the application to the zoomed viewport.
             if (viewport && viewport.scale !== 1) return;
-            const height = viewport?.height ?? window.innerHeight;
-            const keyboard = !!focused && fullHeight - height > 120;
+            const visualHeight = viewport?.height ?? window.innerHeight;
+            const keyboard = !!focused && fullHeight - visualHeight > 120;
             setKeyboardOpen(keyboard);
-            document.documentElement.style.setProperty('--visible-height', `${height}px`);
-            document.documentElement.style.setProperty(
-                '--visible-top',
-                `${viewport?.offsetTop ?? 0}px`
-            );
+            // In an installed iOS app the visual viewport can be shorter than the actual
+            // screen even with the keyboard closed. Use CSS 100dvh then; only follow the
+            // visual viewport while the keyboard is genuinely occupying space.
+            if (keyboard) {
+                document.documentElement.style.setProperty('--visible-height', `${visualHeight}px`);
+                document.documentElement.style.setProperty(
+                    '--visible-top',
+                    `${viewport?.offsetTop ?? 0}px`
+                );
+            } else {
+                document.documentElement.style.removeProperty('--visible-height');
+                document.documentElement.style.removeProperty('--visible-top');
+            }
             document.documentElement.dataset.keyboard = String(keyboard);
         };
         update();
@@ -36,6 +44,8 @@ export function useMobileViewport() {
             document.removeEventListener('focusin', update);
             document.removeEventListener('focusout', update);
             delete document.documentElement.dataset.keyboard;
+            document.documentElement.style.removeProperty('--visible-height');
+            document.documentElement.style.removeProperty('--visible-top');
         };
     }, []);
     return keyboardOpen;
