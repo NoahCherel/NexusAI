@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect, KeyboardEvent } from 'react';
 import { motion, Variants } from 'framer-motion';
-import { Send, User, StopCircle } from 'lucide-react';
+import { Send, User, StopCircle, Eraser } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 
@@ -178,6 +178,23 @@ export function ChatInput({
                     disabled={isSaving}
                     rows={1}
                 />
+
+                {message && (
+                    <Button
+                        variant="ghost"
+                        size="icon"
+                        className="inline-flex shrink-0"
+                        aria-label="Effacer le message"
+                        title="Effacer le message"
+                        disabled={isSaving || isImpersonating}
+                        onClick={() => {
+                            setMessage('');
+                            textareaRef.current?.focus();
+                        }}
+                    >
+                        <Eraser className="h-5 w-5" />
+                    </Button>
+                )}
 
                 <Button
                     aria-label={isLoading ? 'Arrêter' : 'Envoyer'}

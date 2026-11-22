@@ -756,9 +756,8 @@ export function useChatGeneration({
 
                 const decoder = new TextDecoder();
 
-                // If we have a prefill that WASN'T sent to the API, we start with it. If it
-                // WAS sent (Anthropic), the stream continues AFTER it. Always maintain
-                // `fullContent`.
+                // An explicit prefill (the continue path) is the message's own text: the
+                // stream continues AFTER it. Always maintain `fullContent`.
                 fullContent = initialContent;
 
                 // STREAMING HOT PATH: throttle the store flush (~20/s) and NEVER write
@@ -1530,9 +1529,6 @@ export function useChatGeneration({
         onCommitted?.();
         if (useChatStore.getState().activeConversationId !== activeConversationId) return;
 
-        const activePreset = getActivePreset();
-        const prefill = activePreset?.assistantPrefill || undefined;
-
         // Construct history for API (include the new message)
         const history = [...messages, newUserMessage];
 
@@ -1553,7 +1549,8 @@ export function useChatGeneration({
             return;
         }
 
-        await triggerAiReponse(history, { prefill });
+        // The preset prefill is added (hidden) by buildConversationPayload, not shown here.
+        await triggerAiReponse(history);
     };
 
     /**

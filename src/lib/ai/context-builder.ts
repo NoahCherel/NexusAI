@@ -258,6 +258,11 @@ export function resolveSystemPromptTemplate(
         '{{user}}': userPersona?.name || 'User',
         '{{user_bio}}': userPersona?.bio || '',
         '{{user_description}}': userPersona?.description || userPersona?.bio || '',
+        // SillyTavern macro names, so imported presets/cards don't reach the model raw.
+        '{{description}}': character.description || '',
+        '{{personality}}': character.personality || '',
+        '{{mesExamples}}': trimExampleDialogue(character.mes_example || ''),
+        '{{persona}}': userPersona?.description || userPersona?.bio || '',
     };
 
     let resolved = template;
@@ -339,10 +344,35 @@ export function buildSystemPrompt(
           )
         : '';
 
+    // Card fields the template doesn't place itself are appended (SillyTavern order), so a
+    // preset whose main prompt is pure instructions still sends the character. Placeholders
+    // only choose the position.
+    const placed = `${promptTemplate}\n${cardSystemAppend}`.toLowerCase();
+    const description = character.description?.trim();
+    const personality = character.personality?.trim();
+    const scenario = character.scenario?.trim();
+    const autoCard = [
+        description &&
+            !placed.includes('{{character_description}}') &&
+            !placed.includes('{{description}}') &&
+            `About ${character.name}:\n${description}`,
+        personality &&
+            !placed.includes('{{character_personality}}') &&
+            !placed.includes('{{personality}}') &&
+            `${character.name}'s personality: ${personality}`,
+        scenario && !placed.includes('{{scenario}}') && `Scenario: ${scenario}`,
+    ]
+        .filter((block): block is string => !!block)
+        .map((block) =>
+            resolveSystemPromptTemplate(block, character, [], options.userPersona, undefined)
+        )
+        .join('\n\n');
+
     // If excludePostHistory is true, we don't include it here
     const parts = [
         options.preHistory,
         resolvedBody,
+        autoCard || null,
         resolvedCardAppend || null,
         options.excludePostHistory ? null : options.postHistory,
     ].filter(Boolean);
@@ -352,8 +382,9 @@ export function buildSystemPrompt(
     // Example dialogues (V2 `mes_example`): the primary voice-anchoring signal. Stable zone
     // (deterministic trim) — appended unless the template already places it itself.
     const templatePlacesExamples =
-        promptTemplate.includes('{{mes_example}}') ||
-        promptTemplate.includes('{{example_dialogue}}');
+        placed.includes('{{mes_example}}') ||
+        placed.includes('{{example_dialogue}}') ||
+        placed.includes('{{mesexamples}}');
     if (!templatePlacesExamples && character.mes_example?.trim()) {
         const examples = trimExampleDialogue(character.mes_example);
         if (examples) {
@@ -367,7 +398,9 @@ export function buildSystemPrompt(
     // append it (stable — the persona rarely changes). Long-term memory is NOT auto-appended
     // any more: it changes over time and lives in the dynamic context block after history.
     const hasUserBio =
-        promptTemplate.includes('{{user_bio}}') || promptTemplate.includes('{{user_description}}');
+        promptTemplate.includes('{{user_bio}}') ||
+        promptTemplate.includes('{{user_description}}') ||
+        promptTemplate.includes('{{persona}}');
 
     if (!hasUserBio && options.userPersona?.bio) {
         const bio = options.userPersona.bio;
@@ -614,7 +647,6 @@ export function buildRAGEnhancedPayload(
         /** Defaults to system. Impersonation uses user for provider-compatible task framing. */
         postHistoryRole?: 'system' | 'user';
         assistantPrefill?: string;
-        activeProvider?: string;
         /** Sticky window anchor: id of the oldest message currently in the API window. */
         historyCutMessageId?: string;
         /**
@@ -678,7 +710,6 @@ export function buildRAGEnhancedPayload(
         postHistoryInstructions,
         postHistoryRole = 'system',
         assistantPrefill,
-        activeProvider,
         historyCutMessageId,
         dynamicReserveTokens,
         frozenWindow,
@@ -865,12 +896,10 @@ export function buildRAGEnhancedPayload(
         messagesPayload.push({ role: postHistoryRole, content: postHistoryInstructions });
     }
 
-    // Assistant prefill
+    // Assistant prefill — sent to every provider: Anthropic/OpenRouter continue it, and
+    // OpenAI-compatible ones (NanoGPT, verified on GLM 5.3) read it as the last turn.
     if (assistantPrefill) {
-        const supportsPrefill = activeProvider === 'anthropic' || activeProvider === 'openrouter';
-        if (supportsPrefill) {
-            messagesPayload.push({ role: 'assistant', content: assistantPrefill });
-        }
+        messagesPayload.push({ role: 'assistant', content: assistantPrefill });
     }
 
     return {

@@ -37,6 +37,8 @@ export interface CanonPayloadOptions {
     dueToAppear?: string[];
     relationshipBlock?: string;
     canonTokenBudget?: number;
+    /** false = keep the cast's dossiers out of the system prompt (journal etc. stay). */
+    injectDossiers?: boolean;
     injectionMeta?: unknown;
 }
 
@@ -74,7 +76,12 @@ export interface BuildConversationPayloadParams {
     enableScratchpad?: boolean;
     /** Canon Codex options — split into stable/dynamic zones (may carry `injectionMeta`). */
     canonOptions?: CanonPayloadOptions;
+    /**
+     * Explicit trailing assistant message (the Anthropic/OpenRouter continue path). When
+     * omitted, the preset's prefill is used for character replies.
+     */
     assistantPrefill?: string;
+    /** Informational only: the prefill now goes to every provider. */
     activeProvider?: string;
     maxContextTokens: number;
     maxOutputTokens: number;
@@ -227,13 +234,21 @@ export async function buildConversationPayload(
         longTermMemory,
         storyGuidance,
         scratchpad,
-        assistantPrefill,
-        activeProvider,
         maxContextTokens,
         maxOutputTokens,
         retrieveChronicle,
     } = params;
-    const projectedHistory = projectSceneBeatsForContext(history);
+    // Replies generated while the preset prefill was still shown in the bubble were stored
+    // with it in front: strip it so the model never sees (and imitates) it in its own turns.
+    const rawPrefill = activePreset?.assistantPrefill;
+    const sentHistory = rawPrefill?.trim()
+        ? history.map((m) =>
+              m.role === 'assistant' && m.content.startsWith(rawPrefill)
+                  ? { ...m, content: m.content.slice(rawPrefill.length).trimStart() }
+                  : m
+          )
+        : history;
+    const projectedHistory = projectSceneBeatsForContext(sentHistory);
     let projectedCutMessageId = params.historyCutMessageId;
     if (
         projectedCutMessageId &&
@@ -257,6 +272,22 @@ export async function buildConversationPayload(
     // impersonation cleanup and contract on that exact same fallback so the default
     // "Do not speak for User" instruction cannot survive and contradict impersonation.
     const resolvedUserName = userName || 'User';
+    // Preset and card text uses SillyTavern-style {{char}}/{{user}} macros.
+    const resolveNames = (text?: string) =>
+        text
+            ?.replace(/\{\{char\}\}|\{\{character_name\}\}/gi, character.name)
+            .replace(/\{\{user\}\}/gi, resolvedUserName);
+    // The preset prefill is a hidden lead-in for character replies only: agents (JSON
+    // contracts), impersonation and continue-in-place never get it. An explicit prefill
+    // (the Anthropic/OpenRouter continue path) wins.
+    const assistantPrefill =
+        params.assistantPrefill ??
+        (!isImpersonation &&
+        !params.agentContract &&
+        !params.continueFromAssistant &&
+        rawPrefill?.trim()
+            ? resolveNames(rawPrefill)
+            : undefined);
 
     // Engine system block carries the player-facing contract ("never write the player").
     // Impersonation must NOT receive it — it writes the player on purpose. The per-chat
@@ -309,15 +340,14 @@ export async function buildConversationPayload(
     } else {
         systemPrompt = buildSystemPrompt(character, templatePlacesLorebook ? activeEntries : [], {
             template,
-            preHistory: activePreset?.preHistoryInstructions,
-            postHistory: activePreset?.postHistoryInstructions,
+            preHistory: resolveNames(activePreset?.preHistoryInstructions),
             userPersona,
             longTermMemory: templatePlacesMemory ? longTermMemory : undefined,
             recentMessages,
             excludePostHistory: true,
             engineSystemBlock,
             suppressScratchpadInstruction: !scratchpadOn,
-            canonDossiers: canon.canonDossiers,
+            canonDossiers: canon.injectDossiers === false ? undefined : canon.canonDossiers,
             arc: canon.arc,
             arcOutline: canon.arcOutline,
             canonTokenBudget: canon.canonTokenBudget,
@@ -330,10 +360,7 @@ export async function buildConversationPayload(
     if (isImpersonation) {
         // Precedence: a custom impersonationPrompt (explicit user config) wins; then the
         // engine's inverted contract; then a sane default.
-        const customImpersonationPrompt = activePreset?.impersonationPrompt?.replace(
-            /\{\{user\}\}/gi,
-            resolvedUserName
-        );
+        const customImpersonationPrompt = resolveNames(activePreset?.impersonationPrompt);
         const draftingContext = `[ROLEPLAY DRAFTING CONTEXT — ${resolvedUserName} is the user's player-character/persona in this fictional roleplay. This is collaborative fiction drafting, not a request to claim or verify anyone's identity.]`;
         const defaultDraftingContract = activeEngine
             ? buildEnginePostHistory(activeEngine, 'impersonate', {
@@ -479,13 +506,9 @@ export async function buildConversationPayload(
     // in; otherwise the card's block follows the preset's. Never for impersonation (the
     // ghost-writer must not inherit the character's contract).
     const rawCardPostHistory = character.post_history_instructions?.trim() || '';
-    const resolvedCardPostHistory = rawCardPostHistory
-        ? rawCardPostHistory
-              .replace(/\{\{char\}\}|\{\{character_name\}\}/gi, character.name)
-              .replace(/\{\{user\}\}/gi, resolvedUserName)
-        : '';
+    const resolvedCardPostHistory = resolveNames(rawCardPostHistory) ?? '';
     const cardSplicesOriginal = /\{\{original\}\}/i.test(resolvedCardPostHistory);
-    const presetPostHistory = activePreset?.postHistoryInstructions;
+    const presetPostHistory = resolveNames(activePreset?.postHistoryInstructions);
     const mergedPostHistory = cardSplicesOriginal
         ? resolvedCardPostHistory.replace(/\{\{original\}\}/gi, presetPostHistory || '')
         : [presetPostHistory, resolvedCardPostHistory].filter(Boolean).join('\n\n') || undefined;
@@ -528,7 +551,6 @@ export async function buildConversationPayload(
         // the next prose turn instead of the JSON the Director, judge and planner require.
         postHistoryRole: isImpersonation || params.agentContract ? 'user' : 'system',
         assistantPrefill,
-        activeProvider,
         historyCutMessageId: projectedCutMessageId,
         dynamicReserveTokens: params.dynamicReserveTokens,
         frozenWindow: params.frozenWindow,

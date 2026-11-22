@@ -317,8 +317,11 @@ export function PresetEditor() {
                                     </Button>
                                 </Label>
                                 <p className="text-xs text-muted-foreground">
-                                    Placeholders disponibles : {'{{character_name}}'},
-                                    {'{{lorebook}}'}
+                                    La carte (description, personnalité, scénario) est ajoutée
+                                    automatiquement ; les placeholders servent seulement à choisir
+                                    leur position : {'{{character_description}}'},{' '}
+                                    {'{{character_personality}}'}, {'{{scenario}}'},{' '}
+                                    {'{{lorebook}}'}.
                                 </p>
                                 <Textarea
                                     value={activePreset.systemPromptTemplate}
@@ -775,9 +778,14 @@ export function PresetEditor() {
 
                             <div className="space-y-2">
                                 <Label>Préremplissage assistant</Label>
-                                <Input
+                                <p className="text-xs text-muted-foreground">
+                                    Envoyé au modèle en dernier message, jamais affiché dans la
+                                    réponse.
+                                </p>
+                                <Textarea
                                     value={activePreset.assistantPrefill || ''}
                                     onChange={(e) => update({ assistantPrefill: e.target.value })}
+                                    className="min-h-[80px] font-mono text-sm"
                                     placeholder="Commencer la réponse par…"
                                 />
                             </div>

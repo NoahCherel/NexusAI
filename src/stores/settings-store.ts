@@ -131,6 +131,9 @@ interface SettingsState {
     // carte des arcs, Récupérer la fiche complète) are disabled. Useful for custom universes
     // where the user writes everything manually. Dossiers already in the DB are still injected.
     useCanonAutoFetch: boolean;
+    // When false, Casting dossiers stay out of the prompt (cards that already describe their
+    // cast in the description / lorebook). Arc, relationships and journal are unaffected.
+    injectCanonDossiers: boolean;
 
     // Actions
     setApiKey: (config: ApiKeyConfig) => void;
@@ -170,6 +173,7 @@ interface SettingsState {
     setEnableHierarchicalSummaries: (enabled: boolean) => void;
     setUseCanonCodex: (enabled: boolean) => void;
     setUseCanonAutoFetch: (enabled: boolean) => void;
+    setInjectCanonDossiers: (enabled: boolean) => void;
 
     // Preset Actions
     addPreset: (preset: APIPreset) => void;
@@ -255,6 +259,7 @@ export const useSettingsStore = create<SettingsState>()(
             enableHierarchicalSummaries: true,
             useCanonCodex: true,
             useCanonAutoFetch: true,
+            injectCanonDossiers: true,
 
             // Actions
             setApiKey: (config) =>
@@ -335,6 +340,7 @@ export const useSettingsStore = create<SettingsState>()(
                 set({ enableHierarchicalSummaries }),
             setUseCanonCodex: (useCanonCodex) => set({ useCanonCodex }),
             setUseCanonAutoFetch: (useCanonAutoFetch) => set({ useCanonAutoFetch }),
+            setInjectCanonDossiers: (injectCanonDossiers) => set({ injectCanonDossiers }),
 
             // Preset Actions
             addPreset: (preset) =>

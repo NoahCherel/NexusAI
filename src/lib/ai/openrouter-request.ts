@@ -199,7 +199,9 @@ export function buildOpenRouterChatBody(params: OpenRouterChatParams): OpenRoute
 
     // OpenRouter-specific sampler parameters
     if (topK) body.top_k = topK;
-    if (minP) body.min_p = minP;
+    // min_p ≥ 1 keeps only the top token (greedy) — imported presets carry it for backends
+    // that ignore it (e.g. Gemini presets), so never forward it.
+    if (minP && minP < 1) body.min_p = minP;
     if (repetitionPenalty) body.repetition_penalty = repetitionPenalty;
 
     // Web search for canon retrieval. We use the `web` PLUGIN (search runs BEFORE the

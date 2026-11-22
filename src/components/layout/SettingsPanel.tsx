@@ -106,6 +106,8 @@ export function SettingsPanel({ open, onOpenChange, initialSection = 'api' }: Se
         setUseCanonCodex,
         useCanonAutoFetch,
         setUseCanonAutoFetch,
+        injectCanonDossiers,
+        setInjectCanonDossiers,
         nanogptModels,
         setNanogptModels,
         backgroundProvider,
@@ -932,6 +934,13 @@ export function SettingsPanel({ open, onOpenChange, initialSection = 'api' }: Se
                                         description="Off ⇒ aucun appel API pour le canon (roster, fiches, carte des arcs). Vos fiches manuelles restent injectées. Pour univers custom."
                                         value={useCanonAutoFetch}
                                         onChange={setUseCanonAutoFetch}
+                                        disabled={!useCanonCodex}
+                                    />
+                                    <FeatureToggle
+                                        title="Fiches du Casting dans le prompt"
+                                        description="Off ⇒ les fiches ne sont plus injectées (pour les cartes qui décrivent déjà leurs persos dans la description ou le lorebook). Arc, relations et journal restent actifs."
+                                        value={injectCanonDossiers ?? true}
+                                        onChange={setInjectCanonDossiers}
                                         disabled={!useCanonCodex}
                                     />
                                     {/* Pas de `disabled={!useCanonCodex}` : l'analyste ne consulte

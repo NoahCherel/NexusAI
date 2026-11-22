@@ -82,6 +82,8 @@ export function getActiveCanonNames(
 
 export interface CanonPromptOptions {
     canonDossiers?: CanonDossier[];
+    /** false = dossiers are on stage but their text stays out of the system prompt. */
+    injectDossiers?: boolean;
     rpJournal?: Record<string, string[]>;
     arc?: Conversation['arc'];
     arcOutline?: string;
@@ -260,6 +262,10 @@ export async function buildCanonOptions(
     const ignoredDisabled = mentioned
         .filter((d) => d.enabled === false && !d.stub)
         .map((d) => d.character);
+    // Global switch for cards that already describe their cast (description / lorebook):
+    // the dossiers stay on stage for the journal, only their text leaves the prompt.
+    const injectDossiers = useSettingsStore.getState().injectCanonDossiers !== false;
+    const injectedNames = injected.map((d) => d.character);
 
     // Arc Compass is ON by default — only an explicit `enabled: false` turns it off. This is
     // what lets new conversations get the Director block without any user setup.
@@ -306,6 +312,7 @@ export async function buildCanonOptions(
 
     return {
         canonDossiers: injected,
+        injectDossiers,
         rpJournal: conversation?.rpJournal,
         arc,
         arcOutline: arcOutlineForPrompt,
@@ -313,9 +320,11 @@ export async function buildCanonOptions(
         dueToAppear,
         relationshipBlock: relationshipBlock || undefined,
         injectionMeta: {
-            injectedNames: injected.map((d) => d.character),
+            injectedNames: injectDossiers ? injectedNames : [],
             ignoredStubs,
-            ignoredDisabled,
+            ignoredDisabled: injectDossiers
+                ? ignoredDisabled
+                : [...ignoredDisabled, ...injectedNames],
             scanDepth: SCAN_DEPTH,
             dueToAppear,
         },
