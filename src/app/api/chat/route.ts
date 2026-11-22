@@ -4,6 +4,7 @@ import {
     applyClaudeCacheBreakpoints,
     buildOpenRouterChatBody,
     isClaudeModelId,
+    prepareModelMessages,
     withSystemMessage,
     type OpenRouterMessageParam,
     type OpenRouterRequestBody,
@@ -146,7 +147,7 @@ export async function POST(req: NextRequest) {
             // a 400 here would break the user's main RP flow); the client estimates locally.
             requestBody = {
                 model: effectiveModelId,
-                messages: fullMessages,
+                messages: prepareModelMessages(fullMessages, effectiveModelId, cachePrefixLength),
                 temperature: temperature ?? 0.8,
                 max_tokens: maxTokens ?? 4096,
                 top_p: topP,

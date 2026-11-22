@@ -7,6 +7,7 @@ import { describe, expect, it } from 'vitest';
 import {
     buildOpenRouterChatBody,
     buildSystemMessage,
+    prepareModelMessages,
     withSystemMessage,
     type OpenRouterChatParams,
 } from '@/lib/ai/openrouter-request';
@@ -124,6 +125,79 @@ describe('buildOpenRouterChatBody', () => {
             mode: 'stream',
         });
         expect(web.plugins).toEqual([{ id: 'web', max_results: 3 }]);
+    });
+
+    it('pins live requests to the conversation session, with no batch session field', () => {
+        const params = { ...base, sessionId: 'conversation-123' };
+        expect(buildOpenRouterChatBody({ ...params, mode: 'stream' }).session_id).toBe(
+            'conversation-123'
+        );
+        expect(buildOpenRouterChatBody({ ...params, mode: 'batch' })).not.toHaveProperty(
+            'session_id'
+        );
+        expect(buildOpenRouterChatBody({ ...base, mode: 'stream' })).not.toHaveProperty(
+            'session_id'
+        );
+    });
+
+    it.each(['stream', 'batch'] as const)(
+        'keeps Gemini dynamic context out of the normalized system instruction in %s mode',
+        (mode) => {
+            const messages = [
+                { role: 'system', content: 'STABLE CHARACTER AND RULES' },
+                { role: 'user', content: 'Hello' },
+                { role: 'assistant', content: 'Hi' },
+                { role: 'system', content: 'CURRENT CONTEXT: plan A' },
+            ];
+            const buildTurn = (input: typeof messages) =>
+                buildOpenRouterChatBody({
+                    ...base,
+                    model: 'google/gemini-4-argon',
+                    messages: input,
+                    cachePrefixLength: 3,
+                    mode,
+                }).messages as typeof messages;
+            const first = buildTurn(messages);
+            const next = buildTurn([
+                ...messages.slice(0, 3),
+                { role: 'system', content: 'CURRENT CONTEXT: plan B' },
+            ]);
+            const system = (turn: typeof messages) =>
+                turn.filter((m) => m.role === 'system' || m.role === 'developer');
+            expect(system(first)).toEqual([messages[0]]);
+            expect(system(next)).toEqual(system(first));
+            expect(first.slice(0, 3)).toEqual(messages.slice(0, 3));
+            expect(first[3]).toEqual({ role: 'user', content: messages[3].content });
+            expect(messages[3].role).toBe('system');
+            expect(JSON.stringify(first)).not.toContain('cache_control');
+        }
+    );
+});
+
+describe('model message preparation', () => {
+    const messages = [
+        { role: 'system', content: 'stable' },
+        { role: 'user', content: 'history' },
+        { role: 'developer', content: 'dynamic instructions' },
+        { role: 'assistant', content: 'prefill' },
+    ];
+
+    it('also adapts a Gemini developer suffix without changing an assistant prefill', () => {
+        expect(prepareModelMessages(messages, 'google/gemini-4-argon', 2)).toEqual([
+            ...messages.slice(0, 2),
+            { role: 'user', content: 'dynamic instructions' },
+            messages[3],
+        ]);
+    });
+
+    it('preserves other models and Gemini requests without a valid stable boundary', () => {
+        expect(prepareModelMessages(messages, 'anthropic/claude-sonnet-4', 2)).toEqual(messages);
+        expect(prepareModelMessages(messages, 'openai/gpt-4o', 2)).toEqual(messages);
+        for (const boundary of [undefined, 0, -1, 1.5, NaN, 99]) {
+            expect(prepareModelMessages(messages, 'google/gemini-4-argon', boundary)).toEqual(
+                messages
+            );
+        }
     });
 });
 

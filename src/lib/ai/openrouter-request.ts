@@ -43,6 +43,8 @@ export interface OpenRouterChatParams {
     webMaxResults?: number;
     /** Number of leading messages forming the cache-stable prefix (system + history). */
     cachePrefixLength?: number;
+    /** Stable conversation id for OpenRouter provider affinity. */
+    sessionId?: string;
     mode: 'stream' | 'batch';
 }
 
@@ -100,6 +102,35 @@ export function isClaudeModelId(modelId: string): boolean {
 }
 
 /**
+ * Gemini has one system instruction. Keep the app's dynamic suffix out of that
+ * instruction, otherwise upstream normalization can invalidate the entire prefix.
+ * Only reframe messages explicitly outside the caller's stable prefix; preserve
+ * leading system/developer instructions and calls without a known boundary.
+ * Gemini 4 uses implicit caching, so do not add explicit cache_control markers.
+ */
+export function prepareModelMessages(
+    messages: OpenRouterMessageParam[],
+    model: string,
+    cachePrefixLength?: number
+): OpenRouterMessageParam[] {
+    const hasDynamicBoundary =
+        /gemini/i.test(model) &&
+        typeof cachePrefixLength === 'number' &&
+        Number.isInteger(cachePrefixLength) &&
+        cachePrefixLength >= 1 &&
+        cachePrefixLength <= messages.length;
+    return messages.map((message, index) => ({
+        ...message,
+        role:
+            hasDynamicBoundary &&
+            index >= cachePrefixLength! &&
+            (message.role === 'system' || message.role === 'developer')
+                ? 'user'
+                : message.role,
+    }));
+}
+
+/**
  * Explicit prompt-cache breakpoints for Claude models (OpenRouter passes `cache_control`
  * through to Anthropic). Marks the system message and the last message of the stable
  * prefix; Anthropic then prefix-matches on earlier breakpoints as the window grows.
@@ -148,10 +179,11 @@ export function buildOpenRouterChatBody(params: OpenRouterChatParams): OpenRoute
         webSearch,
         webMaxResults,
         cachePrefixLength,
+        sessionId,
         mode,
     } = params;
 
-    const fullMessages = messages.map((m) => ({ ...m }));
+    const fullMessages = prepareModelMessages(messages, model, cachePrefixLength);
     if (isClaudeModelId(model)) applyClaudeCacheBreakpoints(fullMessages, cachePrefixLength);
 
     const body: OpenRouterRequestBody = {
@@ -188,6 +220,7 @@ export function buildOpenRouterChatBody(params: OpenRouterChatParams): OpenRoute
     }
 
     if (mode === 'stream') {
+        if (sessionId) body.session_id = sessionId;
         // Flex is a capacity grade of the live request; a batch is already discounted.
         if (useFlexTier) body.service_tier = 'flex';
         // Token usage reporting: the usage chunk at the end of the stream, plus the

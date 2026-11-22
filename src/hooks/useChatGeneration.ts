@@ -685,6 +685,7 @@ export function useChatGeneration({
                 systemInstruction: undefined,
                 // Cache-stable prefix boundary (system + history) for Claude cache_control.
                 cachePrefixLength: stablePrefixLength,
+                sessionId: activeConversationId ?? undefined,
             };
             let usage: CAMessage['usage'];
 
