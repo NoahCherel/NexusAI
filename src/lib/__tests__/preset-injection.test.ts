@@ -93,13 +93,13 @@ describe('card injection with an instruction-only template', () => {
 });
 
 describe('preset prefill and macros', () => {
-    it('sends the resolved prefill as the last assistant message on nanogpt', async () => {
+    it('sends the resolved prefill as a silent final instruction, never as a model turn', async () => {
         const { messagesPayload } = await build();
         const last = messagesPayload[messagesPayload.length - 1];
-        expect(last).toEqual({
-            role: 'assistant',
-            content: '1. Audit Mira vs Noah.\n2. Skip the drafting.',
-        });
+        // Gemini ≥ 3.6 rejects requests ending with a model turn (HTTP 400).
+        expect(last.role).not.toBe('assistant');
+        expect(last.content).toContain('1. Audit Mira vs Noah.\n2. Skip the drafting.');
+        expect(last.content.trimEnd().endsWith(']')).toBe(true);
         for (const m of messagesPayload) expect(m.content).not.toMatch(RAW_MACRO);
         expect(
             messagesPayload.some((m) => m.content.includes('Never write for Noah; you are Mira.'))

@@ -250,7 +250,10 @@ export async function POST(req: NextRequest) {
             status?: number;
             message?: string;
             headers?: Headers | { get?: (name: string) => string | null };
+            // OpenRouter: "Provider returned error" + the provider's real reason in metadata.raw.
+            error?: { metadata?: { raw?: unknown } };
         };
+        const providerRaw = upstream.error?.metadata?.raw;
         const upstreamStatus =
             typeof upstream.status === 'number' && upstream.status >= 400
                 ? upstream.status
@@ -259,7 +262,14 @@ export async function POST(req: NextRequest) {
         const retryAfter = retryAfterRaw ? Number(retryAfterRaw) : undefined;
         return new Response(
             JSON.stringify({
-                error: error instanceof Error ? error.message : 'Internal server error',
+                error:
+                    (error instanceof Error ? error.message : 'Internal server error') +
+                    (providerRaw
+                        ? ` — ${typeof providerRaw === 'string' ? providerRaw : JSON.stringify(providerRaw)}`.slice(
+                              0,
+                              600
+                          )
+                        : ''),
                 upstreamStatus,
                 retryAfter: Number.isFinite(retryAfter) ? retryAfter : undefined,
             }),

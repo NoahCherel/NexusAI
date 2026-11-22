@@ -77,8 +77,8 @@ export interface BuildConversationPayloadParams {
     /** Canon Codex options — split into stable/dynamic zones (may carry `injectionMeta`). */
     canonOptions?: CanonPayloadOptions;
     /**
-     * Explicit trailing assistant message (the Anthropic/OpenRouter continue path). When
-     * omitted, the preset's prefill is used for character replies.
+     * Explicit trailing assistant message (the Anthropic/OpenRouter continue path). The
+     * preset's prefill never goes here: it is sent as a final post-history instruction.
      */
     assistantPrefill?: string;
     /** Informational only: the prefill now goes to every provider. */
@@ -277,17 +277,23 @@ export async function buildConversationPayload(
         text
             ?.replace(/\{\{char\}\}|\{\{character_name\}\}/gi, character.name)
             .replace(/\{\{user\}\}/gi, resolvedUserName);
-    // The preset prefill is a hidden lead-in for character replies only: agents (JSON
-    // contracts), impersonation and continue-in-place never get it. An explicit prefill
-    // (the Anthropic/OpenRouter continue path) wins.
-    const assistantPrefill =
-        params.assistantPrefill ??
-        (!isImpersonation &&
+    // An explicit prefill (the Anthropic/OpenRouter continue path) is a literal trailing
+    // assistant turn. The preset prefill is NOT: Gemini ≥ 3.6 rejects a request ending with a
+    // model turn (HTTP 400) and older ones continue it as visible text, so it goes last in the
+    // post-history as a silent checklist. Character replies only: agents (JSON contracts),
+    // impersonation and continue-in-place never get it.
+    const assistantPrefill = params.assistantPrefill;
+    const presetPrefill =
+        !assistantPrefill &&
+        !isImpersonation &&
         !params.agentContract &&
         !params.continueFromAssistant &&
         rawPrefill?.trim()
             ? resolveNames(rawPrefill)
-            : undefined);
+            : undefined;
+    const prefillBlock = presetPrefill
+        ? `[BEFORE WRITING — work through this silently in your head; never write it out, start directly with the reply:\n${presetPrefill.trim()}]`
+        : undefined;
 
     // Engine system block carries the player-facing contract ("never write the player").
     // Impersonation must NOT receive it — it writes the player on purpose. The per-chat
@@ -525,6 +531,7 @@ export async function buildConversationPayload(
                   sceneEnsembleBlock,
                   agentContractBlock,
                   continueBlock,
+                  prefillBlock,
               ]
         )
             .filter(Boolean)

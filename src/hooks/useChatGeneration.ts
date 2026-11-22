@@ -1770,7 +1770,10 @@ export function useChatGeneration({
             return;
         }
 
-        const supportsPrefill = activeProvider === 'anthropic' || activeProvider === 'openrouter';
+        // Gemini ≥ 3.6 rejects a request ending with a model turn (HTTP 400).
+        const supportsPrefill =
+            activeProvider === 'anthropic' ||
+            (activeProvider === 'openrouter' && !/gemini/i.test(activeModel));
         if (supportsPrefill) {
             // Prefill path: the trailing assistant message makes the model literally keep
             // typing. Replace the message with prefill + continuation.

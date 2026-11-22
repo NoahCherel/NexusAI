@@ -896,8 +896,7 @@ export function buildRAGEnhancedPayload(
         messagesPayload.push({ role: postHistoryRole, content: postHistoryInstructions });
     }
 
-    // Assistant prefill — sent to every provider: Anthropic/OpenRouter continue it, and
-    // OpenAI-compatible ones (NanoGPT, verified on GLM 5.3) read it as the last turn.
+    // Explicit prefill (continue path only): the model literally keeps typing it.
     if (assistantPrefill) {
         messagesPayload.push({ role: 'assistant', content: assistantPrefill });
     }
