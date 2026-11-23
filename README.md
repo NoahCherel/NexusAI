@@ -1,48 +1,51 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# NexusAI
 
-## Getting Started
+A roleplay front-end in the spirit of SillyTavern, used as a home-screen web app (PWA) on
+iPhone. Characters, conversations, memories and settings live **in the browser only**
+(IndexedDB + localStorage). The Next.js server just relays calls to the AI providers
+(OpenRouter, NanoGPT, OpenAI) and to the character-card sites.
 
-First, run the development server:
+Stack: Next.js 16, React 19, Tailwind 4, zustand, IndexedDB schema v9.
+
+## Run
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
+npm install
+npm run dev                    # development, http://localhost:3000
+npm run build && npm start     # production build
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Deploy
 
-## Development & CI/CD
+Vercel builds `main` automatically. Pushing another branch only creates a preview at a
+different address, and a different address means a different, empty browser storage.
 
-This project enforces code quality to prevent regressions.
+- API keys are stored encrypted in the browser, but they pass through this deployment's
+  server routes (`/api/chat`, `/api/validate`, …) on their way to the provider.
+- Some card sites sit behind Cloudflare and may refuse a cloud server; the importer then
+  retries the request from the browser.
 
-### Available Scripts
+## Data and backups
 
-- **`npm run lint`**: Runs ESLint to catch errors.
-- **`npm run type-check`**: Validates TypeScript types (no emit).
-- **`npm run format:check`**: Checks if code matches Prettier style.
-- **`npm run format:write`**: Auto-formats code with Prettier.
-- **`npm run build`**: Builds the production application.
+- **Réglages → Sauvegardes → « Télécharger une sauvegarde globale »** writes every
+  conversation, character, memory and setting into one compressed `.json.gz` file, read page
+  by page so it works on large libraries. Save it through the share sheet
+  (« Enregistrer dans Fichiers » → iCloud Drive).
+- **« Restaurer un fichier de sauvegarde globale »** checks the whole file before writing
+  anything, then only adds what is missing: it never deletes or overwrites. Old `.json`
+  backups still restore.
+- API keys are never restored: enter them again on a new device.
+- A home-screen app has its own storage, separate from Safari's. The `/rescue` page opened in
+  Safari does not see the app's data; use the backup section inside the app.
 
-### Continuous Integration (CI)
+## Checks
 
-A GitHub Actions workflow is active in `.github/workflows/ci.yml`. It runs on every `push` and `pull_request` to `main`:
+```bash
+npm run format:check
+npm run lint
+npm run type-check
+npm test
+npm run build
+```
 
-1.  **Format Check**: Ensures code style consistency.
-2.  **Linting**: Static analysis for bugs.
-3.  **Type Checking**: Deep TypeScript validation.
-4.  **Build**: Verifies production build success.
-
-> **Tip:** Always run `npm run type-check` and `npm run format:check` before pushing!
-
-## Architecture
-
-- **Frontend**: Next.js 15 (App Router), React 19, TailwindCSS 4.
-- **State**: Zustand (Global), LocalStorage (Session), IndexedDB (Persistence).
-- **Database**: IndexedDB (idb) with normalized schema (v3) separating `conversations` and `messages`.
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+CI (`.github/workflows/ci.yml`) runs all five on every push and pull request to `main`.
