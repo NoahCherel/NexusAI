@@ -1,6 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { IDBFactory, IDBKeyRange, IDBObjectStore } from 'fake-indexeddb';
-import { createGlobalBackupFile } from '@/lib/global-backup';
+import {
+    createGlobalBackupFile,
+    inspectGlobalBackupFile,
+    isGzipFile,
+    restoreGlobalBackupFile,
+} from '@/lib/global-backup';
 import { unpackBackupValue } from '@/lib/backup-codec';
 import { SETTINGS_KEY } from '@/lib/settings-storage';
 
@@ -116,5 +121,94 @@ describe('streamed global backup (v2)', () => {
             progress.push([done, total])
         );
         expect(progress.at(-1)).toEqual([61, 61]);
+    });
+});
+
+function withStore<T>(
+    name: string,
+    mode: IDBTransactionMode,
+    run: (store: IDBObjectStore) => IDBRequest<T>
+): Promise<T> {
+    return new Promise((resolve, reject) => {
+        const open = indexedDB.open('nexusai-db');
+        open.onerror = () => reject(open.error);
+        open.onsuccess = () => {
+            const req = run(open.result.transaction(name, mode).objectStore(name));
+            req.onsuccess = () => {
+                open.result.close();
+                resolve(req.result);
+            };
+            req.onerror = () => reject(req.error);
+        };
+    });
+}
+
+async function gzipLines(lines: unknown[]): Promise<Blob> {
+    const text = lines.map((line) => `${JSON.stringify(line)}\n`).join('');
+    return new Response(
+        new Blob([text]).stream().pipeThrough(new CompressionStream('gzip'))
+    ).blob();
+}
+
+describe('streamed restore (v2)', () => {
+    it('round-trips onto a fresh device, then adds nothing the second time', async () => {
+        await seed();
+        const local = storage();
+        local.setItem(SETTINGS_KEY, JSON.stringify(settings));
+        const file = await createGlobalBackupFile(local, 'origin');
+        expect(await isGzipFile(file)).toBe(true);
+        expect(await isGzipFile(new Blob(['{"format":"nexusai-global-backup"}']))).toBe(false);
+
+        vi.stubGlobal('indexedDB', new IDBFactory());
+        const destination = storage();
+        expect(await restoreGlobalBackupFile(file, destination)).toBe(61);
+        const messages = await withStore('messages', 'readonly', (s) => s.getAll());
+        expect(messages).toHaveLength(60);
+        expect((messages[0] as { createdAt: Date }).createdAt).toEqual(new Date(1000));
+        expect(await withStore('canon', 'readonly', (s) => s.get('mixed case::élodie'))).toEqual({
+            work: 'mixed case',
+            character: 'Élodie',
+        });
+        expect(JSON.parse(destination.getItem(SETTINGS_KEY)!).state.personas).toEqual([
+            { id: 'u' },
+        ]);
+        expect(await restoreGlobalBackupFile(file, destination)).toBe(0);
+    });
+
+    it('refuses a file cut short before writing anything', async () => {
+        await seed();
+        const complete = await lines(await createGlobalBackupFile(storage(), 'origin'));
+        const cut = await gzipLines(complete.slice(0, -1));
+        vi.stubGlobal('indexedDB', new IDBFactory());
+        await expect(restoreGlobalBackupFile(cut, storage())).rejects.toThrow(/incomplet/);
+        expect(await indexedDB.databases()).toEqual([]);
+    });
+
+    it('never overwrites a record that already exists', async () => {
+        await seed();
+        const file = await createGlobalBackupFile(storage(), 'origin');
+        await withStore('messages', 'readwrite', (s) =>
+            s.put({
+                id: 'm000',
+                conversationId: 'v1',
+                content: 'édité ici',
+                createdAt: new Date(1),
+            })
+        );
+        expect(await restoreGlobalBackupFile(file, storage())).toBe(0);
+        expect(
+            ((await withStore('messages', 'readonly', (s) => s.get('m000'))) as { content: string })
+                .content
+        ).toBe('édité ici');
+    });
+
+    it('summarises a file without writing to the database', async () => {
+        await seed();
+        const file = await createGlobalBackupFile(storage(), 'origin');
+        vi.stubGlobal('indexedDB', new IDBFactory());
+        const summary = await inspectGlobalBackupFile(file);
+        expect(summary.counts).toEqual({ canon: 1, messages: 60 });
+        expect(summary.total).toBe(61);
+        expect(await indexedDB.databases()).toEqual([]);
     });
 });

@@ -271,12 +271,15 @@ export async function createGlobalBackupFile(
     return output;
 }
 
-export function parseGlobalBackup(raw: string): GlobalBackup {
-    const backup = JSON.parse(raw) as GlobalBackup;
+type StoreMeta = Omit<StoreSnapshot, 'entries'>;
+const MAX_DB_VERSION = 9;
+const NOT_A_BACKUP = 'Ce fichier n’est pas une sauvegarde globale NexusAI compatible.';
+
+function checkHeader(backup: Partial<GlobalBackup> | null, version: 1 | 2): void {
     if (
         !backup ||
         backup.format !== 'nexusai-global-backup' ||
-        backup.version !== 1 ||
+        (backup.version as number) !== version ||
         !backup.localStorage ||
         typeof backup.localStorage !== 'object' ||
         Array.isArray(backup.localStorage) ||
@@ -284,79 +287,95 @@ export function parseGlobalBackup(raw: string): GlobalBackup {
             ([k, v]) => k.startsWith('nexusai') && typeof v === 'string'
         )
     ) {
-        throw new Error('Ce fichier n’est pas une sauvegarde globale NexusAI compatible.');
+        throw new Error(NOT_A_BACKUP);
     }
     if (backup.settings !== null) parseSettings(JSON.stringify(backup.settings));
-    if (backup.database !== null) {
-        const db = backup.database;
-        if (
-            !db ||
-            !Number.isInteger(db.version) ||
-            db.version < 1 ||
-            db.version > 9 ||
-            !Array.isArray(db.stores)
+    const db = backup.database;
+    if (
+        db !== null &&
+        (!db || !Number.isInteger(db.version) || db.version < 1 || db.version > MAX_DB_VERSION)
+    )
+        throw new Error('Version de base incompatible.');
+}
+
+function checkStoreMeta(store: StoreMeta | null, seen: Set<string>): void {
+    if (
+        !store ||
+        typeof store.name !== 'string' ||
+        seen.has(store.name) ||
+        !(
+            store.keyPath === null ||
+            typeof store.keyPath === 'string' ||
+            (Array.isArray(store.keyPath) && store.keyPath.every((key) => typeof key === 'string'))
+        ) ||
+        typeof store.autoIncrement !== 'boolean' ||
+        !Array.isArray(store.indexes) ||
+        store.indexes.some(
+            (index) =>
+                !index ||
+                typeof index.name !== 'string' ||
+                !(
+                    typeof index.keyPath === 'string' ||
+                    (Array.isArray(index.keyPath) &&
+                        index.keyPath.every((key) => typeof key === 'string'))
+                ) ||
+                typeof index.unique !== 'boolean' ||
+                typeof index.multiEntry !== 'boolean'
         )
+    )
+        throw new Error('Structure de base invalide.');
+    seen.add(store.name);
+}
+
+/** Validate one record before anything is written; returns it unpacked. */
+function checkEntry(
+    store: StoreMeta,
+    packedKey: unknown,
+    packedValue: unknown
+): { key: IDBValidKey; value: unknown } {
+    const key = unpackBackupValue(packedKey) as IDBValidKey;
+    indexedDB.cmp(key, key); // throws on a value that is not a valid IndexedDB key
+    const value = unpackBackupValue(packedValue);
+    if (store.keyPath !== null) {
+        const readPath = (path: string) =>
+            path
+                .split('.')
+                .reduce<unknown>((v, part) => (v as Record<string, unknown>)?.[part], value);
+        const inlineKey = Array.isArray(store.keyPath)
+            ? store.keyPath.map(readPath)
+            : readPath(store.keyPath);
+        if (indexedDB.cmp(key, inlineKey as IDBValidKey) !== 0)
+            throw new Error('Identifiant de sauvegarde incohérent.');
+    }
+    return { key, value };
+}
+
+export function parseGlobalBackup(raw: string): GlobalBackup {
+    const backup = JSON.parse(raw) as GlobalBackup;
+    checkHeader(backup, 1);
+    if (backup.database !== null) {
+        if (!Array.isArray(backup.database.stores))
             throw new Error('Version de base incompatible.');
         const names = new Set<string>();
-        for (const store of db.stores) {
-            if (
-                !store ||
-                typeof store.name !== 'string' ||
-                names.has(store.name) ||
-                !Array.isArray(store.entries) ||
-                !(
-                    store.keyPath === null ||
-                    typeof store.keyPath === 'string' ||
-                    (Array.isArray(store.keyPath) &&
-                        store.keyPath.every((key) => typeof key === 'string'))
-                ) ||
-                typeof store.autoIncrement !== 'boolean' ||
-                !Array.isArray(store.indexes) ||
-                store.indexes.some(
-                    (index) =>
-                        !index ||
-                        typeof index.name !== 'string' ||
-                        !(
-                            typeof index.keyPath === 'string' ||
-                            (Array.isArray(index.keyPath) &&
-                                index.keyPath.every((key) => typeof key === 'string'))
-                        ) ||
-                        typeof index.unique !== 'boolean' ||
-                        typeof index.multiEntry !== 'boolean'
-                )
-            )
-                throw new Error('Structure de base invalide.');
-            names.add(store.name);
-            for (const entry of store.entries) {
-                const key = unpackBackupValue(entry.key) as IDBValidKey;
-                indexedDB.cmp(key, key); // validate keys before writing anything
-                const value = unpackBackupValue(entry.value);
-                if (store.keyPath !== null) {
-                    const readPath = (path: string) =>
-                        path
-                            .split('.')
-                            .reduce<unknown>(
-                                (v, part) => (v as Record<string, unknown>)?.[part],
-                                value
-                            );
-                    const inlineKey = Array.isArray(store.keyPath)
-                        ? store.keyPath.map(readPath)
-                        : readPath(store.keyPath);
-                    if (indexedDB.cmp(key, inlineKey as IDBValidKey) !== 0)
-                        throw new Error('Identifiant de sauvegarde incohérent.');
-                }
-            }
+        for (const store of backup.database.stores) {
+            checkStoreMeta(store, names);
+            if (!Array.isArray(store.entries)) throw new Error('Structure de base invalide.');
+            for (const entry of store.entries) checkEntry(store, entry.key, entry.value);
         }
     }
     return backup;
 }
 
-/** Add missing DB records, then apply settings with a checkpoint. Never clear stores.
- * IndexedDB and localStorage cannot share a transaction; retries are idempotent if
- * the second phase fails, and the caller gets an explicit partial-restore error.
+// ============ Restore (v1 object and v2 file share these steps) ============
+
+/**
+ * Read the current settings first (a read failure aborts before any write), merge the
+ * backup's authored collections in, and return the step that applies them at the end.
  */
-export async function restoreGlobalBackup(backup: GlobalBackup, storage: Storage): Promise<number> {
-    parseGlobalBackup(JSON.stringify(backup));
+function prepareSettingsRestore(
+    storage: Storage,
+    backupSettings: SettingsEnvelope | null
+): (count: number, localCopies: Record<string, string>) => void {
     let settingsError: string | null = null;
     const safe = createSafeSettingsStorage(
         () => storage,
@@ -368,13 +387,13 @@ export async function restoreGlobalBackup(backup: GlobalBackup, storage: Storage
     const before = safe.getItem(SETTINGS_KEY) as string | null;
     const current = before ? parseSettings(before) : { state: {}, version: SETTINGS_VERSION };
     let restoredSettings: SettingsEnvelope | null = null;
-    if (backup.settings) {
-        const merged = mergeMissingSettings(current, backup.settings);
+    if (backupSettings) {
+        const merged = mergeMissingSettings(current, backupSettings);
         restoredSettings = {
-            version: Math.min(current.version ?? 0, backup.settings.version ?? 0),
+            version: Math.min(current.version ?? 0, backupSettings.version ?? 0),
             state: {
                 ...current.state,
-                ...backup.settings.state,
+                ...backupSettings.state,
                 presets: merged.state.presets,
                 personas: merged.state.personas,
                 customModels: merged.state.customModels,
@@ -383,90 +402,266 @@ export async function restoreGlobalBackup(backup: GlobalBackup, storage: Storage
             },
         };
     }
+    return (count, localCopies) => {
+        if (restoredSettings) {
+            const raw = JSON.stringify(restoredSettings);
+            safe.setItem(SETTINGS_KEY, raw);
+            if (settingsError || storage.getItem(SETTINGS_KEY) !== raw) {
+                throw new Error(
+                    `${count} données de la base ont été ajoutées, mais les réglages n’ont pas été restaurés : ${settingsError ?? 'écriture non confirmée'}. Gardez le fichier et réessayez après avoir résolu le problème.`
+                );
+            }
+        }
+        // Navigation preferences only; don't replay legacy settings over the protected
+        // save, nor overwrite this device's backup history. Original raw copies remain in file.
+        for (const [key, value] of Object.entries(localCopies)) {
+            if (key.startsWith('nexusai_active_') && storage.getItem(key) === null)
+                storage.setItem(key, value);
+        }
+    };
+}
+
+/** The existing database, or one created from the backup's layout; checked before writing. */
+async function openRestoreTarget(version: number, stores: StoreMeta[]): Promise<IDBDatabase> {
+    let db = await openExisting();
+    if (!db) {
+        db = await new Promise<IDBDatabase>((resolve, reject) => {
+            const req = indexedDB.open(DB_NAME, version);
+            req.onupgradeneeded = () => {
+                for (const store of stores) {
+                    const target = req.result.createObjectStore(store.name, {
+                        keyPath: store.keyPath,
+                        autoIncrement: store.autoIncrement,
+                    });
+                    for (const index of store.indexes)
+                        target.createIndex(index.name, index.keyPath, {
+                            unique: index.unique,
+                            multiEntry: index.multiEntry,
+                        });
+                }
+            };
+            req.onsuccess = () => resolve(req.result);
+            req.onerror = () => reject(req.error);
+            req.onblocked = () =>
+                reject(new Error('Fermez les autres onglets avant la restauration.'));
+        });
+    }
+    try {
+        for (const store of stores) {
+            if (!db.objectStoreNames.contains(store.name))
+                throw new Error(
+                    `La base actuelle ne contient pas « ${store.name} ». Restauration interrompue avant écriture ; le fichier conserve ces données.`
+                );
+            const target = db.transaction(store.name, 'readonly').objectStore(store.name);
+            if (JSON.stringify(target.keyPath) !== JSON.stringify(store.keyPath))
+                throw new Error('Structure de base différente.');
+        }
+        return db;
+    } catch (error) {
+        db.close();
+        throw error;
+    }
+}
+
+type RestoreEntry = { store: string; key: IDBValidKey; value: unknown };
+
+/** Add the records this device lacks, in one transaction. Never overwrites. */
+async function addMissing(db: IDBDatabase, entries: RestoreEntry[]): Promise<number> {
+    if (!entries.length) return 0;
+    const tx = db.transaction([...new Set(entries.map((entry) => entry.store))], 'readwrite');
+    const done = completed(tx);
+    let added = 0;
+    for (const { store, key, value } of entries) {
+        const target = tx.objectStore(store);
+        const check = target.getKey(key);
+        check.onsuccess = () => {
+            if (check.result !== undefined) return;
+            try {
+                if (target.keyPath === null) target.add(value, key);
+                else target.add(value);
+                added++;
+            } catch {
+                tx.abort();
+            }
+        };
+    }
+    await done;
+    return added;
+}
+
+/** Add missing DB records, then apply settings with a checkpoint. Never clear stores.
+ * IndexedDB and localStorage cannot share a transaction; retries are idempotent if
+ * the second phase fails, and the caller gets an explicit partial-restore error.
+ */
+export async function restoreGlobalBackup(backup: GlobalBackup, storage: Storage): Promise<number> {
+    parseGlobalBackup(JSON.stringify(backup));
+    const finish = prepareSettingsRestore(storage, backup.settings);
     let count = 0;
     if (backup.database?.stores.length) {
         const snapshot = backup.database;
-        let db = await openExisting();
-        if (!db) {
-            db = await new Promise<IDBDatabase>((resolve, reject) => {
-                const req = indexedDB.open(DB_NAME, snapshot.version);
-                req.onupgradeneeded = () => {
-                    for (const store of snapshot.stores) {
-                        const target = req.result.createObjectStore(store.name, {
-                            keyPath: store.keyPath,
-                            autoIncrement: store.autoIncrement,
-                        });
-                        for (const index of store.indexes)
-                            target.createIndex(index.name, index.keyPath, {
-                                unique: index.unique,
-                                multiEntry: index.multiEntry,
-                            });
-                    }
-                };
-                req.onsuccess = () => resolve(req.result);
-                req.onerror = () => reject(req.error);
-                req.onblocked = () =>
-                    reject(new Error('Fermez les autres onglets avant la restauration.'));
-            });
-        }
+        const db = await openRestoreTarget(snapshot.version, snapshot.stores);
         try {
-            for (const store of snapshot.stores) {
-                if (!db.objectStoreNames.contains(store.name))
-                    throw new Error(
-                        `La base actuelle ne contient pas « ${store.name} ». Restauration interrompue avant écriture ; le fichier conserve ces données.`
-                    );
-            }
-            const tx = db.transaction(
-                snapshot.stores.map((store) => store.name),
-                'readwrite'
+            count = await addMissing(
+                db,
+                snapshot.stores.flatMap((store) =>
+                    store.entries.map((entry) => ({
+                        store: store.name,
+                        key: unpackBackupValue(entry.key) as IDBValidKey,
+                        value: unpackBackupValue(entry.value),
+                    }))
+                )
             );
-            const done = completed(tx);
-            try {
-                for (const source of snapshot.stores) {
-                    const target = tx.objectStore(source.name);
-                    if (JSON.stringify(target.keyPath) !== JSON.stringify(source.keyPath))
-                        throw new Error('Structure de base différente.');
-                    for (const entry of source.entries) {
-                        const key = unpackBackupValue(entry.key) as IDBValidKey;
-                        const value = unpackBackupValue(entry.value);
-                        const check = target.getKey(key);
-                        check.onsuccess = () => {
-                            if (check.result === undefined) {
-                                try {
-                                    if (target.keyPath === null) target.add(value, key);
-                                    else target.add(value);
-                                    count++;
-                                } catch {
-                                    tx.abort();
-                                }
-                            }
-                        };
-                    }
-                }
-            } catch (error) {
-                tx.abort();
-                await done.catch(() => {});
-                throw error;
-            }
-            await done;
         } finally {
             db.close();
         }
     }
-    if (restoredSettings) {
-        const raw = JSON.stringify(restoredSettings);
-        safe.setItem(SETTINGS_KEY, raw);
-        if (settingsError || storage.getItem(SETTINGS_KEY) !== raw) {
-            throw new Error(
-                `${count} données de la base ont été ajoutées, mais les réglages n’ont pas été restaurés : ${settingsError ?? 'écriture non confirmée'}. Gardez le fichier et réessayez après avoir résolu le problème.`
-            );
+    finish(count, backup.localStorage);
+    return count;
+}
+
+/** True for a v2 backup file (gzip), false for a v1 `.json` one. */
+export async function isGzipFile(file: Blob): Promise<boolean> {
+    const head = new Uint8Array(await file.slice(0, 2).arrayBuffer());
+    return head[0] === 0x1f && head[1] === 0x8b;
+}
+
+/** The lines of a v2 file, decompressed and parsed one at a time. */
+async function* backupLines(file: Blob): AsyncGenerator<Record<string, unknown>> {
+    const reader = file
+        .stream()
+        .pipeThrough(new DecompressionStream('gzip'))
+        .pipeThrough(new TextDecoderStream())
+        .getReader();
+    let lineNumber = 0;
+    const parse = (text: string): Record<string, unknown> => {
+        lineNumber++;
+        try {
+            const line = JSON.parse(text);
+            if (line && typeof line === 'object' && !Array.isArray(line)) return line;
+        } catch {
+            /* reported below */
+        }
+        throw new Error(`Fichier de sauvegarde illisible (ligne ${lineNumber}).`);
+    };
+    let rest = '';
+    try {
+        for (;;) {
+            let chunk: ReadableStreamReadResult<string>;
+            try {
+                chunk = await reader.read();
+            } catch {
+                throw new Error('Fichier de sauvegarde incomplet ou endommagé.');
+            }
+            if (chunk.done) break;
+            rest += chunk.value;
+            let newline: number;
+            while ((newline = rest.indexOf('\n')) !== -1) {
+                const text = rest.slice(0, newline);
+                rest = rest.slice(newline + 1);
+                if (text) yield parse(text);
+            }
+        }
+        if (rest.trim()) yield parse(rest);
+    } finally {
+        reader.cancel().catch(() => {});
+    }
+}
+
+export interface BackupFileSummary {
+    createdAt: string;
+    settings: SettingsEnvelope | null;
+    localStorage: Record<string, string>;
+    database: { version: number } | null;
+    stores: StoreMeta[];
+    counts: Record<string, number>;
+    total: number;
+}
+
+/** Read the whole v2 file and validate every line. Writes nothing. */
+export async function inspectGlobalBackupFile(
+    file: Blob,
+    onProgress?: (checked: number) => void
+): Promise<BackupFileSummary> {
+    let summary: BackupFileSummary | null = null;
+    let current: StoreMeta | null = null;
+    let ended = false;
+    const names = new Set<string>();
+    for await (const line of backupLines(file)) {
+        if (ended) throw new Error('Fichier de sauvegarde illisible : données après la fin.');
+        if (!summary) {
+            const header = line as unknown as Partial<GlobalBackup>;
+            checkHeader(header, 2);
+            summary = {
+                createdAt: String(header.createdAt),
+                settings: header.settings ?? null,
+                localStorage: header.localStorage!,
+                database: (header.database as { version: number } | null) ?? null,
+                stores: [],
+                counts: {},
+                total: 0,
+            };
+        } else if ('store' in line) {
+            const meta = line.store as StoreMeta;
+            if (!summary.database) throw new Error('Structure de base invalide.');
+            checkStoreMeta(meta, names);
+            summary.stores.push(meta);
+            summary.counts[meta.name] = 0;
+            current = meta;
+        } else if ('s' in line) {
+            if (!current || line.s !== current.name) throw new Error('Structure de base invalide.');
+            checkEntry(current, line.k, line.v);
+            summary.counts[current.name]++;
+            summary.total++;
+            if (summary.total % 250 === 0) onProgress?.(summary.total);
+        } else if (line.end === true && line.records === summary.total) {
+            ended = true;
+        } else {
+            throw new Error('Fichier de sauvegarde illisible.');
         }
     }
-    // Navigation preferences only; don't replay legacy settings over the protected
-    // save, nor overwrite this device's backup history. Original raw copies remain in file.
-    for (const [key, value] of Object.entries(backup.localStorage)) {
-        if (key.startsWith('nexusai_active_') && storage.getItem(key) === null)
-            storage.setItem(key, value);
+    if (!summary) throw new Error(NOT_A_BACKUP);
+    if (!ended)
+        throw new Error('Fichier de sauvegarde incomplet : sa fin manque. Rien n’a été restauré.');
+    onProgress?.(summary.total);
+    return summary;
+}
+
+const RESTORE_BATCH = 200;
+
+/** Validate the whole v2 file, then add the missing records batch by batch. Never deletes. */
+export async function restoreGlobalBackupFile(
+    file: Blob,
+    storage: Storage,
+    onProgress?: BackupProgress
+): Promise<number> {
+    const summary = await inspectGlobalBackupFile(file);
+    const finish = prepareSettingsRestore(storage, summary.settings);
+    let count = 0;
+    if (summary.database && summary.stores.length) {
+        const db = await openRestoreTarget(summary.database.version, summary.stores);
+        try {
+            let batch: RestoreEntry[] = [];
+            let seen = 0;
+            for await (const line of backupLines(file)) {
+                if (!('s' in line)) continue;
+                batch.push({
+                    store: line.s as string,
+                    key: unpackBackupValue(line.k) as IDBValidKey,
+                    value: unpackBackupValue(line.v),
+                });
+                if (batch.length === RESTORE_BATCH) {
+                    count += await addMissing(db, batch);
+                    seen += batch.length;
+                    batch = [];
+                    onProgress?.(seen, summary.total);
+                }
+            }
+            count += await addMissing(db, batch);
+            onProgress?.(summary.total, summary.total);
+        } finally {
+            db.close();
+        }
     }
+    finish(count, summary.localStorage);
     return count;
 }
