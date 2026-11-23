@@ -179,9 +179,7 @@ export async function POST(req: NextRequest) {
                             extendedDelta?.reasoning || extendedDelta?.reasoning_content;
                         if (reasoningChunk) {
                             // Wrap reasoning in special tags for client-side parsing
-                            controller.enqueue(
-                                encoder.encode(`<think>${reasoningChunk}</think>`)
-                            );
+                            controller.enqueue(encoder.encode(`<think>${reasoningChunk}</think>`));
                         } else if (extendedDelta?.reasoning_details) {
                             // Handle reasoning_details array format
                             const details = extendedDelta.reasoning_details;
