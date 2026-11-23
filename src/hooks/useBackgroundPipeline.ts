@@ -40,6 +40,7 @@ import {
     createSummary,
     DEFAULT_CHUNK_SIZE,
     SUMMARY_MAX_TOKENS,
+    SUMMARY_TIMEOUT_MS,
     SUMMARIZATION_PROMPT_L0,
     SUMMARIZATION_PROMPT_L1,
     SUMMARIZATION_PROMPT_L2,
@@ -159,6 +160,7 @@ export function useBackgroundPipeline({
                         userPrompt: buildL0Prompt(chunk, character.name, userName),
                         temperature: 0.3,
                         maxTokens: SUMMARY_MAX_TOKENS,
+                        timeoutMs: SUMMARY_TIMEOUT_MS,
                         thinkTagStrategy: 'strict-remove-blocks',
                         backgroundModel,
                     });
@@ -192,6 +194,7 @@ export function useBackgroundPipeline({
                             userPrompt: prompt,
                             temperature: 0.3,
                             maxTokens: SUMMARY_MAX_TOKENS,
+                            timeoutMs: SUMMARY_TIMEOUT_MS,
                             thinkTagStrategy: 'strict-remove-blocks',
                             backgroundModel,
                         });
@@ -237,6 +240,7 @@ export function useBackgroundPipeline({
                             userPrompt: prompt,
                             temperature: 0.3,
                             maxTokens: SUMMARY_MAX_TOKENS,
+                            timeoutMs: SUMMARY_TIMEOUT_MS,
                             thinkTagStrategy: 'strict-remove-blocks',
                             backgroundModel,
                         });

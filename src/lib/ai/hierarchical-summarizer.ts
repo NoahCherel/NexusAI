@@ -27,6 +27,8 @@ export const DEFAULT_CHUNK_SIZE = 10; // Messages per L0 summary (default)
  * the final JSON; the prompt itself caps the visible summary length.
  */
 export const SUMMARY_MAX_TOKENS = 12_000;
+/** Higher deadline for reasoning models generating long thinking + summary. */
+export const SUMMARY_TIMEOUT_MS = 180_000;
 const L1_THRESHOLD = 5; // L0 summaries per L1 summary
 const L2_THRESHOLD = 3; // L1 summaries per L2 summary
 
