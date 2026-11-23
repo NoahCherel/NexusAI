@@ -65,11 +65,11 @@ async function openExisting(): Promise<IDBDatabase | null> {
     });
 }
 
-export async function createGlobalBackup(
+/** The `nexusai*` localStorage copies and the settings to restore, API keys removed. */
+function snapshotLocalState(
     storage: Storage,
-    origin: string,
     liveSettings?: SettingsEnvelope
-): Promise<GlobalBackup> {
+): { settings: SettingsEnvelope | null; localStorage: Record<string, string> } {
     const local: Record<string, string> = {};
     for (let i = 0; i < storage.length; i++) {
         const key = storage.key(i);
@@ -95,6 +95,37 @@ export async function createGlobalBackup(
         settings = JSON.parse(
             JSON.stringify({ ...settings, state: { ...settings.state, apiKeys: [] } })
         );
+    return { settings, localStorage: local };
+}
+
+function storeMetadata(store: IDBObjectStore): Omit<StoreSnapshot, 'entries'> {
+    return {
+        name: store.name,
+        keyPath: store.keyPath,
+        autoIncrement: store.autoIncrement,
+        indexes: [...store.indexNames].map((indexName) => {
+            const index = store.index(indexName);
+            return {
+                name: index.name,
+                keyPath: index.keyPath,
+                unique: index.unique,
+                multiEntry: index.multiEntry,
+            };
+        }),
+    };
+}
+
+/**
+ * v1 writer: reads every store at once and builds one object in memory. Fine for small
+ * databases only — the app uses `createGlobalBackupFile`. Kept because its output is the
+ * format of existing v1 backup files, which `restoreGlobalBackup` must keep reading.
+ */
+export async function createGlobalBackup(
+    storage: Storage,
+    origin: string,
+    liveSettings?: SettingsEnvelope
+): Promise<GlobalBackup> {
+    const { settings, localStorage: local } = snapshotLocalState(storage, liveSettings);
     const backup: GlobalBackup = {
         format: 'nexusai-global-backup',
         version: 1,
@@ -118,20 +149,7 @@ export async function createGlobalBackup(
         // Queue ALL reads in one transaction before awaiting any of them.
         const reads = names.map(async (name): Promise<StoreSnapshot> => {
             const store = tx.objectStore(name);
-            const metadata = {
-                name,
-                keyPath: store.keyPath,
-                autoIncrement: store.autoIncrement,
-                indexes: [...store.indexNames].map((indexName) => {
-                    const index = store.index(indexName);
-                    return {
-                        name: index.name,
-                        keyPath: index.keyPath,
-                        unique: index.unique,
-                        multiEntry: index.multiEntry,
-                    };
-                }),
-            };
+            const metadata = storeMetadata(store);
             const [keys, values] = await Promise.all([
                 request(store.getAllKeys()),
                 request(store.getAll()),
@@ -150,6 +168,107 @@ export async function createGlobalBackup(
     } finally {
         db.close();
     }
+}
+
+// ============ v2: streamed backup file (gzip NDJSON) ============
+
+/** Records per IndexedDB request: keeps every read small enough for iOS Safari. */
+export const BACKUP_PAGE_SIZE = 25;
+/** Unread and unwritten since DB v8, and the heaviest data on old devices. */
+export const LEGACY_STORES = ['facts', 'vectors'];
+
+export type BackupProgress = (done: number, total: number) => void;
+
+function readPage(
+    db: IDBDatabase,
+    name: string,
+    after: IDBValidKey | undefined
+): Promise<[IDBValidKey[], unknown[]]> {
+    const store = db.transaction(name, 'readonly').objectStore(name);
+    const range = after === undefined ? undefined : IDBKeyRange.lowerBound(after, true);
+    return Promise.all([
+        request(store.getAllKeys(range, BACKUP_PAGE_SIZE)),
+        request(store.getAll(range, BACKUP_PAGE_SIZE)),
+    ]);
+}
+
+/**
+ * The full backup as a gzip NDJSON file: a header line, then per store a `{ store }` line
+ * followed by its `{ s, k, v }` record lines, then `{ end, records }`. Read one page at a
+ * time; only the compressed output is ever held in memory.
+ */
+export async function createGlobalBackupFile(
+    storage: Storage,
+    origin: string,
+    liveSettings?: SettingsEnvelope,
+    onProgress?: BackupProgress
+): Promise<Blob> {
+    const { settings, localStorage: local } = snapshotLocalState(storage, liveSettings);
+    const gzip = new CompressionStream('gzip');
+    const output = new Response(gzip.readable).blob();
+    const writer = gzip.writable.getWriter();
+    const encoder = new TextEncoder();
+    const write = (lines: unknown[]) =>
+        writer.write(encoder.encode(lines.map((line) => `${JSON.stringify(line)}\n`).join('')));
+    try {
+        const db = await openExisting();
+        try {
+            await write([
+                {
+                    format: 'nexusai-global-backup',
+                    version: 2,
+                    createdAt: new Date().toISOString(),
+                    origin,
+                    apiKeys: 'reenter-on-restore',
+                    settings,
+                    localStorage: local,
+                    database: db ? { version: db.version } : null,
+                },
+            ]);
+            let done = 0;
+            if (db) {
+                const names = [...db.objectStoreNames].filter(
+                    (name) => !LEGACY_STORES.includes(name)
+                );
+                const counts = await Promise.all(
+                    names.map((name) =>
+                        request(db.transaction(name, 'readonly').objectStore(name).count())
+                    )
+                );
+                const total = counts.reduce((sum, count) => sum + count, 0);
+                onProgress?.(0, total);
+                for (const name of names) {
+                    const meta = storeMetadata(db.transaction(name, 'readonly').objectStore(name));
+                    await write([{ store: meta }]);
+                    let after: IDBValidKey | undefined;
+                    for (;;) {
+                        const [keys, values] = await readPage(db, name, after);
+                        if (!keys.length) break;
+                        await write(
+                            keys.map((key, i) => ({
+                                s: name,
+                                k: packBackupValue(key),
+                                v: packBackupValue(values[i]),
+                            }))
+                        );
+                        done += keys.length;
+                        onProgress?.(done, Math.max(total, done));
+                        if (keys.length < BACKUP_PAGE_SIZE) break;
+                        after = keys[keys.length - 1];
+                    }
+                }
+            }
+            await write([{ end: true, records: done }]);
+        } finally {
+            db?.close();
+        }
+        await writer.close();
+    } catch (error) {
+        output.catch(() => {});
+        await writer.abort(error).catch(() => {});
+        throw error;
+    }
+    return output;
 }
 
 export function parseGlobalBackup(raw: string): GlobalBackup {
