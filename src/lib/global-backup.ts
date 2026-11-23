@@ -115,69 +115,16 @@ function storeMetadata(store: IDBObjectStore): Omit<StoreSnapshot, 'entries'> {
     };
 }
 
-/**
- * v1 writer: reads every store at once and builds one object in memory. Fine for small
- * databases only — the app uses `createGlobalBackupFile`. Kept because its output is the
- * format of existing v1 backup files, which `restoreGlobalBackup` must keep reading.
- */
-export async function createGlobalBackup(
-    storage: Storage,
-    origin: string,
-    liveSettings?: SettingsEnvelope
-): Promise<GlobalBackup> {
-    const { settings, localStorage: local } = snapshotLocalState(storage, liveSettings);
-    const backup: GlobalBackup = {
-        format: 'nexusai-global-backup',
-        version: 1,
-        createdAt: new Date().toISOString(),
-        origin,
-        apiKeys: 'reenter-on-restore',
-        settings,
-        localStorage: local,
-        database: null,
-    };
-    const db = await openExisting();
-    if (!db) return backup;
-    try {
-        const names = [...db.objectStoreNames];
-        if (!names.length) {
-            backup.database = { version: db.version, stores: [] };
-            return backup;
-        }
-        const tx = db.transaction(names, 'readonly');
-        const done = completed(tx);
-        // Queue ALL reads in one transaction before awaiting any of them.
-        const reads = names.map(async (name): Promise<StoreSnapshot> => {
-            const store = tx.objectStore(name);
-            const metadata = storeMetadata(store);
-            const [keys, values] = await Promise.all([
-                request(store.getAllKeys()),
-                request(store.getAll()),
-            ]);
-            return {
-                ...metadata,
-                entries: keys.map((key, i) => ({
-                    key: packBackupValue(key),
-                    value: packBackupValue(values[i]),
-                })),
-            };
-        });
-        const [stores] = await Promise.all([Promise.all(reads), done]);
-        backup.database = { version: db.version, stores };
-        return backup;
-    } finally {
-        db.close();
-    }
-}
-
 // ============ v2: streamed backup file (gzip NDJSON) ============
+// v1 files (one JSON object, written by an earlier version that read every store at once)
+// are only read now — see `parseGlobalBackup` / `restoreGlobalBackup`.
 
 /** Records per IndexedDB request: keeps every read small enough for iOS Safari. */
-export const BACKUP_PAGE_SIZE = 25;
+const BACKUP_PAGE_SIZE = 25;
 /** Unread and unwritten since DB v8, and the heaviest data on old devices. */
-export const LEGACY_STORES = ['facts', 'vectors'];
+const LEGACY_STORES = ['facts', 'vectors'];
 
-export type BackupProgress = (done: number, total: number) => void;
+type BackupProgress = (done: number, total: number) => void;
 
 function readPage(
     db: IDBDatabase,

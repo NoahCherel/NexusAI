@@ -15,7 +15,7 @@ import {
 } from '@/lib/db';
 import { useChatStore, __resetChatLoadFences } from '@/stores/chat-store';
 import { useSettingsStore } from '@/stores/settings-store';
-import { createGlobalBackup, parseGlobalBackup } from '@/lib/global-backup';
+import { createGlobalBackupFile } from '@/lib/global-backup';
 import { unpackBackupValue } from '@/lib/backup-codec';
 
 const conversation = (id = 'A', extra: Partial<Conversation> = {}): Conversation => ({
@@ -227,8 +227,15 @@ describe('draft and metadata durability', () => {
         });
         await saveConversation(conv);
         const storage = { length: 0, key: () => null } as unknown as Storage;
-        const backup = parseGlobalBackup(JSON.stringify(await createGlobalBackup(storage, 'test')));
-        const row = backup.database!.stores.find((s) => s.name === 'conversations')!.entries[0];
-        expect(unpackBackupValue(row.value)).toEqual(conv);
+        const file = await createGlobalBackupFile(storage, 'test');
+        const text = await new Response(
+            file.stream().pipeThrough(new DecompressionStream('gzip'))
+        ).text();
+        const row = text
+            .split('\n')
+            .filter(Boolean)
+            .map((line) => JSON.parse(line))
+            .find((line) => line.s === 'conversations');
+        expect(unpackBackupValue(row.v)).toEqual(conv);
     });
 });
