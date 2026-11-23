@@ -15,7 +15,7 @@ import type { CharacterCard } from '@/types/character';
 import type { Message as CAMessage } from '@/types/chat';
 import type { Message } from '@/types';
 import { useSettingsStore, useChatStore, useLorebookStore } from '@/stores';
-import { notifyError, useNotificationStore } from '@/components/ui/api-notification';
+import { useNotificationStore } from '@/components/ui/api-notification';
 import { decryptApiKey } from '@/lib/crypto';
 import { parseStreamingChunk, normalizeCoT } from '@/lib/ai/cot-middleware';
 import { buildConversationPayload, type CanonPayloadOptions } from '@/lib/ai/payload-builder';
@@ -210,6 +210,12 @@ export function useChatGeneration({
     const { conversations, addMessage, updateMessage, deleteMessage, getActiveBranchBanList } =
         useChatStore();
     const { activeLorebook } = useLorebookStore();
+
+    /** Error toast: title line, then the detail. */
+    const notifyError = (title: string, detail: string) => {
+        const { addNotification, updateNotification } = useNotificationStore.getState();
+        updateNotification(addNotification(title, 'world'), 'error', detail);
+    };
 
     type BatchInfo = NonNullable<CAMessage['batch']>;
 

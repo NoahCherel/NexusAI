@@ -17,7 +17,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { SettingsRescue } from '@/components/settings/SettingsRescue';
 import { GlobalBackupControls } from '@/components/settings/GlobalBackupControls';
-import { OnlineBackupControls } from '@/components/settings/OnlineBackupControls';
 
 type StoreCounts = Record<string, number | string>;
 
@@ -298,11 +297,6 @@ export default function RescuePage() {
             <section className="rounded-xl border border-white/15 bg-white/5 p-4 space-y-3">
                 <h2 className="font-semibold">Sauvegarde globale</h2>
                 <GlobalBackupControls allowRestore />
-            </section>
-
-            <section className="rounded-xl border border-white/15 bg-white/5 p-4 space-y-3">
-                <h2 className="font-semibold">Sauvegarde en ligne</h2>
-                <OnlineBackupControls />
             </section>
 
             <SettingsRescue />

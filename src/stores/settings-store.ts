@@ -1,11 +1,6 @@
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
-import {
-    createSafeSettingsStorage,
-    SETTINGS_KEY,
-    SETTINGS_VERSION,
-    type SettingsEnvelope,
-} from '@/lib/settings-storage';
+import { createSafeSettingsStorage, SETTINGS_KEY, SETTINGS_VERSION } from '@/lib/settings-storage';
 import type { APIPreset } from '@/types/preset';
 import { DEFAULT_PRESETS } from '@/types/preset';
 import type { RPEngine } from '@/types/engine';
@@ -58,7 +53,7 @@ export const DEFAULT_MODELS: CustomModel[] = [
         modelId: 'google/gemini-3.8-flash',
         provider: 'openrouter',
         isFree: false,
-    },
+    }
 ];
 
 interface SettingsState {
@@ -477,9 +472,3 @@ export const useSettingsStore = create<SettingsState>()(
         }
     )
 );
-
-/** The settings as they are in memory now, in the persisted envelope shape (for backups). */
-export const getLiveSettingsEnvelope = (): SettingsEnvelope => ({
-    state: { ...useSettingsStore.getState() },
-    version: SETTINGS_VERSION,
-});
