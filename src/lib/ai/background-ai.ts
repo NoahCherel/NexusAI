@@ -221,6 +221,7 @@ async function tryModelChain(params: ChainAttemptParams): Promise<BackgroundAIRe
     } = params;
 
     for (const model of models) {
+        let effectiveMaxTokens = maxTokens;
         for (let attempt = 0; attempt <= maxRetries; attempt++) {
             try {
                 const scheduled = await scheduleBackgroundRequest({
@@ -247,7 +248,7 @@ async function tryModelChain(params: ChainAttemptParams): Promise<BackgroundAIRe
                                 // The preset governs an agent exactly as it governs the
                                 // visible reply; legacy callers keep their own two knobs.
                                 temperature: sampler?.temperature ?? temperature,
-                                maxTokens: sampler?.maxTokens ?? maxTokens,
+                                maxTokens: sampler?.maxTokens ?? effectiveMaxTokens,
                                 topP: sampler?.topP,
                                 topK: sampler?.topK,
                                 frequencyPenalty: sampler?.frequencyPenalty,
@@ -302,6 +303,9 @@ async function tryModelChain(params: ChainAttemptParams): Promise<BackgroundAIRe
                         };
                     }
                     // Empty response — try next model
+                    console.warn(
+                        `[BackgroundAI] Empty response after think normalization on ${provider}/${model} (rawLength=${(scheduled.text ?? '').length}, maxTokens=${effectiveMaxTokens}, strategy=${thinkTagStrategy})`
+                    );
                     break;
                 }
 
@@ -343,9 +347,26 @@ async function tryModelChain(params: ChainAttemptParams): Promise<BackgroundAIRe
                     throw new BackgroundContextLengthError(model, detail);
                 }
 
+                // A provider may reject a high max_tokens (e.g. 12000 on a model capped at
+                // 8192 or 4096) with HTTP 400. Step down and retry the same model before
+                // falling back to another model/provider.
+                if (
+                    upstreamStatus === 400 &&
+                    !sampler &&
+                    effectiveMaxTokens > 4096 &&
+                    attempt < maxRetries
+                ) {
+                    const nextMaxTokens = effectiveMaxTokens > 8192 ? 8192 : 4096;
+                    console.warn(
+                        `[BackgroundAI] 400 on ${provider}/${model} with maxTokens=${effectiveMaxTokens} (${detail || 'no detail'}), retrying with maxTokens=${nextMaxTokens}`
+                    );
+                    effectiveMaxTokens = nextMaxTokens;
+                    continue;
+                }
+
                 // Other error — try next model
                 console.warn(
-                    `[BackgroundAI] ${response.status} on ${provider}/${model}, trying next model`
+                    `[BackgroundAI] ${upstreamStatus} on ${provider}/${model} (${detail || 'no detail'}), trying next model`
                 );
                 break;
             } catch (err) {

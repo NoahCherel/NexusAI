@@ -315,6 +315,7 @@ export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
                 buildL2Prompt,
                 parseSummarizationResponse,
                 SUMMARY_MAX_TOKENS,
+                SUMMARY_TIMEOUT_MS,
                 SUMMARIZATION_PROMPT_L1,
                 SUMMARIZATION_PROMPT_L2,
             } = await import('@/lib/ai/hierarchical-summarizer');
@@ -336,6 +337,7 @@ export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
                 userPrompt: isArc ? buildL2Prompt(children) : buildL1Prompt(children),
                 temperature: 0.3,
                 maxTokens: SUMMARY_MAX_TOKENS,
+                timeoutMs: SUMMARY_TIMEOUT_MS,
                 thinkTagStrategy: 'strict-remove-blocks',
                 backgroundModel: useSettingsStore.getState().backgroundModel,
             });
@@ -346,7 +348,13 @@ export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
             }
 
             const parsed = parseSummarizationResponse(result.content);
-            if (!parsed) return;
+            if (!parsed) {
+                setReindexProgress(
+                    'Régénération échouée : le modèle n’a renvoyé aucun résumé exploitable.'
+                );
+                setTimeout(() => setReindexProgress(''), 5000);
+                return;
+            }
 
             // A regenerated summary is machine-written again: the manual-edit flag goes away,
             // otherwise a re-index would spare something the user never wrote.
@@ -387,8 +395,12 @@ export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
 
             const { apiKeys, backgroundModel } = useSettingsStore.getState();
             const orConfig = apiKeys.find((k) => k.provider === 'openrouter');
+            const nanoConfig = apiKeys.find((k) => k.provider === 'nanogpt');
             const apiKey = orConfig ? (await decryptApiKey(orConfig.encryptedKey)) || '' : '';
-            if (!apiKey) {
+            const hasNanoKey = nanoConfig
+                ? Boolean(await decryptApiKey(nanoConfig.encryptedKey))
+                : false;
+            if (!apiKey && !hasNanoKey) {
                 setReindexProgress('Erreur : aucune clé API trouvée.');
                 return;
             }
@@ -399,7 +411,8 @@ export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
                 replaceSummariesForConversation,
             } = await import('@/lib/db');
             const { backgroundAICall } = await import('@/lib/ai/background-ai');
-            const { SUMMARY_MAX_TOKENS } = await import('@/lib/ai/hierarchical-summarizer');
+            const { SUMMARY_MAX_TOKENS, SUMMARY_TIMEOUT_MS } =
+                await import('@/lib/ai/hierarchical-summarizer');
 
             const userName = getConversationPersona(activeConversationId).persona?.name || 'You';
 
@@ -422,9 +435,10 @@ export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
                     const result = await backgroundAICall({
                         systemPrompt,
                         userPrompt,
-                        apiKey,
+                        apiKey: apiKey || undefined,
                         temperature: 0.3,
                         maxTokens: SUMMARY_MAX_TOKENS,
+                        timeoutMs: SUMMARY_TIMEOUT_MS,
                         thinkTagStrategy: 'strict-remove-blocks',
                         backgroundModel,
                     });
