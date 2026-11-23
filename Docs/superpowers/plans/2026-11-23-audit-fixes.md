@@ -314,7 +314,7 @@ git commit -m "fix(storage): request persistent storage, cache only same-origin 
 **Files:**
 
 - Modify: `src/lib/db.ts:14-15,90` (export constants; `blocking`/`terminated` handlers)
-- Modify: `src/lib/global-backup.ts:12,177` (use the exported constants)
+- Modify: `src/lib/global-backup.ts:12,225` (its own `DB_NAME` and `MAX_DB_VERSION` copies → the exported constants)
 - Test: `src/lib/__tests__/db-version.test.ts` (new)
 
 **Interfaces:**
@@ -365,7 +365,7 @@ Expected: FAIL — constants not exported; the first test resolves `'blocked'`.
 
 - [ ] **Step 3: Implement**
 
-Export both constants. In `initDB`'s `openDB` options: `blocking() { dbInstance?.close(); dbInstance = null; }` and `terminated() { dbInstance = null; }` (the old tab's next write then fails visibly through Task 5's notice). `global-backup.ts` imports `DB_NAME`, `DB_VERSION` from `./db` and checks `db.version > DB_VERSION`.
+Export both constants. In `initDB`'s `openDB` options: `blocking() { dbInstance?.close(); dbInstance = null; }` and `terminated() { dbInstance = null; }` (the old tab's next write then fails visibly through Task 5's notice). `global-backup.ts` imports `DB_NAME`, `DB_VERSION` from `./db`, deletes its local `DB_NAME` and `MAX_DB_VERSION`, and checks `db.version > DB_VERSION` (both the v1 and v2 file headers go through `checkHeader`).
 
 - [ ] **Step 4: Run tests**
 
@@ -419,7 +419,7 @@ git commit -m "chore: delete dead code, the orphaned conversation search and 5 u
 
 - [ ] **Step 1: Write it**
 
-Replace the create-next-app text. Sections, short: **What it is** (local-first RP front-end; all data in the browser — IndexedDB + localStorage; the Next server only proxies AI providers and card sites); **Run** (`npm install`, `npm run dev`, or `npm run build && npm start`); **Data & backups** (Réglages → Sauvegardes, the `/rescue` page; API keys must be re-entered on another device); **Do not deploy to a datacenter host** (card imports are blocked by Cloudflare from cloud IPs, and API keys transit the server); **Checks** (`format:check`, `lint`, `type-check`, `test`, `build`, all run by CI). Stack line: Next.js 16, React 19, Tailwind 4, zustand, IndexedDB schema v9.
+Replace the create-next-app text. Sections, short: **What it is** (local-first RP front-end, used as a home-screen PWA on iPhone; all data in the browser — IndexedDB + localStorage; the Next server only proxies AI providers and card sites); **Run** (`npm install`, `npm run dev`, or `npm run build && npm start`); **Deploy** (Vercel builds `main` automatically; the API keys transit that deployment's server routes; card sites behind Cloudflare may refuse the server, the importer then retries from the browser); **Data & backups** (Réglages → Sauvegardes: streamed `.json.gz` file saved through the share sheet, restore checks the whole file before writing; a home-screen PWA has its own storage, separate from Safari's, so `/rescue` opened in Safari does not see it; API keys must be re-entered on another device); **Checks** (`format:check`, `lint`, `type-check`, `test`, `build`, all run by CI). Stack line: Next.js 16, React 19, Tailwind 4, zustand, IndexedDB schema v9.
 
 - [ ] **Step 2: Verify**
 

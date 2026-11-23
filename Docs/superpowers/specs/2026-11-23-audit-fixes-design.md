@@ -4,10 +4,9 @@ Date: 2026-11-23. Source: the repo audit of the same day, re-challenged point by
 
 ## Intent
 
-Make the app trustworthy before adding live sync: CI that actually runs, no corrupted replies,
-no broken visible features, no silent data loss, no dead code. Points 4, 5 and 8 are also
-prerequisites for sync (sync needs reliable deletes, visible write failures, and a safe
-database version bump).
+Make the app trustworthy: CI that actually runs, no corrupted replies, no broken visible
+features, no silent data loss, no dead code. (The streamed global backup shipped first, at the
+user's request; see `2026-11-23-safe-global-backup-design.md`.)
 
 ## Decisions taken with the user
 
