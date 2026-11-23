@@ -270,230 +270,234 @@ export function TreeVisualization({ isOpen, onClose }: TreeVisualizationProps) {
     if (!isOpen) return null;
 
     if (isMobile && !showGraph)
-        return (<EditorOverlay open={isOpen} onClose={onClose} title="Branches">
-            <div
-                className="mobile-editor fixed inset-0 z-50 bg-background flex flex-col"
-            >
-                <header className="p-4 flex flex-wrap items-center justify-between border-b gap-2">
-                    <h2 className="font-semibold">Branches</h2>
-                    <Button variant="outline" onClick={() => setShowGraph(true)}>
-                        Graphe
-                    </Button>
-                    <Button variant="ghost" onClick={onClose}>
-                        Retour
-                    </Button>
-                </header>
-                <div className="flex-1 overflow-y-auto p-3 space-y-2">
-                    {allMessages
-                        .filter(
-                            (m) => m.conversationId === activeConversationId && m.role !== 'system'
-                        )
-                        .sort(
-                            (a, b) =>
-                                a.messageOrder - b.messageOrder ||
-                                a.regenerationIndex - b.regenerationIndex
-                        )
-                        .slice(0, listLimit)
-                        .map((m) => (
-                            <button
-                                className="block w-full text-left p-3 rounded-lg border bg-white/5"
-                                key={m.id}
-                                onClick={() => {
-                                    navigateToMessage(m.id);
-                                    onClose();
-                                }}
-                            >
-                                <span className="text-xs text-primary">
-                                    {m.speaker?.name || (m.role === 'user' ? 'Vous' : 'Personnage')}{' '}
-                                    · étape {m.messageOrder} · variante {m.regenerationIndex + 1}{' '}
-                                    {m.isActiveBranch && '· active'}
-                                </span>
-                                <span className="block line-clamp-3 text-sm">{m.content}</span>
-                            </button>
-                        ))}
-                    {allMessages.length > listLimit && (
-                        <Button onClick={() => setListLimit((n) => n + 80)}>Afficher plus</Button>
-                    )}
+        return (
+            <EditorOverlay open={isOpen} onClose={onClose} title="Branches">
+                <div className="mobile-editor fixed inset-0 z-50 bg-background flex flex-col">
+                    <header className="p-4 flex flex-wrap items-center justify-between border-b gap-2">
+                        <h2 className="font-semibold">Branches</h2>
+                        <Button variant="outline" onClick={() => setShowGraph(true)}>
+                            Graphe
+                        </Button>
+                        <Button variant="ghost" onClick={onClose}>
+                            Retour
+                        </Button>
+                    </header>
+                    <div className="flex-1 overflow-y-auto p-3 space-y-2">
+                        {allMessages
+                            .filter(
+                                (m) =>
+                                    m.conversationId === activeConversationId && m.role !== 'system'
+                            )
+                            .sort(
+                                (a, b) =>
+                                    a.messageOrder - b.messageOrder ||
+                                    a.regenerationIndex - b.regenerationIndex
+                            )
+                            .slice(0, listLimit)
+                            .map((m) => (
+                                <button
+                                    className="block w-full text-left p-3 rounded-lg border bg-white/5"
+                                    key={m.id}
+                                    onClick={() => {
+                                        navigateToMessage(m.id);
+                                        onClose();
+                                    }}
+                                >
+                                    <span className="text-xs text-primary">
+                                        {m.speaker?.name ||
+                                            (m.role === 'user' ? 'Vous' : 'Personnage')}{' '}
+                                        · étape {m.messageOrder} · variante{' '}
+                                        {m.regenerationIndex + 1} {m.isActiveBranch && '· active'}
+                                    </span>
+                                    <span className="block line-clamp-3 text-sm">{m.content}</span>
+                                </button>
+                            ))}
+                        {allMessages.length > listLimit && (
+                            <Button onClick={() => setListLimit((n) => n + 80)}>
+                                Afficher plus
+                            </Button>
+                        )}
+                    </div>
                 </div>
-            </div>
-        </EditorOverlay>
+            </EditorOverlay>
         );
-    return (<EditorOverlay open={isOpen} onClose={onClose} title="Branches">
-        <AnimatePresence>
-            <motion.div
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                className="mobile-editor fixed inset-0 z-50 bg-background/95 backdrop-blur-sm flex flex-col"
-            >
-                {isMobile && (
-                    <Button variant="outline" onClick={() => setShowGraph(false)}>
-                        Afficher la liste des branches
-                    </Button>
-                )}
-                {/* Header */}
-                <div className="flex flex-wrap items-center justify-between gap-2 p-3 md:p-4 border-b bg-card/50 z-10 px-4 md:px-6">
-                    <div className="flex items-center gap-2 md:gap-3">
-                        <div className="p-1.5 md:p-2 bg-primary/10 rounded-lg">
-                            <GitBranch className="h-4 w-4 md:h-5 md:w-5 text-primary" />
-                        </div>
-                        <div>
-                            <h2 className="font-bold text-base md:text-lg leading-tight">
-                                Arbre de conversation
-                            </h2>
-                            <p className="text-[10px] md:text-xs text-muted-foreground">
-                                Schéma de toutes les branches du dialogue
-                            </p>
-                        </div>
-                    </div>
-                    <div className="flex items-center gap-1 md:gap-2">
-                        <Button
-                            variant="outline"
-                            size="icon"
-                            onClick={() => setView((v) => ({ ...v, scale: v.scale + 0.1 }))}
-                        >
-                            <ZoomIn className="h-4 w-4" />
-                        </Button>
-                        <Button
-                            variant="outline"
-                            size="icon"
-                            onClick={() =>
-                                setView((v) => ({ ...v, scale: Math.max(0.1, v.scale - 0.1) }))
-                            }
-                        >
-                            <ZoomOut className="h-4 w-4" />
-                        </Button>
-                        <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => setView({ x: 0, y: 50, scale: 1 })}
-                        >
-                            <Maximize className="h-4 w-4" />
-                        </Button>
-                        <div className="w-px h-6 bg-border mx-2" />
-                        <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={onClose}
-                            className="hover:bg-destructive/10 hover:text-destructive"
-                        >
-                            <X className="h-5 w-5" />
-                        </Button>
-                    </div>
-                </div>
-
-                {/* Canvas */}
-                <div
-                    className="flex-1 w-full h-full relative overflow-hidden bg-dot-pattern cursor-move select-none touch-manipulation"
-                    onMouseDown={handleMouseDown}
-                    onMouseMove={handleMouseMove}
-                    onMouseUp={handleMouseUp}
-                    onMouseLeave={handleMouseUp}
-                    onTouchStart={handleTouchStart}
-                    onTouchMove={handleTouchMove}
-                    onTouchEnd={handleTouchEnd}
-                    onWheel={handleWheel}
+    return (
+        <EditorOverlay open={isOpen} onClose={onClose} title="Branches">
+            <AnimatePresence>
+                <motion.div
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    className="mobile-editor fixed inset-0 z-50 bg-background/95 backdrop-blur-sm flex flex-col"
                 >
-                    {!hasData ? (
-                        <div className="absolute inset-0 flex flex-col items-center justify-center text-muted-foreground opacity-50 select-none pointer-events-none">
-                            <GitBranch className="h-16 w-16 mb-4 stroke-[1.5]" />
-                            <p className="font-medium text-lg">
-                                Aucun message visible dans cet arbre
-                            </p>
-                            <p className="text-sm">
-                                Les messages système techniques sont masqués par défaut.
-                            </p>
-                        </div>
-                    ) : (
-                        <svg ref={svgRef} className="w-full h-full block">
-                            <g
-                                data-panzoom
-                                transform={`translate(${view.x},${view.y}) scale(${view.scale})`}
-                            >
-                                {/* Edges */}
-                                {treeData?.edges.map((edge, i) => {
-                                    const startHeading = edge.active
-                                        ? 'stroke-primary'
-                                        : 'stroke-border';
-                                    const strokeWidth = edge.active ? 3 : 2;
-
-                                    const start = {
-                                        x: edge.source.x + NODE_WIDTH / 2,
-                                        y: edge.source.y + NODE_HEIGHT,
-                                    };
-                                    const end = {
-                                        x: edge.target.x + NODE_WIDTH / 2,
-                                        y: edge.target.y,
-                                    };
-                                    const cp1 = { x: start.x, y: start.y + Y_SPACING / 2 };
-                                    const cp2 = { x: end.x, y: end.y - Y_SPACING / 2 };
-
-                                    return (
-                                        <path
-                                            key={`edge-${i}`}
-                                            d={`M ${start.x} ${start.y} C ${cp1.x} ${cp1.y}, ${cp2.x} ${cp2.y}, ${end.x} ${end.y}`}
-                                            fill="none"
-                                            className={cn(
-                                                'transition-colors duration-300 ease-in-out',
-                                                startHeading
-                                            )}
-                                            strokeWidth={strokeWidth}
-                                            opacity={edge.active ? 1 : 0.4}
-                                        />
-                                    );
-                                })}
-
-                                {/* Nodes */}
-                                {treeData?.nodes.map((node) => {
-                                    const isUser = node.message.role === 'user';
-                                    const isActivePath = treeData.activePath.has(node.id);
-
-                                    return (
-                                        <foreignObject
-                                            key={node.id}
-                                            x={node.x}
-                                            y={node.y}
-                                            width={NODE_WIDTH}
-                                            height={NODE_HEIGHT}
-                                            className="overflow-visible"
-                                        >
-                                            <div
-                                                onClick={(e) => {
-                                                    e.stopPropagation();
-                                                    navigateToMessage(node.id);
-                                                }}
-                                                className={cn(
-                                                    'w-full h-full rounded-xl border-2 p-3 flex flex-col justify-between transition-all duration-200 cursor-pointer shadow-sm hover:scale-105 hover:shadow-md bg-card',
-                                                    isActivePath
-                                                        ? 'border-primary ring-1 ring-primary/20 shadow-primary/10'
-                                                        : 'border-border opacity-70 hover:opacity-100 hover:border-primary/30'
-                                                )}
-                                            >
-                                                <div className="flex items-center justify-between">
-                                                    <span
-                                                        className={cn(
-                                                            'text-[10px] uppercase font-bold tracking-wider px-1.5 py-0.5 rounded-sm',
-                                                            isUser
-                                                                ? 'bg-blue-500/10 text-blue-500'
-                                                                : 'bg-green-500/10 text-green-500'
-                                                        )}
-                                                    >
-                                                        {node.message.role}
-                                                    </span>
-                                                </div>
-                                                <p className="text-xs text-card-foreground line-clamp-2 font-medium leading-relaxed">
-                                                    {node.message.content || '...'}
-                                                </p>
-                                            </div>
-                                        </foreignObject>
-                                    );
-                                })}
-                            </g>
-                        </svg>
+                    {isMobile && (
+                        <Button variant="outline" onClick={() => setShowGraph(false)}>
+                            Afficher la liste des branches
+                        </Button>
                     )}
-                </div>
-            </motion.div>
-        </AnimatePresence>
+                    {/* Header */}
+                    <div className="flex flex-wrap items-center justify-between gap-2 p-3 md:p-4 border-b bg-card/50 z-10 px-4 md:px-6">
+                        <div className="flex items-center gap-2 md:gap-3">
+                            <div className="p-1.5 md:p-2 bg-primary/10 rounded-lg">
+                                <GitBranch className="h-4 w-4 md:h-5 md:w-5 text-primary" />
+                            </div>
+                            <div>
+                                <h2 className="font-bold text-base md:text-lg leading-tight">
+                                    Arbre de conversation
+                                </h2>
+                                <p className="text-[10px] md:text-xs text-muted-foreground">
+                                    Schéma de toutes les branches du dialogue
+                                </p>
+                            </div>
+                        </div>
+                        <div className="flex items-center gap-1 md:gap-2">
+                            <Button
+                                variant="outline"
+                                size="icon"
+                                onClick={() => setView((v) => ({ ...v, scale: v.scale + 0.1 }))}
+                            >
+                                <ZoomIn className="h-4 w-4" />
+                            </Button>
+                            <Button
+                                variant="outline"
+                                size="icon"
+                                onClick={() =>
+                                    setView((v) => ({ ...v, scale: Math.max(0.1, v.scale - 0.1) }))
+                                }
+                            >
+                                <ZoomOut className="h-4 w-4" />
+                            </Button>
+                            <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => setView({ x: 0, y: 50, scale: 1 })}
+                            >
+                                <Maximize className="h-4 w-4" />
+                            </Button>
+                            <div className="w-px h-6 bg-border mx-2" />
+                            <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={onClose}
+                                className="hover:bg-destructive/10 hover:text-destructive"
+                            >
+                                <X className="h-5 w-5" />
+                            </Button>
+                        </div>
+                    </div>
+
+                    {/* Canvas */}
+                    <div
+                        className="flex-1 w-full h-full relative overflow-hidden bg-dot-pattern cursor-move select-none touch-manipulation"
+                        onMouseDown={handleMouseDown}
+                        onMouseMove={handleMouseMove}
+                        onMouseUp={handleMouseUp}
+                        onMouseLeave={handleMouseUp}
+                        onTouchStart={handleTouchStart}
+                        onTouchMove={handleTouchMove}
+                        onTouchEnd={handleTouchEnd}
+                        onWheel={handleWheel}
+                    >
+                        {!hasData ? (
+                            <div className="absolute inset-0 flex flex-col items-center justify-center text-muted-foreground opacity-50 select-none pointer-events-none">
+                                <GitBranch className="h-16 w-16 mb-4 stroke-[1.5]" />
+                                <p className="font-medium text-lg">
+                                    Aucun message visible dans cet arbre
+                                </p>
+                                <p className="text-sm">
+                                    Les messages système techniques sont masqués par défaut.
+                                </p>
+                            </div>
+                        ) : (
+                            <svg ref={svgRef} className="w-full h-full block">
+                                <g
+                                    data-panzoom
+                                    transform={`translate(${view.x},${view.y}) scale(${view.scale})`}
+                                >
+                                    {/* Edges */}
+                                    {treeData?.edges.map((edge, i) => {
+                                        const startHeading = edge.active
+                                            ? 'stroke-primary'
+                                            : 'stroke-border';
+                                        const strokeWidth = edge.active ? 3 : 2;
+
+                                        const start = {
+                                            x: edge.source.x + NODE_WIDTH / 2,
+                                            y: edge.source.y + NODE_HEIGHT,
+                                        };
+                                        const end = {
+                                            x: edge.target.x + NODE_WIDTH / 2,
+                                            y: edge.target.y,
+                                        };
+                                        const cp1 = { x: start.x, y: start.y + Y_SPACING / 2 };
+                                        const cp2 = { x: end.x, y: end.y - Y_SPACING / 2 };
+
+                                        return (
+                                            <path
+                                                key={`edge-${i}`}
+                                                d={`M ${start.x} ${start.y} C ${cp1.x} ${cp1.y}, ${cp2.x} ${cp2.y}, ${end.x} ${end.y}`}
+                                                fill="none"
+                                                className={cn(
+                                                    'transition-colors duration-300 ease-in-out',
+                                                    startHeading
+                                                )}
+                                                strokeWidth={strokeWidth}
+                                                opacity={edge.active ? 1 : 0.4}
+                                            />
+                                        );
+                                    })}
+
+                                    {/* Nodes */}
+                                    {treeData?.nodes.map((node) => {
+                                        const isUser = node.message.role === 'user';
+                                        const isActivePath = treeData.activePath.has(node.id);
+
+                                        return (
+                                            <foreignObject
+                                                key={node.id}
+                                                x={node.x}
+                                                y={node.y}
+                                                width={NODE_WIDTH}
+                                                height={NODE_HEIGHT}
+                                                className="overflow-visible"
+                                            >
+                                                <div
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        navigateToMessage(node.id);
+                                                    }}
+                                                    className={cn(
+                                                        'w-full h-full rounded-xl border-2 p-3 flex flex-col justify-between transition-all duration-200 cursor-pointer shadow-sm hover:scale-105 hover:shadow-md bg-card',
+                                                        isActivePath
+                                                            ? 'border-primary ring-1 ring-primary/20 shadow-primary/10'
+                                                            : 'border-border opacity-70 hover:opacity-100 hover:border-primary/30'
+                                                    )}
+                                                >
+                                                    <div className="flex items-center justify-between">
+                                                        <span
+                                                            className={cn(
+                                                                'text-[10px] uppercase font-bold tracking-wider px-1.5 py-0.5 rounded-sm',
+                                                                isUser
+                                                                    ? 'bg-blue-500/10 text-blue-500'
+                                                                    : 'bg-green-500/10 text-green-500'
+                                                            )}
+                                                        >
+                                                            {node.message.role}
+                                                        </span>
+                                                    </div>
+                                                    <p className="text-xs text-card-foreground line-clamp-2 font-medium leading-relaxed">
+                                                        {node.message.content || '...'}
+                                                    </p>
+                                                </div>
+                                            </foreignObject>
+                                        );
+                                    })}
+                                </g>
+                            </svg>
+                        )}
+                    </div>
+                </motion.div>
+            </AnimatePresence>
         </EditorOverlay>
     );
 }

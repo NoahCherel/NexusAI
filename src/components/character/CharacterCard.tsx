@@ -97,7 +97,12 @@ export function CharacterCard({
             role="button"
             tabIndex={0}
             aria-label={`Ouvrir ${character.displayName || character.name}`}
-            onKeyDown={e => { if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); onClick?.(); } }}
+            onKeyDown={(e) => {
+                if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) {
+                    e.preventDefault();
+                    onClick?.();
+                }
+            }}
             onClick={onClick}
             style={{ width: '100%', maxWidth: '100%' }}
         >

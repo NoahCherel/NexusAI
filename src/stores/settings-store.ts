@@ -53,7 +53,7 @@ export const DEFAULT_MODELS: CustomModel[] = [
         modelId: 'google/gemini-3.8-flash',
         provider: 'openrouter',
         isFree: false,
-    }
+    },
 ];
 
 interface SettingsState {

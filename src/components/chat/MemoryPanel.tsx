@@ -492,766 +492,798 @@ export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
         { key: 'summaries', label: 'Résumés', icon: Layers, count: summaries.length },
     ];
 
-    return (<EditorOverlay open={isOpen} onClose={onClose} title="Mémoire">
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-            <div className="mobile-editor w-full max-w-lg mx-4 bg-background border border-border/50 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[85vh] max-sm:mx-0 max-sm:h-dvh max-sm:max-h-none max-sm:rounded-none max-sm:border-0">
-                {/* Header */}
-                <div className="flex items-center justify-between p-4 border-b bg-muted/30 shrink-0">
-                    <div className="flex items-center gap-3 min-w-0">
-                        <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
-                            <Brain className="w-5 h-5 text-primary" />
-                        </div>
-                        <div className="min-w-0">
-                            <h2 className="font-bold text-sm truncate">Mémoire & Connaissances</h2>
-                            <p className="text-xs text-muted-foreground truncate">
-                                {conversation?.title || character.name} — mémoire de la conversation
-                            </p>
-                        </div>
-                    </div>
-                    <Button
-                        variant="ghost"
-                        size="icon"
-                        aria-label="Retour à la discussion"
-                        onClick={onClose}
-                        className="h-8 w-8 shrink-0"
-                    >
-                        <X className="w-4 h-4" />
-                    </Button>
-                </div>
-
-                <label className="sm:hidden px-4 py-2 text-sm">
-                    Rubrique mémoire
-                    <select
-                        aria-label="Rubrique mémoire"
-                        className="mt-1 block w-full rounded-md bg-background border p-3"
-                        value={activeTab}
-                        onChange={(e) => setActiveTab(e.target.value as TabType)}
-                    >
-                        {tabs.map((tab) => (
-                            <option key={tab.key} value={tab.key}>
-                                {tab.label}
-                            </option>
-                        ))}
-                    </select>
-                </label>
-                {/* Tabs — 6 entries can't fit 375px as flex-1 (min-content ≈ 500px): on
-                    mobile the bar scrolls horizontally instead of clipping tabs. */}
-                <div className="hidden sm:flex border-b bg-muted/10 shrink-0 overflow-x-auto no-scrollbar">
-                    {tabs.map((tab) => (
-                        <button
-                            key={tab.key}
-                            onClick={() => setActiveTab(tab.key)}
-                            className={cn(
-                                'sm:flex-1 max-sm:shrink-0 max-sm:px-3 flex items-center justify-center gap-1.5 py-2.5 text-xs font-medium transition-colors relative whitespace-nowrap',
-                                activeTab === tab.key
-                                    ? 'text-foreground'
-                                    : 'text-muted-foreground hover:text-foreground/70'
-                            )}
-                        >
-                            <tab.icon className="w-3.5 h-3.5 shrink-0" />
-                            <span>{tab.label}</span>
-                            {tab.count !== undefined && tab.count > 0 && (
-                                <span
-                                    className={cn(
-                                        'text-[9px] px-1.5 py-0.5 rounded-full font-bold',
-                                        activeTab === tab.key
-                                            ? 'bg-primary/15 text-primary'
-                                            : 'bg-muted text-muted-foreground'
-                                    )}
-                                >
-                                    {tab.count}
-                                </span>
-                            )}
-                            {activeTab === tab.key && (
-                                <div className="absolute bottom-0 left-2 right-2 h-0.5 bg-primary rounded-full" />
-                            )}
-                        </button>
-                    ))}
-                </div>
-
-                {/* Tab Content */}
-                <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
-                    {/* === NOTES TAB === */}
-                    {activeTab === 'notes' && (
-                        <div className="flex flex-col flex-1 min-h-0">
-                            <div className="flex-1 overflow-y-auto">
-                                <div className="p-4 space-y-2">
-                                    {memories.length === 0 ? (
-                                        <div className="text-center py-8">
-                                            <Brain className="w-12 h-12 mx-auto text-muted-foreground/30 mb-3" />
-                                            <p className="text-sm text-muted-foreground">
-                                                Aucun souvenir pour l&apos;instant
-                                            </p>
-                                            <p className="text-xs text-muted-foreground/70 mt-1">
-                                                Ajoutez des notes ou générez des résumés IA
-                                            </p>
-                                        </div>
-                                    ) : (
-                                        memories.map((memory, index) => (
-                                            <div
-                                                key={index}
-                                                className="p-3 rounded-lg bg-muted/30 border border-border/30 group transition-all"
-                                            >
-                                                {editingIndex === index ? (
-                                                    <div className="space-y-2">
-                                                        <Textarea
-                                                            value={editValue}
-                                                            onChange={(e) =>
-                                                                setEditValue(e.target.value)
-                                                            }
-                                                            className="text-xs min-h-[80px]"
-                                                            autoFocus
-                                                        />
-                                                        <div className="flex justify-end gap-2">
-                                                            <Button
-                                                                variant="ghost"
-                                                                size="sm"
-                                                                onClick={() =>
-                                                                    setEditingIndex(null)
-                                                                }
-                                                                className="h-7 text-[10px]"
-                                                            >
-                                                                Annuler
-                                                            </Button>
-                                                            <Button
-                                                                size="sm"
-                                                                onClick={() =>
-                                                                    handleUpdateMemory(index)
-                                                                }
-                                                                className="h-7 text-[10px]"
-                                                            >
-                                                                Enregistrer
-                                                            </Button>
-                                                        </div>
-                                                    </div>
-                                                ) : (
-                                                    <div
-                                                        className="flex items-start justify-between cursor-pointer"
-                                                        onClick={() =>
-                                                            setExpandedIndex(
-                                                                expandedIndex === index
-                                                                    ? null
-                                                                    : index
-                                                            )
-                                                        }
-                                                    >
-                                                        <p
-                                                            className={cn(
-                                                                'text-xs flex-1 pr-2 leading-relaxed',
-                                                                expandedIndex !== index &&
-                                                                    'line-clamp-2'
-                                                            )}
-                                                        >
-                                                            {memory}
-                                                        </p>
-                                                        <div className="flex items-center gap-1 shrink-0">
-                                                            {/* pointer-coarse: no hover on touch — the buttons must stay visible (and big enough) */}
-                                                            <Button
-                                                                variant="ghost"
-                                                                size="icon"
-                                                                className="h-6 w-6 opacity-0 group-hover:opacity-100 pointer-coarse:opacity-60 pointer-coarse:h-9 pointer-coarse:w-9 transition-opacity"
-                                                                onClick={(e) => {
-                                                                    e.stopPropagation();
-                                                                    setEditValue(memory);
-                                                                    setEditingIndex(index);
-                                                                }}
-                                                            >
-                                                                <Edit2 className="w-3 h-3 text-muted-foreground" />
-                                                            </Button>
-                                                            <Button
-                                                                variant="ghost"
-                                                                size="icon"
-                                                                className="h-6 w-6 opacity-0 group-hover:opacity-100 pointer-coarse:opacity-60 pointer-coarse:h-9 pointer-coarse:w-9 transition-opacity hover:bg-destructive/10"
-                                                                onClick={(e) => {
-                                                                    e.stopPropagation();
-                                                                    setConfirmDeleteIndex(index);
-                                                                }}
-                                                            >
-                                                                <Trash2 className="w-3 h-3 text-destructive" />
-                                                            </Button>
-                                                        </div>
-                                                    </div>
-                                                )}
-                                            </div>
-                                        ))
-                                    )}
-                                </div>
+    return (
+        <EditorOverlay open={isOpen} onClose={onClose} title="Mémoire">
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+                <div className="mobile-editor w-full max-w-lg mx-4 bg-background border border-border/50 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[85vh] max-sm:mx-0 max-sm:h-dvh max-sm:max-h-none max-sm:rounded-none max-sm:border-0">
+                    {/* Header */}
+                    <div className="flex items-center justify-between p-4 border-b bg-muted/30 shrink-0">
+                        <div className="flex items-center gap-3 min-w-0">
+                            <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
+                                <Brain className="w-5 h-5 text-primary" />
                             </div>
-
-                            {/* Add Memory */}
-                            <div className="p-4 border-t bg-muted/10 space-y-3 shrink-0">
-                                <Textarea
-                                    placeholder="Ajouter une note de mémoire…"
-                                    value={newMemory}
-                                    onChange={(e) => setNewMemory(e.target.value)}
-                                    className="min-h-[60px] resize-none text-sm"
-                                />
-                                {/* The old "AI Summary" button (legacy memory-summarizer) is
-                                    gone: it burned the PAID foreground model to restate what
-                                    the hierarchical summaries already inject for free. */}
-                                <Button
-                                    onClick={handleAddMemory}
-                                    disabled={!newMemory.trim()}
-                                    size="sm"
-                                    className="w-full gap-2"
-                                >
-                                    <Plus className="w-3.5 h-3.5" />
-                                    Ajouter une note
-                                </Button>
-                            </div>
-                        </div>
-                    )}
-
-                    {/* === GUIDANCE TAB === */}
-                    {activeTab === 'guidance' && (
-                        <div className="flex flex-col flex-1 min-h-0 p-4 space-y-4">
-                            <div className="flex items-center gap-2 text-sm font-medium text-primary">
-                                <Sparkles className="w-4 h-4" />
-                                Guidage narratif (Note d&apos;auteur)
-                            </div>
-                            <p className="text-xs text-muted-foreground leading-relaxed">
-                                Rédigez un mémo pour orienter la direction narrative de l&apos;IA.
-                                Il sera injecté directement dans le prompt système pour infléchir
-                                subtilement (ou ouvertement) l&apos;histoire, le comportement des
-                                personnages ou les événements à venir.
-                            </p>
-                            <Textarea
-                                placeholder="ex. : « Pousse subtilement le joueur vers la vieille taverne », « Montre-toi plus méfiant envers les motivations du joueur », « Le temps tourne lentement à l'orage… »"
-                                value={conversation?.storyGuidance || ''}
-                                onChange={(e) => {
-                                    if (activeConversationId) {
-                                        useChatStore
-                                            .getState()
-                                            .updateStoryGuidance(
-                                                activeConversationId,
-                                                e.target.value
-                                            );
-                                    }
-                                }}
-                                className="flex-1 resize-none text-sm p-3 bg-muted/30 border-border/50 focus-visible:ring-primary/20"
-                            />
-                        </div>
-                    )}
-
-                    {/* === SCRATCHPAD TAB === */}
-                    {activeTab === 'scratchpad' && (
-                        <div className="flex flex-col flex-1 min-h-0 p-4 space-y-4">
-                            <div className="flex items-center gap-2 text-sm font-medium text-primary">
-                                <BrainCircuit className="w-4 h-4" />
-                                Scratchpad IA (mémoire de travail)
-                            </div>
-                            {/* Editing while the feature is OFF silently did nothing — the
-                                scratchpad is neither injected nor re-emitted. Make it read-only
-                                and say so instead of accepting edits into the void. */}
-                            {!scratchpadEnabled && (
-                                <p className="text-xs text-amber-500/90 leading-relaxed">
-                                    Le Scratchpad est désactivé (Réglages → Fonctions IA) : ce
-                                    contenu n&apos;est ni injecté ni mis à jour tant qu&apos;il est
-                                    éteint.
+                            <div className="min-w-0">
+                                <h2 className="font-bold text-sm truncate">
+                                    Mémoire & Connaissances
+                                </h2>
+                                <p className="text-xs text-muted-foreground truncate">
+                                    {conversation?.title || character.name} — mémoire de la
+                                    conversation
                                 </p>
-                            )}
-                            <p className="text-xs text-muted-foreground leading-relaxed">
-                                C&apos;est la mémoire de travail interne de l&apos;IA issue du tour
-                                précédent. Elle s&apos;en sert pour planifier ses prochaines
-                                actions, suivre l&apos;état de la scène et maintenir la continuité.
-                                Vous pouvez la modifier pour corriger ses suppositions.
-                            </p>
-                            <Textarea
-                                placeholder="Le scratchpad de l'IA est actuellement vide."
-                                value={conversation?.scratchpad || ''}
-                                readOnly={!scratchpadEnabled}
-                                onChange={(e) => {
-                                    if (activeConversationId && scratchpadEnabled) {
-                                        useChatStore
-                                            .getState()
-                                            .updateScratchpad(activeConversationId, e.target.value);
-                                    }
-                                }}
-                                className={`flex-1 resize-none text-sm p-3 bg-muted/30 border-border/50 focus-visible:ring-primary/20 font-mono ${
-                                    scratchpadEnabled ? '' : 'opacity-60'
-                                }`}
-                            />
-                        </div>
-                    )}
-
-                    {/* === STYLE TAB === */}
-                    {activeTab === 'style' && (
-                        <div className="flex flex-col flex-1 min-h-0 p-4 space-y-4 overflow-y-auto">
-                            <div className="flex items-center gap-2 text-sm font-medium text-primary">
-                                <Feather className="w-4 h-4" />
-                                Garde-style (anti-cliché)
                             </div>
-                            <p className="text-xs text-muted-foreground leading-relaxed">
-                                Analysez vos dernières réponses IA pour repérer les habitudes
-                                répétitives ou clichées. Gardez les suggestions qui vous conviennent
-                                — elles sont injectées dans le prompt comme motifs à éviter, pour
-                                cette conversation uniquement.
-                            </p>
-                            <Button
-                                onClick={handleAnalyzeStyle}
-                                disabled={isAnalyzingStyle}
-                                size="sm"
-                                className="gap-2 self-start"
+                        </div>
+                        <Button
+                            variant="ghost"
+                            size="icon"
+                            aria-label="Retour à la discussion"
+                            onClick={onClose}
+                            className="h-8 w-8 shrink-0"
+                        >
+                            <X className="w-4 h-4" />
+                        </Button>
+                    </div>
+
+                    <label className="sm:hidden px-4 py-2 text-sm">
+                        Rubrique mémoire
+                        <select
+                            aria-label="Rubrique mémoire"
+                            className="mt-1 block w-full rounded-md bg-background border p-3"
+                            value={activeTab}
+                            onChange={(e) => setActiveTab(e.target.value as TabType)}
+                        >
+                            {tabs.map((tab) => (
+                                <option key={tab.key} value={tab.key}>
+                                    {tab.label}
+                                </option>
+                            ))}
+                        </select>
+                    </label>
+                    {/* Tabs — 6 entries can't fit 375px as flex-1 (min-content ≈ 500px): on
+                    mobile the bar scrolls horizontally instead of clipping tabs. */}
+                    <div className="hidden sm:flex border-b bg-muted/10 shrink-0 overflow-x-auto no-scrollbar">
+                        {tabs.map((tab) => (
+                            <button
+                                key={tab.key}
+                                onClick={() => setActiveTab(tab.key)}
+                                className={cn(
+                                    'sm:flex-1 max-sm:shrink-0 max-sm:px-3 flex items-center justify-center gap-1.5 py-2.5 text-xs font-medium transition-colors relative whitespace-nowrap',
+                                    activeTab === tab.key
+                                        ? 'text-foreground'
+                                        : 'text-muted-foreground hover:text-foreground/70'
+                                )}
                             >
-                                {isAnalyzingStyle ? (
-                                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                                ) : (
-                                    <Sparkles className="w-3.5 h-3.5" />
-                                )}
-                                Analyser mon style
-                            </Button>
-
-                            {styleSuggestions.length > 0 && (
-                                <div className="space-y-2">
-                                    <div className="flex items-center justify-between">
-                                        <span className="text-xs font-medium text-muted-foreground">
-                                            Suggestions — modifiez avant d&apos;ajouter
-                                        </span>
-                                        <Button
-                                            variant="ghost"
-                                            size="sm"
-                                            className="h-6 text-xs"
-                                            onClick={addAllBanRules}
-                                        >
-                                            Tout ajouter
-                                        </Button>
-                                    </div>
-                                    {styleSuggestions.map((rule, i) => (
-                                        <div
-                                            key={i}
-                                            className="flex items-center gap-2 p-2 rounded-md bg-muted/30 border border-border/40"
-                                        >
-                                            <Input
-                                                value={rule}
-                                                onChange={(e) => editSuggestion(i, e.target.value)}
-                                                className="flex-1 h-8 text-xs"
-                                                onKeyDown={(e) => {
-                                                    if (e.key === 'Enter') acceptSuggestion(i);
-                                                }}
-                                            />
-                                            <button
-                                                onClick={() => acceptSuggestion(i)}
-                                                className="text-primary hover:text-primary/70 shrink-0 pointer-coarse:p-2"
-                                                title="Ajouter à la liste d'interdits"
-                                            >
-                                                <Plus className="w-3.5 h-3.5" />
-                                            </button>
-                                            <button
-                                                onClick={() => dismissSuggestion(i)}
-                                                className="text-muted-foreground hover:text-foreground shrink-0 pointer-coarse:p-2"
-                                                title="Ignorer"
-                                            >
-                                                <X className="w-3.5 h-3.5" />
-                                            </button>
-                                        </div>
-                                    ))}
-                                </div>
-                            )}
-
-                            <div className="space-y-2">
-                                <span className="text-xs font-medium text-muted-foreground">
-                                    Liste d&apos;interdits active ({activeBanList.length})
-                                </span>
-                                {activeBanList.length === 0 ? (
-                                    <p className="text-xs text-muted-foreground/70 italic">
-                                        Aucune règle pour l&apos;instant — analysez votre style ou
-                                        ajoutez-en une ci-dessous.
-                                    </p>
-                                ) : (
-                                    activeBanList.map((rule, i) => (
-                                        <div
-                                            key={i}
-                                            className="flex items-start gap-2 p-2 rounded-md bg-background/40 border border-border/40"
-                                        >
-                                            <span className="flex-1 text-xs leading-relaxed">
-                                                {rule}
-                                            </span>
-                                            <button
-                                                onClick={() => removeBanRule(rule)}
-                                                className="text-muted-foreground hover:text-destructive shrink-0 pointer-coarse:p-2"
-                                                title="Retirer"
-                                            >
-                                                <Trash2 className="w-3.5 h-3.5" />
-                                            </button>
-                                        </div>
-                                    ))
-                                )}
-                                <div className="flex gap-2 pt-1">
-                                    <Input
-                                        value={newBanRule}
-                                        onChange={(e) => setNewBanRule(e.target.value)}
-                                        placeholder="Ajouter une règle manuellement…"
-                                        className="h-8 text-xs"
-                                        onKeyDown={(e) => {
-                                            if (e.key === 'Enter') {
-                                                addBanRule(newBanRule);
-                                                setNewBanRule('');
-                                            }
-                                        }}
-                                    />
-                                    <Button
-                                        size="sm"
-                                        variant="secondary"
-                                        className="h-8"
-                                        onClick={() => {
-                                            addBanRule(newBanRule);
-                                            setNewBanRule('');
-                                        }}
+                                <tab.icon className="w-3.5 h-3.5 shrink-0" />
+                                <span>{tab.label}</span>
+                                {tab.count !== undefined && tab.count > 0 && (
+                                    <span
+                                        className={cn(
+                                            'text-[9px] px-1.5 py-0.5 rounded-full font-bold',
+                                            activeTab === tab.key
+                                                ? 'bg-primary/15 text-primary'
+                                                : 'bg-muted text-muted-foreground'
+                                        )}
                                     >
-                                        Ajouter
-                                    </Button>
-                                </div>
-                            </div>
-                        </div>
-                    )}
+                                        {tab.count}
+                                    </span>
+                                )}
+                                {activeTab === tab.key && (
+                                    <div className="absolute bottom-0 left-2 right-2 h-0.5 bg-primary rounded-full" />
+                                )}
+                            </button>
+                        ))}
+                    </div>
 
-                    {/* === SUMMARIES TAB === */}
-                    {activeTab === 'summaries' && (
-                        <div className="flex flex-col flex-1 min-h-0">
-                            {/* Search bar */}
-                            <div className="px-4 pt-3 pb-1 shrink-0">
-                                <div className="relative">
-                                    <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
-                                    <Input
-                                        placeholder="Rechercher des résumés…"
-                                        value={summarySearchTerm}
-                                        onChange={(e) => setSummarySearchTerm(e.target.value)}
-                                        className="pl-8 h-8 text-xs bg-background/40 border-border/40"
-                                    />
-                                    {summarySearchTerm && (
-                                        <button
-                                            onClick={() => setSummarySearchTerm('')}
-                                            className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                                        >
-                                            <X className="w-3 h-3" />
-                                        </button>
-                                    )}
-                                </div>
-                            </div>
-                            <div className="flex-1 overflow-y-auto">
-                                <div className="p-4 space-y-2">
-                                    {isLoadingRag ? (
-                                        <div className="flex items-center justify-center py-12">
-                                            <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
-                                        </div>
-                                    ) : summaries.length === 0 ? (
-                                        <div className="text-center py-8">
-                                            <Layers className="w-12 h-12 mx-auto text-muted-foreground/30 mb-3" />
-                                            <p className="text-sm text-muted-foreground">
-                                                Aucun résumé pour l&apos;instant
-                                            </p>
-                                            <p className="text-xs text-muted-foreground/70 mt-1">
-                                                La chronique se construit toute seule : un Fragment
-                                                tous les ~10 messages, une Section tous les 5
-                                                Fragments, un Arc toutes les 3 Sections.
-                                            </p>
-                                        </div>
-                                    ) : (
-                                        summaries
-                                            .filter((summary) => {
-                                                if (!summarySearchTerm.trim()) return true;
-                                                const term = summarySearchTerm.toLowerCase();
-                                                return (
-                                                    summary.content.toLowerCase().includes(term) ||
-                                                    summary.keyFacts.some((kf) =>
-                                                        kf.toLowerCase().includes(term)
-                                                    )
-                                                );
-                                            })
-                                            .sort(
-                                                (a, b) =>
-                                                    b.level - a.level || b.createdAt - a.createdAt
-                                            )
-                                            .map((summary) => (
+                    {/* Tab Content */}
+                    <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
+                        {/* === NOTES TAB === */}
+                        {activeTab === 'notes' && (
+                            <div className="flex flex-col flex-1 min-h-0">
+                                <div className="flex-1 overflow-y-auto">
+                                    <div className="p-4 space-y-2">
+                                        {memories.length === 0 ? (
+                                            <div className="text-center py-8">
+                                                <Brain className="w-12 h-12 mx-auto text-muted-foreground/30 mb-3" />
+                                                <p className="text-sm text-muted-foreground">
+                                                    Aucun souvenir pour l&apos;instant
+                                                </p>
+                                                <p className="text-xs text-muted-foreground/70 mt-1">
+                                                    Ajoutez des notes ou générez des résumés IA
+                                                </p>
+                                            </div>
+                                        ) : (
+                                            memories.map((memory, index) => (
                                                 <div
-                                                    key={summary.id}
-                                                    className="p-3 rounded-lg bg-muted/30 border border-border/30 group transition-all space-y-1.5"
+                                                    key={index}
+                                                    className="p-3 rounded-lg bg-muted/30 border border-border/30 group transition-all"
                                                 >
-                                                    <div className="flex items-center gap-2 flex-wrap">
-                                                        <span
-                                                            className={cn(
-                                                                'text-[9px] font-bold px-1.5 py-0.5 rounded border',
-                                                                getLevelColor(summary.level)
-                                                            )}
-                                                        >
-                                                            {getLevelLabel(summary.level)}
-                                                        </span>
-                                                        {/* Ranges are stored 0-based with an
-                                                            exclusive end; showing them raw read
-                                                            as "msgs 0–10" for the first ten. */}
-                                                        <span className="text-[9px] text-muted-foreground">
-                                                            messages {summary.messageRange[0] + 1} à{' '}
-                                                            {summary.messageRange[1]}
-                                                        </span>
-                                                        {summary.isManuallyEdited && (
-                                                            <span className="text-[9px] px-1.5 py-0.5 rounded border border-amber-500/30 bg-amber-500/10 text-amber-400">
-                                                                modifié à la main
-                                                            </span>
-                                                        )}
-                                                    </div>
-
-                                                    {editingSummaryId === summary.id ? (
+                                                    {editingIndex === index ? (
                                                         <div className="space-y-2">
                                                             <Textarea
-                                                                value={summaryEditValue}
+                                                                value={editValue}
                                                                 onChange={(e) =>
-                                                                    setSummaryEditValue(
-                                                                        e.target.value
-                                                                    )
+                                                                    setEditValue(e.target.value)
                                                                 }
-                                                                className="text-xs min-h-[140px]"
+                                                                className="text-xs min-h-[80px]"
                                                                 autoFocus
                                                             />
-                                                            <div className="flex gap-2">
+                                                            <div className="flex justify-end gap-2">
                                                                 <Button
-                                                                    size="sm"
                                                                     variant="ghost"
-                                                                    className="flex-1 h-7 text-xs"
-                                                                    onClick={() => {
-                                                                        setEditingSummaryId(null);
-                                                                        setSummaryEditValue('');
-                                                                    }}
+                                                                    size="sm"
+                                                                    onClick={() =>
+                                                                        setEditingIndex(null)
+                                                                    }
+                                                                    className="h-7 text-[10px]"
                                                                 >
                                                                     Annuler
                                                                 </Button>
                                                                 <Button
                                                                     size="sm"
-                                                                    className="flex-1 h-7 text-xs"
                                                                     onClick={() =>
-                                                                        handleSaveSummaryEdit(
-                                                                            summary.id
-                                                                        )
+                                                                        handleUpdateMemory(index)
                                                                     }
+                                                                    className="h-7 text-[10px]"
                                                                 >
                                                                     Enregistrer
                                                                 </Button>
                                                             </div>
                                                         </div>
                                                     ) : (
-                                                        <>
-                                                            <p className="text-xs leading-relaxed whitespace-pre-wrap">
-                                                                {summary.content}
+                                                        <div
+                                                            className="flex items-start justify-between cursor-pointer"
+                                                            onClick={() =>
+                                                                setExpandedIndex(
+                                                                    expandedIndex === index
+                                                                        ? null
+                                                                        : index
+                                                                )
+                                                            }
+                                                        >
+                                                            <p
+                                                                className={cn(
+                                                                    'text-xs flex-1 pr-2 leading-relaxed',
+                                                                    expandedIndex !== index &&
+                                                                        'line-clamp-2'
+                                                                )}
+                                                            >
+                                                                {memory}
                                                             </p>
-
-                                                            {summary.keyFacts.length > 0 && (
-                                                                <button
-                                                                    onClick={() =>
-                                                                        setExpandedSummaryIds(
-                                                                            (prev) => {
-                                                                                const next =
-                                                                                    new Set(prev);
-                                                                                if (
-                                                                                    next.has(
-                                                                                        summary.id
-                                                                                    )
-                                                                                )
-                                                                                    next.delete(
-                                                                                        summary.id
-                                                                                    );
-                                                                                else
-                                                                                    next.add(
-                                                                                        summary.id
-                                                                                    );
-                                                                                return next;
-                                                                            }
-                                                                        )
-                                                                    }
-                                                                    className="text-[10px] text-muted-foreground hover:text-foreground"
-                                                                >
-                                                                    {expandedSummaryIds.has(
-                                                                        summary.id
-                                                                    )
-                                                                        ? '▾ '
-                                                                        : '▸ '}
-                                                                    {summary.keyFacts.length} fait
-                                                                    {summary.keyFacts.length > 1
-                                                                        ? 's'
-                                                                        : ''}{' '}
-                                                                    clé
-                                                                    {summary.keyFacts.length > 1
-                                                                        ? 's'
-                                                                        : ''}
-                                                                </button>
-                                                            )}
-                                                            {expandedSummaryIds.has(summary.id) && (
-                                                                <ul className="text-[10px] text-muted-foreground space-y-0.5 pl-3">
-                                                                    {summary.keyFacts.map(
-                                                                        (kf, i) => (
-                                                                            <li key={i}>• {kf}</li>
-                                                                        )
-                                                                    )}
-                                                                </ul>
-                                                            )}
-
-                                                            <div className="flex items-center gap-1 pt-0.5">
+                                                            <div className="flex items-center gap-1 shrink-0">
+                                                                {/* pointer-coarse: no hover on touch — the buttons must stay visible (and big enough) */}
                                                                 <Button
                                                                     variant="ghost"
                                                                     size="icon"
-                                                                    className="h-6 w-6 opacity-60 hover:opacity-100"
-                                                                    title="Modifier ce résumé"
-                                                                    onClick={() => {
-                                                                        setEditingSummaryId(
-                                                                            summary.id
-                                                                        );
-                                                                        setSummaryEditValue(
-                                                                            summary.content
-                                                                        );
+                                                                    className="h-6 w-6 opacity-0 group-hover:opacity-100 pointer-coarse:opacity-60 pointer-coarse:h-9 pointer-coarse:w-9 transition-opacity"
+                                                                    onClick={(e) => {
+                                                                        e.stopPropagation();
+                                                                        setEditValue(memory);
+                                                                        setEditingIndex(index);
                                                                     }}
                                                                 >
-                                                                    <Edit2 className="w-3 h-3" />
+                                                                    <Edit2 className="w-3 h-3 text-muted-foreground" />
                                                                 </Button>
-                                                                {/* L0 fragments are built from
-                                                                    raw messages, not from child
-                                                                    summaries — nothing to
-                                                                    regenerate them from here. */}
-                                                                {summary.level > 0 && (
-                                                                    <Button
-                                                                        variant="ghost"
-                                                                        size="icon"
-                                                                        className="h-6 w-6 opacity-60 hover:opacity-100"
-                                                                        title="Régénérer depuis les résumés enfants"
-                                                                        disabled={
-                                                                            regeneratingSummaryId !==
-                                                                            null
-                                                                        }
-                                                                        onClick={() =>
-                                                                            handleRegenerateSummary(
-                                                                                summary
-                                                                            )
-                                                                        }
-                                                                    >
-                                                                        {regeneratingSummaryId ===
-                                                                        summary.id ? (
-                                                                            <Loader2 className="w-3 h-3 animate-spin" />
-                                                                        ) : (
-                                                                            <Sparkles className="w-3 h-3" />
-                                                                        )}
-                                                                    </Button>
-                                                                )}
                                                                 <Button
                                                                     variant="ghost"
                                                                     size="icon"
-                                                                    className="h-6 w-6 ml-auto opacity-60 hover:opacity-100 hover:bg-destructive/10"
-                                                                    title="Supprimer"
-                                                                    onClick={() =>
-                                                                        handleDeleteSummary(
-                                                                            summary.id
-                                                                        )
-                                                                    }
+                                                                    className="h-6 w-6 opacity-0 group-hover:opacity-100 pointer-coarse:opacity-60 pointer-coarse:h-9 pointer-coarse:w-9 transition-opacity hover:bg-destructive/10"
+                                                                    onClick={(e) => {
+                                                                        e.stopPropagation();
+                                                                        setConfirmDeleteIndex(
+                                                                            index
+                                                                        );
+                                                                    }}
                                                                 >
                                                                     <Trash2 className="w-3 h-3 text-destructive" />
                                                                 </Button>
                                                             </div>
-                                                        </>
+                                                        </div>
                                                     )}
                                                 </div>
                                             ))
-                                    )}
+                                        )}
+                                    </div>
+                                </div>
+
+                                {/* Add Memory */}
+                                <div className="p-4 border-t bg-muted/10 space-y-3 shrink-0">
+                                    <Textarea
+                                        placeholder="Ajouter une note de mémoire…"
+                                        value={newMemory}
+                                        onChange={(e) => setNewMemory(e.target.value)}
+                                        className="min-h-[60px] resize-none text-sm"
+                                    />
+                                    {/* The old "AI Summary" button (legacy memory-summarizer) is
+                                    gone: it burned the PAID foreground model to restate what
+                                    the hierarchical summaries already inject for free. */}
+                                    <Button
+                                        onClick={handleAddMemory}
+                                        disabled={!newMemory.trim()}
+                                        size="sm"
+                                        className="w-full gap-2"
+                                    >
+                                        <Plus className="w-3.5 h-3.5" />
+                                        Ajouter une note
+                                    </Button>
                                 </div>
                             </div>
+                        )}
 
-                            {/* Reindex button */}
-                            <div className="p-3 border-t bg-muted/10 shrink-0 space-y-2">
-                                {reindexProgress && (
-                                    <p className="text-xs text-muted-foreground text-center">
-                                        {reindexProgress}
+                        {/* === GUIDANCE TAB === */}
+                        {activeTab === 'guidance' && (
+                            <div className="flex flex-col flex-1 min-h-0 p-4 space-y-4">
+                                <div className="flex items-center gap-2 text-sm font-medium text-primary">
+                                    <Sparkles className="w-4 h-4" />
+                                    Guidage narratif (Note d&apos;auteur)
+                                </div>
+                                <p className="text-xs text-muted-foreground leading-relaxed">
+                                    Rédigez un mémo pour orienter la direction narrative de
+                                    l&apos;IA. Il sera injecté directement dans le prompt système
+                                    pour infléchir subtilement (ou ouvertement) l&apos;histoire, le
+                                    comportement des personnages ou les événements à venir.
+                                </p>
+                                <Textarea
+                                    placeholder="ex. : « Pousse subtilement le joueur vers la vieille taverne », « Montre-toi plus méfiant envers les motivations du joueur », « Le temps tourne lentement à l'orage… »"
+                                    value={conversation?.storyGuidance || ''}
+                                    onChange={(e) => {
+                                        if (activeConversationId) {
+                                            useChatStore
+                                                .getState()
+                                                .updateStoryGuidance(
+                                                    activeConversationId,
+                                                    e.target.value
+                                                );
+                                        }
+                                    }}
+                                    className="flex-1 resize-none text-sm p-3 bg-muted/30 border-border/50 focus-visible:ring-primary/20"
+                                />
+                            </div>
+                        )}
+
+                        {/* === SCRATCHPAD TAB === */}
+                        {activeTab === 'scratchpad' && (
+                            <div className="flex flex-col flex-1 min-h-0 p-4 space-y-4">
+                                <div className="flex items-center gap-2 text-sm font-medium text-primary">
+                                    <BrainCircuit className="w-4 h-4" />
+                                    Scratchpad IA (mémoire de travail)
+                                </div>
+                                {/* Editing while the feature is OFF silently did nothing — the
+                                scratchpad is neither injected nor re-emitted. Make it read-only
+                                and say so instead of accepting edits into the void. */}
+                                {!scratchpadEnabled && (
+                                    <p className="text-xs text-amber-500/90 leading-relaxed">
+                                        Le Scratchpad est désactivé (Réglages → Fonctions IA) : ce
+                                        contenu n&apos;est ni injecté ni mis à jour tant qu&apos;il
+                                        est éteint.
                                     </p>
                                 )}
+                                <p className="text-xs text-muted-foreground leading-relaxed">
+                                    C&apos;est la mémoire de travail interne de l&apos;IA issue du
+                                    tour précédent. Elle s&apos;en sert pour planifier ses
+                                    prochaines actions, suivre l&apos;état de la scène et maintenir
+                                    la continuité. Vous pouvez la modifier pour corriger ses
+                                    suppositions.
+                                </p>
+                                <Textarea
+                                    placeholder="Le scratchpad de l'IA est actuellement vide."
+                                    value={conversation?.scratchpad || ''}
+                                    readOnly={!scratchpadEnabled}
+                                    onChange={(e) => {
+                                        if (activeConversationId && scratchpadEnabled) {
+                                            useChatStore
+                                                .getState()
+                                                .updateScratchpad(
+                                                    activeConversationId,
+                                                    e.target.value
+                                                );
+                                        }
+                                    }}
+                                    className={`flex-1 resize-none text-sm p-3 bg-muted/30 border-border/50 focus-visible:ring-primary/20 font-mono ${
+                                        scratchpadEnabled ? '' : 'opacity-60'
+                                    }`}
+                                />
+                            </div>
+                        )}
+
+                        {/* === STYLE TAB === */}
+                        {activeTab === 'style' && (
+                            <div className="flex flex-col flex-1 min-h-0 p-4 space-y-4 overflow-y-auto">
+                                <div className="flex items-center gap-2 text-sm font-medium text-primary">
+                                    <Feather className="w-4 h-4" />
+                                    Garde-style (anti-cliché)
+                                </div>
+                                <p className="text-xs text-muted-foreground leading-relaxed">
+                                    Analysez vos dernières réponses IA pour repérer les habitudes
+                                    répétitives ou clichées. Gardez les suggestions qui vous
+                                    conviennent — elles sont injectées dans le prompt comme motifs à
+                                    éviter, pour cette conversation uniquement.
+                                </p>
                                 <Button
-                                    variant="outline"
+                                    onClick={handleAnalyzeStyle}
+                                    disabled={isAnalyzingStyle}
                                     size="sm"
-                                    className="w-full gap-2 text-xs"
-                                    onClick={() => setConfirmReindex(true)}
-                                    disabled={isReindexing}
+                                    className="gap-2 self-start"
                                 >
-                                    {isReindexing ? (
+                                    {isAnalyzingStyle ? (
                                         <Loader2 className="w-3.5 h-3.5 animate-spin" />
                                     ) : (
-                                        <RefreshCw className="w-3.5 h-3.5" />
+                                        <Sparkles className="w-3.5 h-3.5" />
                                     )}
-                                    {isReindexing ? 'Réindexation…' : 'Réindexer la conversation'}
+                                    Analyser mon style
                                 </Button>
-                            </div>
-                        </div>
-                    )}
-                </div>
 
-                {/* Delete Confirmation Dialog (Notes) */}
-                <Dialog
-                    open={confirmDeleteIndex !== null}
-                    onOpenChange={() => setConfirmDeleteIndex(null)}
-                >
-                    <DialogContent className="sm:max-w-[350px]">
-                        <DialogHeader>
-                            <DialogTitle>Supprimer le souvenir ?</DialogTitle>
-                            <DialogDescription>Cette action est irréversible.</DialogDescription>
-                        </DialogHeader>
-                        <DialogFooter className="flex-row gap-2">
-                            <Button
-                                variant="ghost"
-                                className="flex-1"
-                                onClick={() => setConfirmDeleteIndex(null)}
-                            >
-                                Annuler
-                            </Button>
-                            <Button
-                                variant="destructive"
-                                className="flex-1"
-                                onClick={() =>
-                                    confirmDeleteIndex !== null &&
-                                    handleDeleteMemory(confirmDeleteIndex)
-                                }
-                            >
-                                Supprimer
-                            </Button>
-                        </DialogFooter>
-                    </DialogContent>
-                </Dialog>
-
-                {/* Reindex confirmation — a full rebuild destroys hand-written summaries, so
-                    it must say how many before doing it. */}
-                <Dialog open={confirmReindex} onOpenChange={setConfirmReindex}>
-                    <DialogContent className="sm:max-w-[380px]">
-                        <DialogHeader>
-                            <DialogTitle>Reconstruire toute la chronique ?</DialogTitle>
-                            <DialogDescription>
-                                Les {summaries.length} résumés actuels seront supprimés puis
-                                régénérés depuis les messages.
-                                {manuallyEditedCount > 0 && (
-                                    <span className="block mt-2 text-amber-400">
-                                        ⚠️ {manuallyEditedCount} résumé
-                                        {manuallyEditedCount > 1
-                                            ? 's que vous avez modifiés'
-                                            : ' que vous avez modifié'}{' '}
-                                        à la main{' '}
-                                        {manuallyEditedCount > 1 ? 'seront perdus' : 'sera perdu'}.
-                                    </span>
+                                {styleSuggestions.length > 0 && (
+                                    <div className="space-y-2">
+                                        <div className="flex items-center justify-between">
+                                            <span className="text-xs font-medium text-muted-foreground">
+                                                Suggestions — modifiez avant d&apos;ajouter
+                                            </span>
+                                            <Button
+                                                variant="ghost"
+                                                size="sm"
+                                                className="h-6 text-xs"
+                                                onClick={addAllBanRules}
+                                            >
+                                                Tout ajouter
+                                            </Button>
+                                        </div>
+                                        {styleSuggestions.map((rule, i) => (
+                                            <div
+                                                key={i}
+                                                className="flex items-center gap-2 p-2 rounded-md bg-muted/30 border border-border/40"
+                                            >
+                                                <Input
+                                                    value={rule}
+                                                    onChange={(e) =>
+                                                        editSuggestion(i, e.target.value)
+                                                    }
+                                                    className="flex-1 h-8 text-xs"
+                                                    onKeyDown={(e) => {
+                                                        if (e.key === 'Enter') acceptSuggestion(i);
+                                                    }}
+                                                />
+                                                <button
+                                                    onClick={() => acceptSuggestion(i)}
+                                                    className="text-primary hover:text-primary/70 shrink-0 pointer-coarse:p-2"
+                                                    title="Ajouter à la liste d'interdits"
+                                                >
+                                                    <Plus className="w-3.5 h-3.5" />
+                                                </button>
+                                                <button
+                                                    onClick={() => dismissSuggestion(i)}
+                                                    className="text-muted-foreground hover:text-foreground shrink-0 pointer-coarse:p-2"
+                                                    title="Ignorer"
+                                                >
+                                                    <X className="w-3.5 h-3.5" />
+                                                </button>
+                                            </div>
+                                        ))}
+                                    </div>
                                 )}
-                            </DialogDescription>
-                        </DialogHeader>
-                        <DialogFooter className="flex-row gap-2">
-                            <Button
-                                variant="ghost"
-                                className="flex-1"
-                                onClick={() => setConfirmReindex(false)}
-                            >
-                                Annuler
-                            </Button>
-                            <Button
-                                variant="destructive"
-                                className="flex-1"
-                                onClick={() => {
-                                    setConfirmReindex(false);
-                                    handleReindex();
-                                }}
-                            >
-                                Reconstruire
-                            </Button>
-                        </DialogFooter>
-                    </DialogContent>
-                </Dialog>
+
+                                <div className="space-y-2">
+                                    <span className="text-xs font-medium text-muted-foreground">
+                                        Liste d&apos;interdits active ({activeBanList.length})
+                                    </span>
+                                    {activeBanList.length === 0 ? (
+                                        <p className="text-xs text-muted-foreground/70 italic">
+                                            Aucune règle pour l&apos;instant — analysez votre style
+                                            ou ajoutez-en une ci-dessous.
+                                        </p>
+                                    ) : (
+                                        activeBanList.map((rule, i) => (
+                                            <div
+                                                key={i}
+                                                className="flex items-start gap-2 p-2 rounded-md bg-background/40 border border-border/40"
+                                            >
+                                                <span className="flex-1 text-xs leading-relaxed">
+                                                    {rule}
+                                                </span>
+                                                <button
+                                                    onClick={() => removeBanRule(rule)}
+                                                    className="text-muted-foreground hover:text-destructive shrink-0 pointer-coarse:p-2"
+                                                    title="Retirer"
+                                                >
+                                                    <Trash2 className="w-3.5 h-3.5" />
+                                                </button>
+                                            </div>
+                                        ))
+                                    )}
+                                    <div className="flex gap-2 pt-1">
+                                        <Input
+                                            value={newBanRule}
+                                            onChange={(e) => setNewBanRule(e.target.value)}
+                                            placeholder="Ajouter une règle manuellement…"
+                                            className="h-8 text-xs"
+                                            onKeyDown={(e) => {
+                                                if (e.key === 'Enter') {
+                                                    addBanRule(newBanRule);
+                                                    setNewBanRule('');
+                                                }
+                                            }}
+                                        />
+                                        <Button
+                                            size="sm"
+                                            variant="secondary"
+                                            className="h-8"
+                                            onClick={() => {
+                                                addBanRule(newBanRule);
+                                                setNewBanRule('');
+                                            }}
+                                        >
+                                            Ajouter
+                                        </Button>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* === SUMMARIES TAB === */}
+                        {activeTab === 'summaries' && (
+                            <div className="flex flex-col flex-1 min-h-0">
+                                {/* Search bar */}
+                                <div className="px-4 pt-3 pb-1 shrink-0">
+                                    <div className="relative">
+                                        <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
+                                        <Input
+                                            placeholder="Rechercher des résumés…"
+                                            value={summarySearchTerm}
+                                            onChange={(e) => setSummarySearchTerm(e.target.value)}
+                                            className="pl-8 h-8 text-xs bg-background/40 border-border/40"
+                                        />
+                                        {summarySearchTerm && (
+                                            <button
+                                                onClick={() => setSummarySearchTerm('')}
+                                                className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                                            >
+                                                <X className="w-3 h-3" />
+                                            </button>
+                                        )}
+                                    </div>
+                                </div>
+                                <div className="flex-1 overflow-y-auto">
+                                    <div className="p-4 space-y-2">
+                                        {isLoadingRag ? (
+                                            <div className="flex items-center justify-center py-12">
+                                                <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
+                                            </div>
+                                        ) : summaries.length === 0 ? (
+                                            <div className="text-center py-8">
+                                                <Layers className="w-12 h-12 mx-auto text-muted-foreground/30 mb-3" />
+                                                <p className="text-sm text-muted-foreground">
+                                                    Aucun résumé pour l&apos;instant
+                                                </p>
+                                                <p className="text-xs text-muted-foreground/70 mt-1">
+                                                    La chronique se construit toute seule : un
+                                                    Fragment tous les ~10 messages, une Section tous
+                                                    les 5 Fragments, un Arc toutes les 3 Sections.
+                                                </p>
+                                            </div>
+                                        ) : (
+                                            summaries
+                                                .filter((summary) => {
+                                                    if (!summarySearchTerm.trim()) return true;
+                                                    const term = summarySearchTerm.toLowerCase();
+                                                    return (
+                                                        summary.content
+                                                            .toLowerCase()
+                                                            .includes(term) ||
+                                                        summary.keyFacts.some((kf) =>
+                                                            kf.toLowerCase().includes(term)
+                                                        )
+                                                    );
+                                                })
+                                                .sort(
+                                                    (a, b) =>
+                                                        b.level - a.level ||
+                                                        b.createdAt - a.createdAt
+                                                )
+                                                .map((summary) => (
+                                                    <div
+                                                        key={summary.id}
+                                                        className="p-3 rounded-lg bg-muted/30 border border-border/30 group transition-all space-y-1.5"
+                                                    >
+                                                        <div className="flex items-center gap-2 flex-wrap">
+                                                            <span
+                                                                className={cn(
+                                                                    'text-[9px] font-bold px-1.5 py-0.5 rounded border',
+                                                                    getLevelColor(summary.level)
+                                                                )}
+                                                            >
+                                                                {getLevelLabel(summary.level)}
+                                                            </span>
+                                                            {/* Ranges are stored 0-based with an
+                                                            exclusive end; showing them raw read
+                                                            as "msgs 0–10" for the first ten. */}
+                                                            <span className="text-[9px] text-muted-foreground">
+                                                                messages{' '}
+                                                                {summary.messageRange[0] + 1} à{' '}
+                                                                {summary.messageRange[1]}
+                                                            </span>
+                                                            {summary.isManuallyEdited && (
+                                                                <span className="text-[9px] px-1.5 py-0.5 rounded border border-amber-500/30 bg-amber-500/10 text-amber-400">
+                                                                    modifié à la main
+                                                                </span>
+                                                            )}
+                                                        </div>
+
+                                                        {editingSummaryId === summary.id ? (
+                                                            <div className="space-y-2">
+                                                                <Textarea
+                                                                    value={summaryEditValue}
+                                                                    onChange={(e) =>
+                                                                        setSummaryEditValue(
+                                                                            e.target.value
+                                                                        )
+                                                                    }
+                                                                    className="text-xs min-h-[140px]"
+                                                                    autoFocus
+                                                                />
+                                                                <div className="flex gap-2">
+                                                                    <Button
+                                                                        size="sm"
+                                                                        variant="ghost"
+                                                                        className="flex-1 h-7 text-xs"
+                                                                        onClick={() => {
+                                                                            setEditingSummaryId(
+                                                                                null
+                                                                            );
+                                                                            setSummaryEditValue('');
+                                                                        }}
+                                                                    >
+                                                                        Annuler
+                                                                    </Button>
+                                                                    <Button
+                                                                        size="sm"
+                                                                        className="flex-1 h-7 text-xs"
+                                                                        onClick={() =>
+                                                                            handleSaveSummaryEdit(
+                                                                                summary.id
+                                                                            )
+                                                                        }
+                                                                    >
+                                                                        Enregistrer
+                                                                    </Button>
+                                                                </div>
+                                                            </div>
+                                                        ) : (
+                                                            <>
+                                                                <p className="text-xs leading-relaxed whitespace-pre-wrap">
+                                                                    {summary.content}
+                                                                </p>
+
+                                                                {summary.keyFacts.length > 0 && (
+                                                                    <button
+                                                                        onClick={() =>
+                                                                            setExpandedSummaryIds(
+                                                                                (prev) => {
+                                                                                    const next =
+                                                                                        new Set(
+                                                                                            prev
+                                                                                        );
+                                                                                    if (
+                                                                                        next.has(
+                                                                                            summary.id
+                                                                                        )
+                                                                                    )
+                                                                                        next.delete(
+                                                                                            summary.id
+                                                                                        );
+                                                                                    else
+                                                                                        next.add(
+                                                                                            summary.id
+                                                                                        );
+                                                                                    return next;
+                                                                                }
+                                                                            )
+                                                                        }
+                                                                        className="text-[10px] text-muted-foreground hover:text-foreground"
+                                                                    >
+                                                                        {expandedSummaryIds.has(
+                                                                            summary.id
+                                                                        )
+                                                                            ? '▾ '
+                                                                            : '▸ '}
+                                                                        {summary.keyFacts.length}{' '}
+                                                                        fait
+                                                                        {summary.keyFacts.length > 1
+                                                                            ? 's'
+                                                                            : ''}{' '}
+                                                                        clé
+                                                                        {summary.keyFacts.length > 1
+                                                                            ? 's'
+                                                                            : ''}
+                                                                    </button>
+                                                                )}
+                                                                {expandedSummaryIds.has(
+                                                                    summary.id
+                                                                ) && (
+                                                                    <ul className="text-[10px] text-muted-foreground space-y-0.5 pl-3">
+                                                                        {summary.keyFacts.map(
+                                                                            (kf, i) => (
+                                                                                <li key={i}>
+                                                                                    • {kf}
+                                                                                </li>
+                                                                            )
+                                                                        )}
+                                                                    </ul>
+                                                                )}
+
+                                                                <div className="flex items-center gap-1 pt-0.5">
+                                                                    <Button
+                                                                        variant="ghost"
+                                                                        size="icon"
+                                                                        className="h-6 w-6 opacity-60 hover:opacity-100"
+                                                                        title="Modifier ce résumé"
+                                                                        onClick={() => {
+                                                                            setEditingSummaryId(
+                                                                                summary.id
+                                                                            );
+                                                                            setSummaryEditValue(
+                                                                                summary.content
+                                                                            );
+                                                                        }}
+                                                                    >
+                                                                        <Edit2 className="w-3 h-3" />
+                                                                    </Button>
+                                                                    {/* L0 fragments are built from
+                                                                    raw messages, not from child
+                                                                    summaries — nothing to
+                                                                    regenerate them from here. */}
+                                                                    {summary.level > 0 && (
+                                                                        <Button
+                                                                            variant="ghost"
+                                                                            size="icon"
+                                                                            className="h-6 w-6 opacity-60 hover:opacity-100"
+                                                                            title="Régénérer depuis les résumés enfants"
+                                                                            disabled={
+                                                                                regeneratingSummaryId !==
+                                                                                null
+                                                                            }
+                                                                            onClick={() =>
+                                                                                handleRegenerateSummary(
+                                                                                    summary
+                                                                                )
+                                                                            }
+                                                                        >
+                                                                            {regeneratingSummaryId ===
+                                                                            summary.id ? (
+                                                                                <Loader2 className="w-3 h-3 animate-spin" />
+                                                                            ) : (
+                                                                                <Sparkles className="w-3 h-3" />
+                                                                            )}
+                                                                        </Button>
+                                                                    )}
+                                                                    <Button
+                                                                        variant="ghost"
+                                                                        size="icon"
+                                                                        className="h-6 w-6 ml-auto opacity-60 hover:opacity-100 hover:bg-destructive/10"
+                                                                        title="Supprimer"
+                                                                        onClick={() =>
+                                                                            handleDeleteSummary(
+                                                                                summary.id
+                                                                            )
+                                                                        }
+                                                                    >
+                                                                        <Trash2 className="w-3 h-3 text-destructive" />
+                                                                    </Button>
+                                                                </div>
+                                                            </>
+                                                        )}
+                                                    </div>
+                                                ))
+                                        )}
+                                    </div>
+                                </div>
+
+                                {/* Reindex button */}
+                                <div className="p-3 border-t bg-muted/10 shrink-0 space-y-2">
+                                    {reindexProgress && (
+                                        <p className="text-xs text-muted-foreground text-center">
+                                            {reindexProgress}
+                                        </p>
+                                    )}
+                                    <Button
+                                        variant="outline"
+                                        size="sm"
+                                        className="w-full gap-2 text-xs"
+                                        onClick={() => setConfirmReindex(true)}
+                                        disabled={isReindexing}
+                                    >
+                                        {isReindexing ? (
+                                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                        ) : (
+                                            <RefreshCw className="w-3.5 h-3.5" />
+                                        )}
+                                        {isReindexing
+                                            ? 'Réindexation…'
+                                            : 'Réindexer la conversation'}
+                                    </Button>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Delete Confirmation Dialog (Notes) */}
+                    <Dialog
+                        open={confirmDeleteIndex !== null}
+                        onOpenChange={() => setConfirmDeleteIndex(null)}
+                    >
+                        <DialogContent className="sm:max-w-[350px]">
+                            <DialogHeader>
+                                <DialogTitle>Supprimer le souvenir ?</DialogTitle>
+                                <DialogDescription>
+                                    Cette action est irréversible.
+                                </DialogDescription>
+                            </DialogHeader>
+                            <DialogFooter className="flex-row gap-2">
+                                <Button
+                                    variant="ghost"
+                                    className="flex-1"
+                                    onClick={() => setConfirmDeleteIndex(null)}
+                                >
+                                    Annuler
+                                </Button>
+                                <Button
+                                    variant="destructive"
+                                    className="flex-1"
+                                    onClick={() =>
+                                        confirmDeleteIndex !== null &&
+                                        handleDeleteMemory(confirmDeleteIndex)
+                                    }
+                                >
+                                    Supprimer
+                                </Button>
+                            </DialogFooter>
+                        </DialogContent>
+                    </Dialog>
+
+                    {/* Reindex confirmation — a full rebuild destroys hand-written summaries, so
+                    it must say how many before doing it. */}
+                    <Dialog open={confirmReindex} onOpenChange={setConfirmReindex}>
+                        <DialogContent className="sm:max-w-[380px]">
+                            <DialogHeader>
+                                <DialogTitle>Reconstruire toute la chronique ?</DialogTitle>
+                                <DialogDescription>
+                                    Les {summaries.length} résumés actuels seront supprimés puis
+                                    régénérés depuis les messages.
+                                    {manuallyEditedCount > 0 && (
+                                        <span className="block mt-2 text-amber-400">
+                                            ⚠️ {manuallyEditedCount} résumé
+                                            {manuallyEditedCount > 1
+                                                ? 's que vous avez modifiés'
+                                                : ' que vous avez modifié'}{' '}
+                                            à la main{' '}
+                                            {manuallyEditedCount > 1
+                                                ? 'seront perdus'
+                                                : 'sera perdu'}
+                                            .
+                                        </span>
+                                    )}
+                                </DialogDescription>
+                            </DialogHeader>
+                            <DialogFooter className="flex-row gap-2">
+                                <Button
+                                    variant="ghost"
+                                    className="flex-1"
+                                    onClick={() => setConfirmReindex(false)}
+                                >
+                                    Annuler
+                                </Button>
+                                <Button
+                                    variant="destructive"
+                                    className="flex-1"
+                                    onClick={() => {
+                                        setConfirmReindex(false);
+                                        handleReindex();
+                                    }}
+                                >
+                                    Reconstruire
+                                </Button>
+                            </DialogFooter>
+                        </DialogContent>
+                    </Dialog>
+                </div>
             </div>
-        </div>
         </EditorOverlay>
     );
 }
