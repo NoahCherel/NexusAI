@@ -8,8 +8,8 @@ import {
     SETTINGS_VERSION,
     type SettingsEnvelope,
 } from './settings-storage';
+import { DB_NAME, DB_VERSION } from './db';
 
-const DB_NAME = 'nexusai-db';
 interface StoreSnapshot {
     name: string;
     keyPath: string | string[] | null;
@@ -222,7 +222,6 @@ export async function createGlobalBackupFile(
 }
 
 type StoreMeta = Omit<StoreSnapshot, 'entries'>;
-const MAX_DB_VERSION = 9;
 const NOT_A_BACKUP = 'Ce fichier n’est pas une sauvegarde globale NexusAI compatible.';
 
 function checkHeader(backup: Partial<GlobalBackup> | null, version: 1 | 2): void {
@@ -243,7 +242,7 @@ function checkHeader(backup: Partial<GlobalBackup> | null, version: 1 | 2): void
     const db = backup.database;
     if (
         db !== null &&
-        (!db || !Number.isInteger(db.version) || db.version < 1 || db.version > MAX_DB_VERSION)
+        (!db || !Number.isInteger(db.version) || db.version < 1 || db.version > DB_VERSION)
     )
         throw new Error('Version de base incompatible.');
 }

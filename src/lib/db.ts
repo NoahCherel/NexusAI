@@ -10,9 +10,10 @@ import type {
 import type { MemorySummary } from '@/types/rag';
 import type { CanonDossier, ArcOutline } from '@/types/canon';
 
-// Database version - increment when schema changes
-const DB_VERSION = 9;
-const DB_NAME = 'nexusai-db';
+// Database version - increment when schema changes. Global backups refuse files from a
+// higher version, so this is the one place it lives.
+export const DB_VERSION = 9;
+export const DB_NAME = 'nexusai-db';
 
 // Lorebook history entry for blockchain-style tracking
 export interface LorebookHistoryEntry {
@@ -88,6 +89,15 @@ export async function initDB(): Promise<IDBPDatabase<NexusAIDB>> {
     if (dbInstance) return dbInstance;
 
     dbInstance = await openDB<NexusAIDB>(DB_NAME, DB_VERSION, {
+        // A newer app version in another tab needs this connection closed to upgrade;
+        // this tab's next write then fails visibly (notifyWriteError) instead of freezing it.
+        blocking() {
+            dbInstance?.close();
+            dbInstance = null;
+        },
+        terminated() {
+            dbInstance = null;
+        },
         async upgrade(db, oldVersion, newVersion, transaction) {
             // Characters store
             if (!db.objectStoreNames.contains('characters')) {
