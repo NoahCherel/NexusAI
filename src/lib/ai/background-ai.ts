@@ -88,10 +88,11 @@ export interface BackgroundAIOptions {
     backgroundModel?: string | null;
     /**
      * How to process <think> tags in model output:
-     * - remove-blocks: remove <think>...</think> blocks (default)
+     * - remove-blocks: remove <think>...</think> blocks, falling back to remove-tags if empty (default)
+     * - strict-remove-blocks: remove closed and unclosed <think> blocks; return empty if nothing remains
      * - remove-tags: keep text but strip only the <think> tags
      */
-    thinkTagStrategy?: 'remove-blocks' | 'remove-tags';
+    thinkTagStrategy?: 'remove-blocks' | 'strict-remove-blocks' | 'remove-tags';
     /** Enable web search (canon retrieval). Forces the OpenRouter path. */
     webSearch?: boolean;
     /** Max results per web search call (default 5). */
@@ -187,7 +188,7 @@ interface ChainAttemptParams {
     temperature: number;
     maxTokens: number;
     maxRetries: number;
-    thinkTagStrategy: 'remove-blocks' | 'remove-tags';
+    thinkTagStrategy: 'remove-blocks' | 'strict-remove-blocks' | 'remove-tags';
     webSearch: boolean;
     webMaxResults?: number;
     disableReasoning: boolean;
@@ -542,14 +543,23 @@ export async function backgroundAICall(
  * Normalize model thinking tags according to the chosen strategy.
  * In remove-blocks mode, if everything is inside <think> tags and result becomes empty,
  * fall back to remove-tags to avoid losing usable structured output.
+ * In strict-remove-blocks mode, reasoning is never returned as output — an empty result
+ * signals that the model exhausted its budget while thinking.
  */
-function normalizeThinkText(text: string, strategy: 'remove-blocks' | 'remove-tags'): string {
+export function normalizeThinkText(
+    text: string,
+    strategy: 'remove-blocks' | 'strict-remove-blocks' | 'remove-tags'
+): string {
     if (strategy === 'remove-tags') {
         return text.replace(/<\/?think>/gi, '');
     }
 
-    const withoutBlocks = text.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+    const withoutBlocks = text
+        .replace(/<think>[\s\S]*?<\/think>/gi, '')
+        .replace(/<think>[\s\S]*$/gi, '')
+        .trim();
     if (withoutBlocks) return withoutBlocks;
+    if (strategy === 'strict-remove-blocks') return '';
 
     // Fallback: some models place all useful output inside <think> tags.
     return text.replace(/<\/?think>/gi, '');

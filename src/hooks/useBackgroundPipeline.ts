@@ -39,6 +39,7 @@ import {
     buildL2Prompt,
     createSummary,
     DEFAULT_CHUNK_SIZE,
+    SUMMARY_MAX_TOKENS,
     SUMMARIZATION_PROMPT_L0,
     SUMMARIZATION_PROMPT_L1,
     SUMMARIZATION_PROMPT_L2,
@@ -157,6 +158,8 @@ export function useBackgroundPipeline({
                         systemPrompt: SUMMARIZATION_PROMPT_L0,
                         userPrompt: buildL0Prompt(chunk, character.name, userName),
                         temperature: 0.3,
+                        maxTokens: SUMMARY_MAX_TOKENS,
+                        thinkTagStrategy: 'strict-remove-blocks',
                         backgroundModel,
                     });
                     if (!result) break; // model unavailable — stop rather than hammer it
@@ -188,6 +191,8 @@ export function useBackgroundPipeline({
                             systemPrompt: SUMMARIZATION_PROMPT_L1,
                             userPrompt: prompt,
                             temperature: 0.3,
+                            maxTokens: SUMMARY_MAX_TOKENS,
+                            thinkTagStrategy: 'strict-remove-blocks',
                             backgroundModel,
                         });
 
@@ -231,6 +236,8 @@ export function useBackgroundPipeline({
                             systemPrompt: SUMMARIZATION_PROMPT_L2,
                             userPrompt: prompt,
                             temperature: 0.3,
+                            maxTokens: SUMMARY_MAX_TOKENS,
+                            thinkTagStrategy: 'strict-remove-blocks',
                             backgroundModel,
                         });
 

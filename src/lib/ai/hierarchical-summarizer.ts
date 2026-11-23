@@ -21,6 +21,12 @@ import { fitRankedBlock } from './rag-budget';
 
 // Configuration
 export const DEFAULT_CHUNK_SIZE = 10; // Messages per L0 summary (default)
+/**
+ * Output token budget for Chronicle summarization calls (L0 / L1 / L2).
+ * Reasoning models (GLM, DeepSeek, etc.) spend tokens on thinking before emitting
+ * the final JSON; the prompt itself caps the visible summary length.
+ */
+export const SUMMARY_MAX_TOKENS = 12_000;
 const L1_THRESHOLD = 5; // L0 summaries per L1 summary
 const L2_THRESHOLD = 3; // L1 summaries per L2 summary
 
@@ -210,28 +216,32 @@ export function getL1SummariesForL2(existingSummaries: MemorySummary[]): MemoryS
 export function parseSummarizationResponse(
     text: string
 ): { summary: string; keyFacts: string[] } | null {
+    // Strip both closed and unclosed (truncated) <think> blocks first so reasoning never
+    // interferes with JSON extraction or leaks into the fallback summary.
+    const cleanText = text
+        .replace(/<think>[\s\S]*?<\/think>/gi, '')
+        .replace(/<think>[\s\S]*$/gi, '')
+        .trim();
+    if (!cleanText) return null;
+
     try {
         // Try JSON parse first
-        const jsonMatch = text.match(/\{[\s\S]*\}/);
+        const jsonMatch = cleanText.match(/\{[\s\S]*\}/);
         if (jsonMatch) {
             const parsed = JSON.parse(jsonMatch[0]);
+            const summary = typeof parsed.summary === 'string' ? parsed.summary.trim() : '';
+            if (!summary) return null;
             return {
-                summary: parsed.summary || '',
+                summary,
                 keyFacts: Array.isArray(parsed.keyFacts) ? parsed.keyFacts : [],
             };
         }
 
-        // Fallback: treat entire text as summary
-        const cleanText = text.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
-        if (cleanText) {
-            return { summary: cleanText, keyFacts: [] };
-        }
-
-        return null;
+        // Fallback: treat cleaned text as summary
+        return { summary: cleanText, keyFacts: [] };
     } catch {
-        // If JSON parse fails, use the raw text
-        const cleanText = text.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
-        return cleanText ? { summary: cleanText, keyFacts: [] } : null;
+        // If JSON parse fails, use the cleaned text
+        return { summary: cleanText, keyFacts: [] };
     }
 }
 
