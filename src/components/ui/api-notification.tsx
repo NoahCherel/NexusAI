@@ -107,6 +107,28 @@ export function APINotificationToast() {
     );
 }
 
+/** Error toast: title line, then the detail. */
+export function notifyError(title: string, detail: string): void {
+    const { addNotification, updateNotification } = useNotificationStore.getState();
+    updateNotification(addNotification(title, 'world'), 'error', detail);
+}
+
+let writeErrorShown = false;
+
+/**
+ * For background IndexedDB writes that used to fail silently (quota full, connection lost):
+ * every failure is logged, the user is told once per page load.
+ */
+export function notifyWriteError(error: unknown): void {
+    console.error(error);
+    if (writeErrorShown) return;
+    writeErrorShown = true;
+    notifyError(
+        'Enregistrement impossible',
+        'Vos derniers changements ne sont peut-être pas sauvegardés. Téléchargez une sauvegarde globale.'
+    );
+}
+
 // Helper functions to use in API calls
 export function notifyAPIStart(message: string, icon?: APINotification['icon']): string {
     return useNotificationStore.getState().addNotification(message, icon);

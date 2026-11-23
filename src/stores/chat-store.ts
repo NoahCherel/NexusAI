@@ -17,6 +17,7 @@ import {
     deleteMessagedb,
 } from '@/lib/db';
 import { useSettingsStore } from '@/stores/settings-store';
+import { notifyWriteError } from '@/components/ui/api-notification';
 import { resolvePersonaId } from '@/lib/conversation-persona';
 import { mainCharacterBond } from '@/lib/ai/relationship-context';
 
@@ -584,7 +585,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
         if (!persisted)
             trackMessageWrite(enrichedMessage.conversationId, enrichedMessage.id, () =>
                 saveMessage(enrichedMessage)
-            ).catch(console.error);
+            ).catch(notifyWriteError);
     },
 
     applyCommittedSceneBeat: ({
@@ -661,14 +662,14 @@ export const useChatStore = create<ChatState>()((set, get) => ({
         if (updatedMessage && options?.persist !== false) {
             trackMessageWrite(updatedMessage.conversationId, id, () =>
                 saveMessage(updatedMessage!)
-            ).catch(console.error);
+            ).catch(notifyWriteError);
         } else if (!updatedMessage && options?.persist !== false) {
             const owner = messageOwners.get(id);
             if (owner)
                 void trackMessageWrite(owner, id, () => patchStoredMessage(id, updates)).catch(
                     console.error
                 );
-            else void patchStoredMessage(id, updates).catch(console.error);
+            else void patchStoredMessage(id, updates).catch(notifyWriteError);
         }
     },
 
@@ -709,8 +710,9 @@ export const useChatStore = create<ChatState>()((set, get) => ({
         // Persist deletions (subtree included)
         idsToDelete.forEach((d) => {
             const owner = conversationId ?? messageOwners.get(d);
-            if (owner) trackMessageWrite(owner, d, () => deleteMessagedb(d)).catch(console.error);
-            else deleteMessagedb(d).catch(console.error);
+            if (owner)
+                trackMessageWrite(owner, d, () => deleteMessagedb(d)).catch(notifyWriteError);
+            else deleteMessagedb(d).catch(notifyWriteError);
         });
     },
 
@@ -745,7 +747,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
             return { conversations: newConversations };
         });
         if (conversationToUpdate) {
-            saveConversation(conversationToUpdate).catch(console.error);
+            saveConversation(conversationToUpdate).catch(notifyWriteError);
         }
     },
 
@@ -766,7 +768,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
             return { conversations: newConversations };
         });
         if (conversationToUpdate) {
-            saveConversation(conversationToUpdate).catch(console.error);
+            saveConversation(conversationToUpdate).catch(notifyWriteError);
         }
     },
 
@@ -787,7 +789,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
             return { conversations: newConversations };
         });
         if (conversationToUpdate) {
-            saveConversation(conversationToUpdate).catch(console.error);
+            saveConversation(conversationToUpdate).catch(notifyWriteError);
         }
     },
 
@@ -807,7 +809,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
                 return c;
             }),
         }));
-        if (conversationToUpdate) saveConversation(conversationToUpdate).catch(console.error);
+        if (conversationToUpdate) saveConversation(conversationToUpdate).catch(notifyWriteError);
     },
 
     appendRpJournal: (conversationId, character, note) => {
@@ -829,7 +831,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
                 return c;
             }),
         }));
-        if (conversationToUpdate) saveConversation(conversationToUpdate).catch(console.error);
+        if (conversationToUpdate) saveConversation(conversationToUpdate).catch(notifyWriteError);
     },
 
     setRpJournalForCharacter: (conversationId, character, notes) => {
@@ -847,7 +849,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
                 return c;
             }),
         }));
-        if (conversationToUpdate) saveConversation(conversationToUpdate).catch(console.error);
+        if (conversationToUpdate) saveConversation(conversationToUpdate).catch(notifyWriteError);
     },
 
     setMomentumNudge: (conversationId, nudge) => {
@@ -861,7 +863,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
                 return c;
             }),
         }));
-        if (conversationToUpdate) saveConversation(conversationToUpdate).catch(console.error);
+        if (conversationToUpdate) saveConversation(conversationToUpdate).catch(notifyWriteError);
     },
 
     // Prompt-cache hysteresis: persist the history-window state chosen by the payload builder
@@ -883,7 +885,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
                 return conversationToUpdate;
             }),
         }));
-        if (conversationToUpdate) saveConversation(conversationToUpdate).catch(console.error);
+        if (conversationToUpdate) saveConversation(conversationToUpdate).catch(notifyWriteError);
     },
 
     setHistoryCut: (conversationId, messageId) => {
@@ -901,7 +903,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
                 return c;
             }),
         }));
-        if (conversationToUpdate) saveConversation(conversationToUpdate).catch(console.error);
+        if (conversationToUpdate) saveConversation(conversationToUpdate).catch(notifyWriteError);
     },
 
     setSceneRoster: (conversationId, roster) => {
@@ -915,7 +917,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
                 return c;
             }),
         }));
-        if (conversationToUpdate) saveConversation(conversationToUpdate).catch(console.error);
+        if (conversationToUpdate) saveConversation(conversationToUpdate).catch(notifyWriteError);
     },
 
     setSceneCharacterOverride: (conversationId, displayName, character) => {
@@ -935,7 +937,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
                 return conversationToUpdate;
             }),
         }));
-        if (conversationToUpdate) saveConversation(conversationToUpdate).catch(console.error);
+        if (conversationToUpdate) saveConversation(conversationToUpdate).catch(notifyWriteError);
     },
 
     setSceneStyle: (conversationId, style) => {
@@ -949,7 +951,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
                 return c;
             }),
         }));
-        if (conversationToUpdate) saveConversation(conversationToUpdate).catch(console.error);
+        if (conversationToUpdate) saveConversation(conversationToUpdate).catch(notifyWriteError);
     },
 
     setDirectedNarrativeVersion: (conversationId, directedNarrativeVersion) => {
@@ -965,7 +967,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
                 return conversationToUpdate;
             }),
         }));
-        if (conversationToUpdate) saveConversation(conversationToUpdate).catch(console.error);
+        if (conversationToUpdate) saveConversation(conversationToUpdate).catch(notifyWriteError);
     },
 
     setDirectedSceneSuggestionDismissed: (conversationId, directedSceneSuggestionDismissed) => {
@@ -977,7 +979,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
                 return conversationToUpdate;
             }),
         }));
-        if (conversationToUpdate) saveConversation(conversationToUpdate).catch(console.error);
+        if (conversationToUpdate) saveConversation(conversationToUpdate).catch(notifyWriteError);
     },
 
     // Canon cast stickiness (name -> history length at last mention). Same plumbing rule:
@@ -993,7 +995,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
                 return c;
             }),
         }));
-        if (conversationToUpdate) saveConversation(conversationToUpdate).catch(console.error);
+        if (conversationToUpdate) saveConversation(conversationToUpdate).catch(notifyWriteError);
     },
 
     // The Style Guard ban list is branch-aware: it is snapshotted onto the active branch
@@ -1012,7 +1014,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
             }));
             trackMessageWrite(updatedLeaf.conversationId, updatedLeaf.id, () =>
                 saveMessage(updatedLeaf)
-            ).catch(console.error);
+            ).catch(notifyWriteError);
             return;
         }
 
@@ -1027,7 +1029,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
                 return c;
             }),
         }));
-        if (conversationToUpdate) saveConversation(conversationToUpdate).catch(console.error);
+        if (conversationToUpdate) saveConversation(conversationToUpdate).catch(notifyWriteError);
     },
 
     getActiveBranchBanList: (conversationId) => {
@@ -1052,7 +1054,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
                 return c;
             }),
         }));
-        if (conversationToUpdate) saveConversation(conversationToUpdate).catch(console.error);
+        if (conversationToUpdate) saveConversation(conversationToUpdate).catch(notifyWriteError);
     },
 
     clearConversation: (conversationId) =>

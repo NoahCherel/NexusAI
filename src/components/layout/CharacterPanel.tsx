@@ -26,6 +26,7 @@ import { useCharacterFolderDrag } from '@/hooks/useCharacterFolderDrag';
 import { getAllConversations } from '@/lib/db';
 import type { CharacterCard as CharacterCardType } from '@/types';
 import { exportConversationForCharacter } from '@/lib/conversation-transfer';
+import { notifyWriteError } from '@/components/ui/api-notification';
 
 interface CharacterPanelProps {
     trigger?: React.ReactNode;
@@ -323,7 +324,7 @@ export function CharacterPanel({ trigger, embedded = false, onSelected }: Charac
                 confirmLabel="Supprimer"
                 destructive
                 onConfirm={() => {
-                    if (deleteId) void removeCharacter(deleteId);
+                    if (deleteId) void removeCharacter(deleteId).catch(notifyWriteError);
                 }}
             />
             {DragOverlay}

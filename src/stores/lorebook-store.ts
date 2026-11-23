@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { LorebookCategory, type Lorebook, type LorebookEntry } from '@/types/character';
 import { addLorebookHistoryEntry, getLorebookHistory, type LorebookHistoryEntry } from '@/lib/db';
+import { notifyWriteError } from '@/components/ui/api-notification';
 
 // Pending suggestion from AI extraction
 export interface LorebookSuggestion {
@@ -104,7 +105,7 @@ export const useLorebookStore = create<LorebookState>()((set, get) => ({
                 type: 'user_edit',
                 entryData: entry,
             };
-            addLorebookHistoryEntry(historyEntry).catch(console.error);
+            addLorebookHistoryEntry(historyEntry).catch(notifyWriteError);
         }
 
         set({ activeLorebook: updatedLorebook });
@@ -135,7 +136,7 @@ export const useLorebookStore = create<LorebookState>()((set, get) => ({
                 type: 'user_delete',
                 entryData: deletedEntry,
             };
-            addLorebookHistoryEntry(historyEntry).catch(console.error);
+            addLorebookHistoryEntry(historyEntry).catch(notifyWriteError);
         }
 
         const updatedLorebook = {

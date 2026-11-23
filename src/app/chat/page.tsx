@@ -40,7 +40,11 @@ import { LandingPage } from '@/components/chat/LandingPage';
 import { useAppInitialization } from '@/hooks/useAppInitialization';
 import { useBackgroundPipeline } from '@/hooks/useBackgroundPipeline';
 import { useChatGeneration, useActiveApiKey } from '@/hooks/useChatGeneration';
-import { APINotificationToast } from '@/components/ui/api-notification';
+import {
+    APINotificationToast,
+    notifyError,
+    notifyWriteError,
+} from '@/components/ui/api-notification';
 import { resolveActiveLorebookEntries, buildContextPreview } from '@/lib/ai/rag-service';
 import { buildChronicle } from '@/lib/ai/hierarchical-summarizer';
 import { buildCanonOptions } from '@/lib/ai/canon-context';
@@ -1011,7 +1015,8 @@ export default function ChatPage() {
                                                 .getState()
                                                 .setDraft(activeConversationId, draft)
                                                 .catch(() =>
-                                                    window.alert(
+                                                    notifyError(
+                                                        'Action impossible',
                                                         'Le brouillon reste en mémoire mais son enregistrement a échoué.'
                                                     )
                                                 );
@@ -1073,7 +1078,8 @@ export default function ChatPage() {
                         embedded
                         onSelected={(id, createNew) =>
                             void chooseCharacter(id, createNew).catch(() =>
-                                window.alert(
+                                notifyError(
+                                    'Action impossible',
                                     'Impossible d’ouvrir cette discussion. Vos données sont conservées.'
                                 )
                             )
@@ -1122,7 +1128,8 @@ export default function ChatPage() {
                     onNew={() => {
                         setConversationPickerOpen(false);
                         void chooseCharacter(character.id, true).catch(() =>
-                            window.alert(
+                            notifyError(
+                                'Action impossible',
                                 'Impossible de créer cette discussion. Vos données sont conservées.'
                             )
                         );
@@ -1150,7 +1157,7 @@ export default function ChatPage() {
                 })()}
                 confirmLabel="Supprimer"
                 destructive
-                onConfirm={() => void confirmDeleteCharacter()}
+                onConfirm={() => void confirmDeleteCharacter().catch(notifyWriteError)}
             />
 
             <Dialog open={isLorebookOpen} onOpenChange={setIsLorebookOpen}>
