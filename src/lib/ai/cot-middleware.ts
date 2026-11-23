@@ -11,6 +11,8 @@
  * This middleware extracts thoughts and returns clean content.
  */
 
+import { extractUsageSentinel, type ProviderUsage } from './usage-sentinel';
+
 export interface CoTResult {
     thought: string | null;
     content: string;
@@ -136,6 +138,23 @@ export function parseStreamingChunk(
 
     // Do NOT trim visibleContent here either as it destroys stream spacing
     return { inThought, thoughtContent: thoughtContent, visibleContent };
+}
+
+/**
+ * The whole stream received so far, split into what the user sees and the model's thinking.
+ * Always pass the ACCUMULATED text: a `<think>` opened in one network chunk and closed in a
+ * later one is only recognisable on the whole text. The usage sentinel is removed first, so
+ * it can never be swallowed by an unclosed thought.
+ */
+export function splitStreamedReply(
+    raw: string,
+    provider?: string
+): { visible: string; thought: string; usage?: ProviderUsage } {
+    const { clean, usage } = extractUsageSentinel(raw);
+    // /api/chat wraps each reasoning delta in its own <think>…</think>: join them back into
+    // one block, or the thought would be split into one trimmed paragraph per delta.
+    const parsed = parseStreamingChunk(clean.replace(/<\/think><think>/g, ''), provider);
+    return { visible: parsed.visibleContent, thought: parsed.thoughtContent, usage };
 }
 
 /**

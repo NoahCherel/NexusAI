@@ -17,7 +17,7 @@ import type { Message } from '@/types';
 import { useSettingsStore, useChatStore, useLorebookStore } from '@/stores';
 import { useNotificationStore } from '@/components/ui/api-notification';
 import { decryptApiKey } from '@/lib/crypto';
-import { parseStreamingChunk, normalizeCoT } from '@/lib/ai/cot-middleware';
+import { normalizeCoT, splitStreamedReply } from '@/lib/ai/cot-middleware';
 import { buildConversationPayload, type CanonPayloadOptions } from '@/lib/ai/payload-builder';
 import { buildCanonOptions, nameMatchesText, resolveWork } from '@/lib/ai/canon-context';
 import { fetchCharacterDossier } from '@/lib/ai/canon-retrieval';
@@ -777,18 +777,31 @@ export function useChatGeneration({
                     );
                 };
 
+                // Parse the whole stream received so far, never a lone chunk: a <think>
+                // opened in one network chunk and closed in a later one leaked its text into
+                // the saved reply when chunks were parsed one by one.
+                // Parsed at the flush rate, not per chunk: re-reading a long reasoning stream
+                // on every token would be quadratic on a phone.
+                let raw = '';
+                let lastParseAt = 0;
+                const parseRaw = () => {
+                    const split = splitStreamedReply(raw, activeProvider);
+                    fullContent = initialContent + split.visible;
+                    assistantThought = split.thought;
+                    usage = split.usage;
+                };
                 while (true) {
                     const { done, value } = await reader.read();
                     if (done) break;
 
-                    const chunk = decoder.decode(value, { stream: true });
-
-                    // Special handling for thoughts:
-                    const parsed = parseStreamingChunk(chunk, activeProvider);
-                    if (parsed.thoughtContent) assistantThought += parsed.thoughtContent;
-                    if (parsed.visibleContent) fullContent += parsed.visibleContent;
-                    if (parsed.thoughtContent || parsed.visibleContent) flushStreamed();
+                    raw += decoder.decode(value, { stream: true });
+                    const now = Date.now();
+                    if (now - lastParseAt < 50) continue;
+                    lastParseAt = now;
+                    parseRaw();
+                    flushStreamed(true);
                 }
+                parseRaw();
                 flushStreamed(true);
             }
 
