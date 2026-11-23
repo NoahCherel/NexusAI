@@ -314,6 +314,7 @@ export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
                 buildL1Prompt,
                 buildL2Prompt,
                 parseSummarizationResponse,
+                SUMMARY_MAX_TOKENS,
                 SUMMARIZATION_PROMPT_L1,
                 SUMMARIZATION_PROMPT_L2,
             } = await import('@/lib/ai/hierarchical-summarizer');
@@ -334,6 +335,8 @@ export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
                 systemPrompt: isArc ? SUMMARIZATION_PROMPT_L2 : SUMMARIZATION_PROMPT_L1,
                 userPrompt: isArc ? buildL2Prompt(children) : buildL1Prompt(children),
                 temperature: 0.3,
+                maxTokens: SUMMARY_MAX_TOKENS,
+                thinkTagStrategy: 'strict-remove-blocks',
                 backgroundModel: useSettingsStore.getState().backgroundModel,
             });
             if (!result) {
@@ -396,6 +399,7 @@ export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
                 replaceSummariesForConversation,
             } = await import('@/lib/db');
             const { backgroundAICall } = await import('@/lib/ai/background-ai');
+            const { SUMMARY_MAX_TOKENS } = await import('@/lib/ai/hierarchical-summarizer');
 
             const userName = getConversationPersona(activeConversationId).persona?.name || 'You';
 
@@ -420,6 +424,8 @@ export function MemoryPanel({ isOpen, onClose }: MemoryPanelProps) {
                         userPrompt,
                         apiKey,
                         temperature: 0.3,
+                        maxTokens: SUMMARY_MAX_TOKENS,
+                        thinkTagStrategy: 'strict-remove-blocks',
                         backgroundModel,
                     });
                     return result?.content ?? null;

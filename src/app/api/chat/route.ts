@@ -12,9 +12,10 @@ import {
 
 export const runtime = 'edge';
 
-// Type for OpenRouter's extended message with reasoning
+// Type for OpenRouter / OpenAI-compatible extended message with reasoning
 type OpenRouterMessage = OpenAI.Chat.Completions.ChatCompletionMessage & {
     reasoning?: string;
+    reasoning_content?: string;
     reasoning_details?: unknown;
 };
 
@@ -192,14 +193,17 @@ export async function POST(req: NextRequest) {
                             controller.enqueue(encoder.encode(delta.content));
                         }
 
-                        // Handle reasoning tokens from OpenRouter.
+                        // Handle reasoning tokens from OpenRouter and OpenAI-compatible providers
+                        // (e.g. NanoGPT / DeepSeek / GLM `reasoning_content`).
                         // `reasoning` and `reasoning_details` can both be present in the same
                         // delta (Gemini does this) — emit only one to avoid duplicating thinking.
                         const extendedDelta = delta as OpenRouterMessage;
-                        if (extendedDelta?.reasoning) {
+                        const reasoningChunk =
+                            extendedDelta?.reasoning || extendedDelta?.reasoning_content;
+                        if (reasoningChunk) {
                             // Wrap reasoning in special tags for client-side parsing
                             controller.enqueue(
-                                encoder.encode(`<think>${extendedDelta.reasoning}</think>`)
+                                encoder.encode(`<think>${reasoningChunk}</think>`)
                             );
                         } else if (extendedDelta?.reasoning_details) {
                             // Handle reasoning_details array format

@@ -10,7 +10,9 @@ import {
     getL0SummariesForL1,
     getL1SummariesForL2,
     parseSummarizationResponse,
+    SUMMARY_MAX_TOKENS,
 } from '../ai/hierarchical-summarizer';
+import { normalizeThinkText } from '../ai/background-ai';
 import type { MemorySummary } from '@/types/rag';
 import type { Message } from '@/types/chat';
 
@@ -180,5 +182,47 @@ describe('parseSummarizationResponse', () => {
         const result = parseSummarizationResponse(response);
         expect(result).not.toBeNull();
         expect(result!.summary).toBe('Important events');
+    });
+
+    it('returns null when truncated mid-reasoning (unclosed <think>)', () => {
+        const response = '<think>Let me analyze these 10 messages carefully. First, the hero...';
+        expect(parseSummarizationResponse(response)).toBeNull();
+    });
+
+    it('ignores braces inside <think> when extracting final JSON', () => {
+        const response =
+            '<think>I should output { "summary": ... } in French.</think>\n{"summary": "Le héros a vaincu le dragon.", "keyFacts": ["Dragon vaincu"]}';
+        const result = parseSummarizationResponse(response);
+        expect(result).not.toBeNull();
+        expect(result!.summary).toBe('Le héros a vaincu le dragon.');
+        expect(result!.keyFacts).toEqual(['Dragon vaincu']);
+    });
+
+    it('returns null when JSON has an empty summary', () => {
+        expect(parseSummarizationResponse('{"summary": "   ", "keyFacts": ["fact"]}')).toBeNull();
+    });
+
+    it('uses a high token budget for reasoning models', () => {
+        expect(SUMMARY_MAX_TOKENS).toBe(12_000);
+    });
+});
+
+describe('normalizeThinkText', () => {
+    it('returns empty string in strict-remove-blocks when only reasoning was emitted', () => {
+        expect(
+            normalizeThinkText('<think>step 1</think><think>step 2</think>', 'strict-remove-blocks')
+        ).toBe('');
+        expect(normalizeThinkText('<think>cut off mid-thought...', 'strict-remove-blocks')).toBe(
+            ''
+        );
+    });
+
+    it('keeps the final answer outside <think> in strict-remove-blocks', () => {
+        expect(
+            normalizeThinkText(
+                '<think>reasoning</think>\n{"summary": "Done", "keyFacts": []}',
+                'strict-remove-blocks'
+            )
+        ).toBe('{"summary": "Done", "keyFacts": []}');
     });
 });
