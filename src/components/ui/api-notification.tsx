@@ -107,6 +107,12 @@ export function APINotificationToast() {
     );
 }
 
+/** Error toast: title line, then the detail. */
+export function notifyError(title: string, detail: string): void {
+    const { addNotification, updateNotification } = useNotificationStore.getState();
+    updateNotification(addNotification(title, 'world'), 'error', detail);
+}
+
 // Helper functions to use in API calls
 export function notifyAPIStart(message: string, icon?: APINotification['icon']): string {
     return useNotificationStore.getState().addNotification(message, icon);

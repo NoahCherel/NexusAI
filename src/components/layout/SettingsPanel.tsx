@@ -21,7 +21,7 @@ import { ResponseControls } from '@/components/settings/ResponseControls';
 import { ModelSelector } from '@/components/chat/ModelSelector';
 import { PresetEditor } from '@/components/settings/PresetEditor';
 import { GlobalBackupControls } from '@/components/settings/GlobalBackupControls';
-import { SETTINGS_VERSION } from '@/lib/settings-storage';
+import { getLiveSettingsEnvelope } from '@/stores/settings-store';
 import {
     DropdownMenu,
     DropdownMenuContent,
@@ -968,10 +968,7 @@ export function SettingsPanel({ open, onOpenChange, initialSection = 'api' }: Se
                             {' '}
                             <GlobalBackupControls
                                 allowRestore
-                                getLiveSettings={() => ({
-                                    state: { ...useSettingsStore.getState() },
-                                    version: SETTINGS_VERSION,
-                                })}
+                                getLiveSettings={getLiveSettingsEnvelope}
                             />
                         </TabsContent>
                     </Tabs>
