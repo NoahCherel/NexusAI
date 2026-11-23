@@ -128,16 +128,3 @@ export function notifyWriteError(error: unknown): void {
         'Vos derniers changements ne sont peut-être pas sauvegardés. Téléchargez une sauvegarde globale.'
     );
 }
-
-// Helper functions to use in API calls
-export function notifyAPIStart(message: string, icon?: APINotification['icon']): string {
-    return useNotificationStore.getState().addNotification(message, icon);
-}
-
-export function notifyAPISuccess(id: string, message?: string): void {
-    useNotificationStore.getState().updateNotification(id, 'success', message);
-}
-
-export function notifyAPIError(id: string, message?: string): void {
-    useNotificationStore.getState().updateNotification(id, 'error', message);
-}

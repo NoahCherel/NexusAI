@@ -173,60 +173,6 @@ export function scoreMessageQuality(message: Pick<Message, 'role' | 'content'>):
 }
 
 /**
- * Score a chunk of messages (for summarization decisions).
- * Returns an aggregate score and the individual scores.
- */
-export function scoreMessageChunk(messages: Pick<Message, 'role' | 'content'>[]): {
-    averageScore: number;
-    maxScore: number;
-    totalWords: number;
-    qualityMessages: number; // Messages with score >= 3
-    skipMessages: number; // Messages with score < 3
-    scores: QualityScore[];
-    shouldSummarize: boolean; // Whether this chunk is worth an API call
-} {
-    const scores = messages.map((m) => scoreMessageQuality(m));
-    const qualityMessages = scores.filter((s) => s.score >= 3).length;
-    const skipMessages = scores.filter((s) => s.score < 3).length;
-    const totalWords = scores.reduce((sum, s) => sum + s.wordCount, 0);
-
-    const qualityScores = scores.filter((s) => s.score >= 3);
-    const averageScore =
-        qualityScores.length > 0
-            ? qualityScores.reduce((sum, s) => sum + s.score, 0) / qualityScores.length
-            : 0;
-    const maxScore = Math.max(...scores.map((s) => s.score), 0);
-
-    // Skip summarization if:
-    // - Less than 30% of messages are quality (above skip threshold)
-    // - Total words < 50 (not enough content)
-    // - Average quality score < 3
-    const qualityRatio = qualityMessages / Math.max(messages.length, 1);
-    const shouldSummarize = qualityRatio >= 0.3 && totalWords >= 50 && averageScore >= 3;
-
-    return {
-        averageScore,
-        maxScore,
-        totalWords,
-        qualityMessages,
-        skipMessages,
-        scores,
-        shouldSummarize,
-    };
-}
-
-/**
- * Filter messages to only quality ones (for feeding to summarizer).
- * Removes trivial OOC/reaction messages to reduce noise.
- */
-export function filterQualityMessages<T extends Pick<Message, 'role' | 'content'>>(
-    messages: T[],
-    minScore: number = 3
-): T[] {
-    return messages.filter((m) => scoreMessageQuality(m).score >= minScore);
-}
-
-/**
  * Calculate adaptive chunk size based on message quality density.
  * High-density content gets smaller chunks (more frequent summaries).
  * Low-density content gets larger chunks (fewer summaries).

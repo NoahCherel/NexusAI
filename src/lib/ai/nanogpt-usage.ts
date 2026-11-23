@@ -182,11 +182,6 @@ export async function fetchNanoGPTUsage(force = false): Promise<NanoGPTUsage | n
     }
 }
 
-/** Invalidate the cached usage (call after a generation so the next read refetches). */
-export function invalidateNanoGPTUsage(): void {
-    cache = null;
-}
-
 /**
  * Compact count for the tight header badge. Keeps 2 significant decimals in the millions so the
  * value visibly tracks consumption (59_968_354 → "59,97 M", not a misleading "60,0 M").

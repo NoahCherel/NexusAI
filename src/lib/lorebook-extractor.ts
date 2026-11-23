@@ -106,8 +106,6 @@ Output format (JSON array only):
     }
 }
 
-export const LOREBOOK_AUTO_EXTRACT_KEY = 'lorebook-auto-extract';
-
 /**
  * Canon-safe replacement for lorebook extraction on whole-work RPG cards.
  *

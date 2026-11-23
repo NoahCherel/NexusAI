@@ -125,10 +125,6 @@ function getEmbeddingCacheKey(text: string): string {
     return `${EMBEDDING_MODEL_REVISION}:${text.length}:${simpleHash(text)}`;
 }
 
-export function getEmbeddingModelSignature(): string {
-    return EMBEDDING_MODEL_REVISION;
-}
-
 /**
  * Similarity gates for the CURRENT embedding space. e5 similarities live on a compressed
  * high scale (irrelevant ≈ 0.70-0.75, relevant ≈ 0.78+); the TF-IDF fallback keeps the
@@ -138,30 +134,6 @@ export function getSimilarityThresholds(): { min: number; minCritical: number } 
     return embedderInstance
         ? { min: 0.75, minCritical: 0.72 } // e5 scale
         : { min: 0.18, minCritical: 0.12 }; // TF-IDF fallback scale
-}
-
-/**
- * True when this stored vector belongs to the current embedding space and can be compared
- * against a fresh query vector. Cross-space cosine (MiniLM vs e5) gives garbage scores.
- */
-export function isCurrentSpace(embeddingRevision: string | undefined): boolean {
-    // Legacy items (no revision stamp) predate e5 — they are NOT comparable.
-    return embeddingRevision === EMBEDDING_MODEL_REVISION;
-}
-
-/**
- * Batch embed multiple texts efficiently.
- */
-export async function embedTexts(
-    texts: string[],
-    kind: EmbedKind = 'passage'
-): Promise<number[][]> {
-    // Process sequentially to avoid OOM
-    const results: number[][] = [];
-    for (const text of texts) {
-        results.push(await embedText(text, kind));
-    }
-    return results;
 }
 
 /**
@@ -358,21 +330,4 @@ function simpleHash(str: string): number {
         hash = hash & hash; // Convert to 32bit integer
     }
     return hash;
-}
-
-/**
- * Check if the ML embedder is available.
- */
-export function isEmbedderReady(): boolean {
-    return !!embedderInstance;
-}
-
-/**
- * Get embedder status for UI.
- */
-export function getEmbedderStatus(): 'loading' | 'ready' | 'fallback' | 'idle' {
-    if (isLoading) return 'loading';
-    if (embedderInstance) return 'ready';
-    if (loadError) return 'fallback';
-    return 'idle';
 }

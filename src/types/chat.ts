@@ -1,5 +1,4 @@
 // Chat and conversation types
-import type { Provider } from '@/lib/ai/providers';
 import type { BatchWaitStep } from '@/lib/ai/openrouter-batch';
 import type { CharacterRef } from './scene';
 
@@ -168,12 +167,4 @@ export interface ArcCompass {
     work?: string;
     currentPosition?: string; // auto-captured from the GM's trailing [timeline …]; = canon timelineCap
     nextBeat?: string; // the specific canonical beat to steer toward, subtly
-}
-
-export interface ChatSettings {
-    provider: Provider;
-    model: string;
-    temperature: number;
-    maxTokens: number;
-    preset: 'creative' | 'balanced' | 'precise' | 'custom';
 }

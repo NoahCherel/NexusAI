@@ -77,13 +77,3 @@ export function detectImportUrl(rawUrl: string): DetectedImport | null {
 
     return null;
 }
-
-/** Hosts accepted by the importer — for UI hints. */
-export const SUPPORTED_IMPORT_HOSTS = [
-    'jannyai.com',
-    'chub.ai',
-    'characterhub.org',
-    'pygmalion.chat',
-    'realm.risuai.net',
-    'aicharactercards.com',
-];

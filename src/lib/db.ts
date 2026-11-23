@@ -285,11 +285,6 @@ export async function saveCharacter(character: CharacterWithMemory): Promise<voi
     await db.put('characters', character);
 }
 
-export async function getCharacter(id: string): Promise<CharacterWithMemory | undefined> {
-    const db = await initDB();
-    return db.get('characters', id);
-}
-
 export async function getAllCharacters(): Promise<CharacterWithMemory[]> {
     const db = await initDB();
     return db.getAll('characters');
@@ -685,18 +680,6 @@ export async function getLorebookHistory(characterId: string): Promise<LorebookH
     return db.getAllFromIndex('lorebookHistory', 'by-character', characterId);
 }
 
-// Settings operations
-export async function saveSetting(key: string, value: unknown): Promise<void> {
-    const db = await initDB();
-    await db.put('settings', { key, value });
-}
-
-export async function getSetting<T>(key: string): Promise<T | undefined> {
-    const db = await initDB();
-    const result = await db.get('settings', key);
-    return (result as { value: unknown } | undefined)?.value as T | undefined;
-}
-
 // ============ Chronicle (summary) operations ============
 
 /** Upsert — also the update path: read, patch, save back. */
@@ -840,24 +823,4 @@ export async function saveArcOutline(outline: ArcOutline): Promise<void> {
 export async function getArcOutline(work: string): Promise<ArcOutline | undefined> {
     const db = await initDB();
     return db.get('arcOutlines', work.trim().toLowerCase());
-}
-
-// Utility: Export all data (for backup)
-export async function exportAllData(): Promise<{
-    characters: CharacterWithMemory[];
-    conversations: Conversation[];
-    messages: Message[];
-    lorebookHistory: LorebookHistoryEntry[];
-    storyStates: StoryState[];
-    sceneBeats: SceneBeatRecord[];
-}> {
-    const db = await initDB();
-    return {
-        characters: await db.getAll('characters'),
-        conversations: await db.getAll('conversations'),
-        messages: await db.getAll('messages'),
-        lorebookHistory: await db.getAll('lorebookHistory'),
-        storyStates: await db.getAll('storyStates'),
-        sceneBeats: await db.getAll('sceneBeats'),
-    };
 }

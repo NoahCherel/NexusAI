@@ -155,7 +155,3 @@ export function scheduleBackgroundRequest<T>(params: {
 export function noteProviderRateLimit(provider: ScheduledProvider): void {
     schedulers[provider].noteRateLimit();
 }
-
-export function getBackgroundSchedulerSnapshot(provider: ScheduledProvider) {
-    return schedulers[provider].snapshot();
-}

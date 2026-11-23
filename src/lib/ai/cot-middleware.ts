@@ -156,35 +156,3 @@ export function splitStreamedReply(
     const parsed = parseStreamingChunk(clean.replace(/<\/think><think>/g, ''), provider);
     return { visible: parsed.visibleContent, thought: parsed.thoughtContent, usage };
 }
-
-/**
- * Format thought content for display
- */
-export function formatThoughtForDisplay(thought: string): string {
-    if (!thought) return '';
-
-    // Clean up and format
-    return thought
-        .replace(/\n{3,}/g, '\n\n') // Reduce excessive newlines
-        .replace(/^\s+|\s+$/g, '') // Trim
-        .replace(/^-\s*/gm, '• '); // Convert dashes to bullets
-}
-
-/**
- * Check if a model supports reasoning/thinking
- */
-export function supportsReasoning(modelId: string): boolean {
-    const reasoningModels = [
-        'deepseek-r1',
-        'deepseek-reasoner',
-        'o1',
-        'o1-mini',
-        'o1-preview',
-        'o3',
-        'o3-mini',
-        'claude-3-opus', // Extended thinking
-        'gemini-2.0-flash-thinking',
-    ];
-
-    return reasoningModels.some((m) => modelId.toLowerCase().includes(m));
-}
