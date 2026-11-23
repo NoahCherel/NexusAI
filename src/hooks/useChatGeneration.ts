@@ -771,11 +771,9 @@ export function useChatGeneration({
                     );
                 };
 
-                // Parse the whole stream received so far, never a lone chunk: a <think>
-                // opened in one network chunk and closed in a later one leaked its text into
-                // the saved reply when chunks were parsed one by one.
-                // Parsed at the flush rate, not per chunk: re-reading a long reasoning stream
-                // on every token would be quadratic on a phone.
+                // Parse the whole stream received so far (a <think> split across network chunks
+                // leaked into the reply when chunks were parsed one by one), at the flush rate:
+                // re-reading a long reasoning stream on every token would be quadratic.
                 let raw = '';
                 let lastParseAt = 0;
                 const parseRaw = () => {

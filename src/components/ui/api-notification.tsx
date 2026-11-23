@@ -113,16 +113,19 @@ export function notifyError(title: string, detail: string): void {
     updateNotification(addNotification(title, 'world'), 'error', detail);
 }
 
-let writeErrorShown = false;
+// Error notices hide themselves after 3 s: while saves keep failing, show it again every minute.
+const WRITE_ERROR_REPEAT_MS = 60_000;
+let writeErrorShownAt = -Infinity;
 
 /**
  * For background IndexedDB writes that used to fail silently (quota full, connection lost):
- * every failure is logged, the user is told once per page load.
+ * every failure is logged, the user is told at most once a minute.
  */
 export function notifyWriteError(error: unknown): void {
     console.error(error);
-    if (writeErrorShown) return;
-    writeErrorShown = true;
+    const now = Date.now();
+    if (now - writeErrorShownAt < WRITE_ERROR_REPEAT_MS) return;
+    writeErrorShownAt = now;
     notifyError(
         'Enregistrement impossible',
         'Vos derniers changements ne sont peut-être pas sauvegardés. Téléchargez une sauvegarde globale.'
