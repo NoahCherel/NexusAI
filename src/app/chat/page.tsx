@@ -38,6 +38,7 @@ import { MemoryPanel } from '@/components/chat/MemoryPanel';
 import { CanonEditor } from '@/components/canon/CanonEditor';
 import { LandingPage } from '@/components/chat/LandingPage';
 import { useAppInitialization } from '@/hooks/useAppInitialization';
+import { useOnlineBackup } from '@/hooks/useOnlineBackup';
 import { useBackgroundPipeline } from '@/hooks/useBackgroundPipeline';
 import { useChatGeneration, useActiveApiKey } from '@/hooks/useChatGeneration';
 import { APINotificationToast } from '@/components/ui/api-notification';
@@ -123,6 +124,8 @@ export default function ChatPage() {
 
     // Initialize IndexedDB and load data
     useAppInitialization();
+    // Online backup to Supabase while the app is open (no-op when signed out)
+    useOnlineBackup();
 
     const messageViewportRef = useRef<HTMLDivElement>(null);
     const lastOpenedAtBottomRef = useRef<string | null>(null);
