@@ -1,15 +1,39 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Download, Loader2 } from 'lucide-react';
+import { Download, Loader2, Share } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
-    createGlobalBackup,
+    createGlobalBackupFile,
+    inspectGlobalBackupFile,
+    isGzipFile,
     parseGlobalBackup,
     restoreGlobalBackup,
+    restoreGlobalBackupFile,
+    type BackupFileSummary,
     type GlobalBackup,
 } from '@/lib/global-backup';
 import { COLLECTIONS, type SettingsEnvelope } from '@/lib/settings-storage';
+
+const LAST_BACKUP_KEY = 'nexusai-last-global-backup';
+
+type Pending =
+    | { kind: 'v1'; backup: GlobalBackup }
+    | { kind: 'v2'; file: File; summary: BackupFileSummary };
+
+function formatSize(bytes: number): string {
+    return bytes < 1024 * 1024
+        ? `${Math.max(1, Math.round(bytes / 1024))} Ko`
+        : `${(bytes / 1024 / 1024).toFixed(1)} Mo`;
+}
+
+function readLastBackup(): { at: string; size: number } | null {
+    try {
+        return JSON.parse(localStorage.getItem(LAST_BACKUP_KEY) ?? 'null');
+    } catch {
+        return null;
+    }
+}
 
 export function GlobalBackupControls({
     getLiveSettings,
@@ -20,8 +44,9 @@ export function GlobalBackupControls({
 }) {
     const [busy, setBusy] = useState(false);
     const [note, setNote] = useState('');
-    const [pending, setPending] = useState<GlobalBackup | null>(null);
-    const [prepared, setPrepared] = useState<{ url: string; name: string } | null>(null);
+    const [pending, setPending] = useState<Pending | null>(null);
+    const [prepared, setPrepared] = useState<{ file: File; url: string } | null>(null);
+    const [last, setLast] = useState(readLastBackup);
 
     useEffect(() => {
         if (!prepared) return;
@@ -30,27 +55,22 @@ export function GlobalBackupControls({
         };
     }, [prepared]);
 
-    async function download() {
+    async function prepare() {
         setBusy(true);
+        setPrepared(null);
         setNote('Préparation de la sauvegarde…');
         try {
-            const backup = await createGlobalBackup(
+            const blob = await createGlobalBackupFile(
                 localStorage,
                 location.origin,
-                getLiveSettings?.()
+                getLiveSettings?.(),
+                (done, total) => setNote(`Lecture… ${done} / ${total} éléments`)
             );
-            const file = new Blob([JSON.stringify(backup)], { type: 'application/json' });
-            const url = URL.createObjectURL(file);
-            const name = `nexusai-sauvegarde-globale-${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
-            setPrepared({ url, name });
-            const link = document.createElement('a');
-            link.href = url;
-            link.download = name;
-            document.body.appendChild(link);
-            link.click();
-            link.remove();
+            const name = `nexusai-sauvegarde-${new Date().toISOString().replace(/[:.]/g, '-')}.json.gz`;
+            const file = new File([blob], name, { type: 'application/gzip' });
+            setPrepared({ file, url: URL.createObjectURL(file) });
             setNote(
-                'Fichier prêt. Si le téléchargement ne démarre pas, utilisez « Enregistrer le fichier » ci-dessous. Gardez une copie en dehors du navigateur.'
+                `Fichier prêt (${formatSize(file.size)}). Appuyez sur « Enregistrer le fichier » et gardez-le en dehors du téléphone (Fichiers → iCloud Drive).`
             );
         } catch (error) {
             setNote(
@@ -61,11 +81,73 @@ export function GlobalBackupControls({
         }
     }
 
+    function markSaved(file: File) {
+        const entry = { at: new Date().toISOString(), size: file.size };
+        try {
+            localStorage.setItem(LAST_BACKUP_KEY, JSON.stringify(entry));
+        } catch {
+            /* the backup itself is saved; only the reminder is lost */
+        }
+        setLast(entry);
+    }
+
+    // Runs straight from the tap: the share sheet refuses to open after a long await.
+    async function save() {
+        if (!prepared) return;
+        const files = [prepared.file];
+        if (navigator.canShare?.({ files })) {
+            try {
+                await navigator.share({ files, title: 'Sauvegarde NexusAI' });
+                markSaved(prepared.file);
+                setNote('Sauvegarde enregistrée.');
+            } catch (error) {
+                if (error instanceof Error && error.name === 'AbortError') return;
+                setNote(
+                    `Partage impossible : ${error instanceof Error ? error.message : 'erreur inconnue'}`
+                );
+            }
+            return;
+        }
+        const link = document.createElement('a');
+        link.href = prepared.url;
+        link.download = prepared.file.name;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        markSaved(prepared.file);
+        setNote('Téléchargement lancé. Gardez une copie en dehors du navigateur.');
+    }
+
+    async function choose(file: File) {
+        setPending(null);
+        setBusy(true);
+        try {
+            if (await isGzipFile(file)) {
+                const summary = await inspectGlobalBackupFile(file, (checked) =>
+                    setNote(`Vérification… ${checked} éléments`)
+                );
+                setPending({ kind: 'v2', file, summary });
+            } else {
+                setPending({ kind: 'v1', backup: parseGlobalBackup(await file.text()) });
+            }
+            setNote('Fichier vérifié. Aucune donnée n’a encore été écrite.');
+        } catch (error) {
+            setNote(error instanceof Error ? error.message : 'Fichier illisible.');
+        } finally {
+            setBusy(false);
+        }
+    }
+
     async function restore() {
         if (!pending) return;
         setBusy(true);
         try {
-            const count = await restoreGlobalBackup(pending, localStorage);
+            const count =
+                pending.kind === 'v2'
+                    ? await restoreGlobalBackupFile(pending.file, localStorage, (done, total) =>
+                          setNote(`Restauration… ${done} / ${total} éléments`)
+                      )
+                    : await restoreGlobalBackup(pending.backup, localStorage);
             setPending(null);
             setNote(
                 `${count} enregistrement(s) ajouté(s), réglages restaurés si présents dans le fichier. Rechargez l’application après avoir exporté les modifications non enregistrées des autres onglets.`
@@ -79,14 +161,32 @@ export function GlobalBackupControls({
         }
     }
 
+    const info = pending
+        ? pending.kind === 'v2'
+            ? {
+                  createdAt: pending.summary.createdAt,
+                  counts: Object.entries(pending.summary.counts),
+                  hasDatabase: !!pending.summary.database,
+                  settings: pending.summary.settings,
+              }
+            : {
+                  createdAt: pending.backup.createdAt,
+                  counts: (pending.backup.database?.stores ?? []).map(
+                      (store) => [store.name, store.entries.length] as const
+                  ),
+                  hasDatabase: !!pending.backup.database,
+                  settings: pending.backup.settings,
+              }
+        : null;
+
     return (
         <div className="space-y-2 text-left">
             <div className="flex flex-wrap items-center gap-3">
                 <Button
-                    onClick={() => void download()}
+                    onClick={() => void prepare()}
                     disabled={busy}
                     variant="outline"
-                    className="gap-2"
+                    className="gap-2 pointer-coarse:h-10"
                 >
                     {busy ? (
                         <Loader2 className="h-4 w-4 animate-spin" />
@@ -111,56 +211,50 @@ export function GlobalBackupControls({
                 lorebooks, mémoires et réglages. Les clés API devront être ressaisies sur un autre
                 appareil.
             </p>
+            <p className="text-xs text-muted-foreground">
+                {last
+                    ? `Dernière sauvegarde enregistrée : ${new Date(last.at).toLocaleString()} (${formatSize(last.size)})`
+                    : 'Aucune sauvegarde enregistrée depuis cet appareil.'}
+            </p>
             {prepared && (
-                <a
-                    className="inline-block text-sm underline"
-                    href={prepared.url}
-                    download={prepared.name}
+                <Button
+                    onClick={() => void save()}
+                    disabled={busy}
+                    className="gap-2 pointer-coarse:h-10"
                 >
-                    Enregistrer le fichier
-                </a>
+                    <Share className="h-4 w-4" />
+                    Enregistrer le fichier ({formatSize(prepared.file.size)})
+                </Button>
             )}
             {allowRestore && (
                 <label className="block space-y-2 text-sm">
                     <span>Restaurer un fichier de sauvegarde globale</span>
                     <input
                         type="file"
-                        accept=".json,application/json"
+                        accept=".gz,.json,application/gzip,application/json"
                         disabled={busy}
                         className="block w-full"
-                        onChange={async (event) => {
+                        onChange={(event) => {
                             const file = event.target.files?.[0];
                             event.target.value = '';
-                            if (!file) return;
-                            setPending(null);
-                            setBusy(true);
-                            try {
-                                setPending(parseGlobalBackup(await file.text()));
-                                setNote('Fichier lu. Aucune donnée n’a encore été écrite.');
-                            } catch (error) {
-                                setNote(
-                                    error instanceof Error ? error.message : 'Fichier illisible.'
-                                );
-                            } finally {
-                                setBusy(false);
-                            }
+                            if (file) void choose(file);
                         }}
                     />
                 </label>
             )}
-            {pending && (
+            {info && (
                 <div className="rounded-lg border border-amber-400/40 p-3 text-sm space-y-2">
-                    <p>Sauvegarde du {new Date(pending.createdAt).toLocaleString()}.</p>
+                    <p>Sauvegarde du {new Date(info.createdAt).toLocaleString()}.</p>
                     <p>
-                        {pending.database?.stores
-                            .map((store) => `${store.entries.length} ${store.name}`)
-                            .join(' · ') || 'Aucune base de conversations.'}
+                        {info.hasDatabase
+                            ? info.counts.map(([name, count]) => `${count} ${name}`).join(' · ')
+                            : 'Aucune base de conversations.'}
                     </p>
                     <p>
-                        {pending.settings
+                        {info.settings
                             ? COLLECTIONS.map(
                                   (key) =>
-                                      `${(pending.settings!.state[key] as unknown[] | undefined)?.length ?? 0} ${key}`
+                                      `${(info.settings!.state[key] as unknown[] | undefined)?.length ?? 0} ${key}`
                               ).join(' · ')
                             : 'Réglages illisibles ou absents : seules les données de la base seront restaurées.'}
                     </p>
