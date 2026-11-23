@@ -33,6 +33,7 @@
 ### Task 1: Make CI green
 
 **Files:**
+
 - Modify: `.github/workflows/ci.yml:15`
 - Create: `.prettierignore`
 - Reformat: `src/components/character/CharacterCard.tsx`, `src/components/chat/ContextPreviewPanel.tsx`, `src/components/chat/MemoryPanel.tsx`, `src/components/chat/TreeVisualization.tsx`, `src/stores/settings-store.ts` (the files CI rejects)
@@ -64,11 +65,13 @@ git commit -m "ci: fix formatting that kept CI red, move CI to Node 22"
 ### Task 2: Stop `<think>` text leaking into saved replies
 
 **Files:**
+
 - Modify: `src/lib/ai/cot-middleware.ts` (add `splitStreamedReply`)
 - Modify: `src/hooks/useChatGeneration.ts:752-791` (streaming loop)
 - Test: `src/lib/__tests__/cot-middleware.test.ts`
 
 **Interfaces:**
+
 - Produces: `splitStreamedReply(raw: string, provider?: string): { visible: string; thought: string; usage?: ProviderUsage }` — `ProviderUsage` from `@/lib/ai/usage-sentinel`.
 
 - [ ] **Step 1: Write the failing tests** (append to `cot-middleware.test.ts`)
@@ -131,10 +134,12 @@ git commit -m "fix(chat): parse the accumulated stream so <think> never leaks in
 ### Task 3: Remove the broken Anthropic provider
 
 **Files:**
+
 - Modify: `src/lib/ai/providers.ts:5`, `src/app/api/chat/route.ts:71,111-131`, `src/app/api/validate/route.ts` (anthropic endpoint, header, branch at :60), `src/components/layout/SettingsPanel.tsx:309-333`, `src/components/layout/OpenRouterBudget.tsx:69`, `src/hooks/useChatGeneration.ts:1775`, `src/stores/settings-store.ts:200` (`migrateSettings`), `src/lib/settings-storage.ts:8`
 - Test: `src/stores/__tests__/settings-migration.test.ts`
 
 **Interfaces:**
+
 - Produces: `Provider = 'openrouter' | 'openai' | 'nanogpt'`; `SETTINGS_VERSION = 3`.
 
 - [ ] **Step 1: Write the failing test** (add to `settings-migration.test.ts`)
@@ -182,11 +187,13 @@ git commit -m "fix(providers): remove the Anthropic provider that could never wo
 ### Task 4: Deleting a character deletes its conversations everywhere
 
 **Files:**
+
 - Modify: `src/stores/character-store.ts:75-84` (`removeCharacter`)
 - Modify: `src/app/chat/page.tsx:727-740` (`confirmDeleteCharacter`)
 - Test: `src/stores/__tests__/character-delete.test.ts` (new)
 
 **Interfaces:**
+
 - Consumes: `getConversationsByCharacter(characterId)`, `deleteConversation(id)` from `src/lib/db.ts` (the latter already removes messages, summaries, storyStates, sceneBeats).
 
 - [ ] **Step 1: Write the failing test**
@@ -229,6 +236,7 @@ git commit -m "fix(characters): deleting a character also deletes its conversati
 ### Task 5: Tell the user when saving fails; no blocking alerts
 
 **Files:**
+
 - Modify: `src/components/ui/api-notification.tsx` (add two helpers)
 - Modify: `src/hooks/useChatGeneration.ts:214-217` (use the shared `notifyError`)
 - Modify: `src/stores/chat-store.ts` (23 × `.catch(console.error)`), `src/stores/lorebook-store.ts:107,138`
@@ -236,6 +244,7 @@ git commit -m "fix(characters): deleting a character also deletes its conversati
 - Test: `src/lib/__tests__/write-error-notice.test.ts` (new)
 
 **Interfaces:**
+
 - Produces: `notifyError(title: string, detail: string): void` (moved from `useChatGeneration.ts`), `notifyWriteError(error: unknown): void` — logs every call, shows one error notice per page load: title `Enregistrement impossible`, detail `Vos derniers changements ne sont peut-être pas sauvegardés. Téléchargez une sauvegarde globale.`
 
 - [ ] **Step 1: Write the failing test**
@@ -279,6 +288,7 @@ git commit -m "fix(storage): notify once when saving fails instead of only loggi
 ### Task 6: Ask for persistent storage; stop the service worker hoarding
 
 **Files:**
+
 - Modify: `src/hooks/useAppInitialization.ts:22-31`
 - Modify: `public/sw.js`
 
@@ -302,11 +312,13 @@ git commit -m "fix(storage): request persistent storage, cache only same-origin 
 ### Task 7: Make the next database version bump safe
 
 **Files:**
+
 - Modify: `src/lib/db.ts:14-15,90` (export constants; `blocking`/`terminated` handlers)
 - Modify: `src/lib/global-backup.ts:12,177` (use the exported constants)
 - Test: `src/lib/__tests__/db-version.test.ts` (new)
 
 **Interfaces:**
+
 - Produces: `export const DB_VERSION = 9`, `export const DB_NAME = 'nexusai-db'` from `src/lib/db.ts`.
 
 - [ ] **Step 1: Write the failing tests**
@@ -330,12 +342,19 @@ it('lets a newer tab upgrade instead of blocking it', async () => {
 it('accepts a backup at the current version and refuses a newer one', () => {
     const backup = (version: number) =>
         JSON.stringify({
-            format: 'nexusai-global-backup', version: 1, createdAt: '', origin: '',
-            apiKeys: 'reenter-on-restore', settings: null, localStorage: {},
+            format: 'nexusai-global-backup',
+            version: 1,
+            createdAt: '',
+            origin: '',
+            apiKeys: 'reenter-on-restore',
+            settings: null,
+            localStorage: {},
             database: { version, stores: [] },
         });
     expect(() => parseGlobalBackup(backup(DB_VERSION))).not.toThrow();
-    expect(() => parseGlobalBackup(backup(DB_VERSION + 1))).toThrow('Version de base incompatible.');
+    expect(() => parseGlobalBackup(backup(DB_VERSION + 1))).toThrow(
+        'Version de base incompatible.'
+    );
 });
 ```
 
@@ -365,6 +384,7 @@ git commit -m "fix(db): one DB_VERSION for app and backups, never block another 
 ### Task 8: Delete dead code, the dead search feature and unused dependencies
 
 **Files:**
+
 - Delete: `src/lib/conversation-search.ts`, `src/components/ui/badge.tsx`, `src/components/ui/card.tsx`, `src/components/ui/select.tsx`, `src/components/ui/slider.tsx`, `grep.exe.stackdump`
 - Modify (delete one symbol each): `src/lib/db.ts` (`getCharacter`, `saveSetting`, `getSetting`, `exportAllData`), `src/lib/ai/embedding-service.ts` (`getEmbeddingModelSignature`, `isCurrentSpace`, `embedTexts`, `isEmbedderReady`, `getEmbedderStatus`), `src/lib/ai/cot-middleware.ts` (`formatThoughtForDisplay`, `supportsReasoning`), `src/lib/ai/message-quality.ts` (`scoreMessageChunk`, `filterQualityMessages`), `src/components/ui/api-notification.tsx` (`notifyAPIStart`, `notifyAPISuccess`, `notifyAPIError`), `src/lib/ai/background-scheduler.ts` (`getBackgroundSchedulerSnapshot`; keep the class's `snapshot()`, tests use it), `src/lib/ai/nanogpt-usage.ts` (`invalidateNanoGPTUsage`), `src/lib/import/url-detector.ts` (`SUPPORTED_IMPORT_HOSTS`), `src/lib/lorebook-extractor.ts` (`LOREBOOK_AUTO_EXTRACT_KEY`), `src/types/chat.ts` (`ChatSettings` and its now-unused `Provider` import)
 - Modify: `package.json`, `package-lock.json`
@@ -394,6 +414,7 @@ git commit -m "chore: delete dead code, the orphaned conversation search and 5 u
 ### Task 9: Rewrite the README
 
 **Files:**
+
 - Modify: `README.md`
 
 - [ ] **Step 1: Write it**

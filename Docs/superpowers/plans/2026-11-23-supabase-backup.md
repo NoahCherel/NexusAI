@@ -36,6 +36,7 @@
 ### Task 1: Supabase project setup and browser client
 
 **Files:**
+
 - Create: `src/lib/supabase.ts`
 - Create: `Docs/supabase-backup-setup.sql` (committed; exact SQL below)
 - Create: `.env.local` (not committed) with the two values the user pasted
@@ -43,6 +44,7 @@
 - Test: `src/lib/__tests__/supabase-client.test.ts`
 
 **Interfaces:**
+
 - Produces: `getSupabase(): SupabaseClient | null` — `null` when either env var is empty; one memoized client otherwise. Read `process.env.NEXT_PUBLIC_SUPABASE_URL` / `..._PUBLISHABLE_KEY` literally inside the function (Next inlines them at build).
 
 - [ ] **Step 1: Write the failing test**
@@ -116,17 +118,19 @@ git commit -m "feat(backup): Supabase browser client and bucket setup SQL"
 ### Task 2: Pure backup helpers
 
 **Files:**
+
 - Create: `src/lib/online-backup.ts`
 - Test: `src/lib/__tests__/online-backup.test.ts`
 
 **Interfaces:**
+
 - Consumes: `GlobalBackup` type from `@/lib/global-backup`.
 - Produces:
-  - `gzipText(text: string): Promise<Blob>` / `gunzipText(blob: Blob): Promise<string>` (`CompressionStream` / `DecompressionStream`, `'gzip'`)
-  - `backupFingerprint(backup: GlobalBackup): Promise<string>` — SHA-256 hex of the JSON with `createdAt` blanked
-  - `countConversations(backup: GlobalBackup): number` — entries of the `conversations` store, 0 when `database` is null
-  - `backupFileName(date: Date): string`
-  - `pickBackupsToDelete(names: string[], now: Date): string[]`
+    - `gzipText(text: string): Promise<Blob>` / `gunzipText(blob: Blob): Promise<string>` (`CompressionStream` / `DecompressionStream`, `'gzip'`)
+    - `backupFingerprint(backup: GlobalBackup): Promise<string>` — SHA-256 hex of the JSON with `createdAt` blanked
+    - `countConversations(backup: GlobalBackup): number` — entries of the `conversations` store, 0 when `database` is null
+    - `backupFileName(date: Date): string`
+    - `pickBackupsToDelete(names: string[], now: Date): string[]`
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -140,7 +144,9 @@ it('round-trips text through gzip', async () => {
 
 it('fingerprints content, not the creation time', async () => {
     const a = { ...fixture, createdAt: '2026-01-01' };
-    expect(await backupFingerprint(a)).toBe(await backupFingerprint({ ...a, createdAt: '2026-02-02' }));
+    expect(await backupFingerprint(a)).toBe(
+        await backupFingerprint({ ...a, createdAt: '2026-02-02' })
+    );
     expect(await backupFingerprint(a)).not.toBe(await backupFingerprint({ ...a, origin: 'x' }));
 });
 
@@ -150,14 +156,20 @@ it('counts conversations in the snapshot', () => {
 });
 
 it('names files so they sort by time', () => {
-    expect(backupFileName(new Date('2026-11-23T10:15:30.123Z'))).toBe('2026-11-23T10-15-30-123Z.json.gz');
+    expect(backupFileName(new Date('2026-11-23T10:15:30.123Z'))).toBe(
+        '2026-11-23T10-15-30-123Z.json.gz'
+    );
 });
 
 it('keeps the newest 10, one per day for 30 days, and unknown files', () => {
-    const today = Array.from({ length: 10 }, (_, i) => day('2026-11-23', String(i).padStart(2, '0')));
+    const today = Array.from({ length: 10 }, (_, i) =>
+        day('2026-11-23', String(i).padStart(2, '0'))
+    );
     const names = [
         ...today,
-        day('2026-11-21', '08'), day('2026-11-21', '12'), day('2026-11-21', '20'),
+        day('2026-11-21', '08'),
+        day('2026-11-21', '12'),
+        day('2026-11-21', '20'),
         day('2026-10-25', '10'), // 29 days old, only one that day → kept
         day('2026-10-23', '10'), // 31 days old → deleted
         'notes.txt',
@@ -194,19 +206,21 @@ git commit -m "feat(backup): gzip, fingerprint and history-pruning helpers"
 ### Task 3: Upload, list and restore
 
 **Files:**
+
 - Modify: `src/lib/online-backup.ts`
 - Modify: `src/stores/settings-store.ts` (add `getLiveSettingsEnvelope`), `src/components/layout/SettingsPanel.tsx:969-975` (use it)
 - Test: `src/lib/__tests__/online-backup-sync.test.ts`
 
 **Interfaces:**
+
 - Consumes: `getSupabase()` (Task 1); Task 2 helpers; `createGlobalBackup`, `parseGlobalBackup`, `restoreGlobalBackup` from `@/lib/global-backup`; `notifyError(title, detail)` from `@/components/ui/api-notification`.
 - Produces:
-  - `type OnlineBackupResult = { status: 'uploaded'; size: number; at: string } | { status: 'unchanged' | 'empty' | 'signed-out' | 'not-configured' } | { status: 'error'; message: string }`
-  - `interface OnlineBackupState { fingerprint?: string; lastUploadAt?: string; lastSize?: number; lastError?: string }` and `readOnlineBackupState(): OnlineBackupState`
-  - `runOnlineBackup(options?: { force?: boolean; getLiveSettings?: () => SettingsEnvelope }): Promise<OnlineBackupResult>` — single-flight (a call while one runs returns the same promise)
-  - `listOnlineBackups(): Promise<{ name: string; size: number }[]>` — newest first
-  - `restoreOnlineBackup(name: string): Promise<number>` — records added
-  - `getLiveSettingsEnvelope(): SettingsEnvelope` in `settings-store.ts` = `{ state: { ...useSettingsStore.getState() }, version: SETTINGS_VERSION }`
+    - `type OnlineBackupResult = { status: 'uploaded'; size: number; at: string } | { status: 'unchanged' | 'empty' | 'signed-out' | 'not-configured' } | { status: 'error'; message: string }`
+    - `interface OnlineBackupState { fingerprint?: string; lastUploadAt?: string; lastSize?: number; lastError?: string }` and `readOnlineBackupState(): OnlineBackupState`
+    - `runOnlineBackup(options?: { force?: boolean; getLiveSettings?: () => SettingsEnvelope }): Promise<OnlineBackupResult>` — single-flight (a call while one runs returns the same promise)
+    - `listOnlineBackups(): Promise<{ name: string; size: number }[]>` — newest first
+    - `restoreOnlineBackup(name: string): Promise<number>` — records added
+    - `getLiveSettingsEnvelope(): SettingsEnvelope` in `settings-store.ts` = `{ state: { ...useSettingsStore.getState() }, version: SETTINGS_VERSION }`
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -244,7 +258,11 @@ it('records a failed upload and notifies once per page load', async () => {
 });
 
 it('prunes history after an upload', async () => {
-    for (let i = 0; i < 12; i++) files.set(`u1/2026-11-23T0${i % 10}-0${Math.floor(i / 10)}-00-000Z.json.gz`, new Blob(['x']));
+    for (let i = 0; i < 12; i++)
+        files.set(
+            `u1/2026-11-23T0${i % 10}-0${Math.floor(i / 10)}-00-000Z.json.gz`,
+            new Blob(['x'])
+        );
     await runOnlineBackup();
     expect(files.size).toBe(10);
 });
@@ -283,10 +301,12 @@ git commit -m "feat(backup): upload, prune, list and restore online backups"
 ### Task 4: Settings and rescue UI
 
 **Files:**
+
 - Create: `src/components/settings/OnlineBackupControls.tsx`
 - Modify: `src/components/settings/index.ts` (export), `src/components/layout/SettingsPanel.tsx` (backups tab, under `GlobalBackupControls`, `getLiveSettings={getLiveSettingsEnvelope}`), `src/app/rescue/page.tsx:297-300` (new section "Sauvegarde en ligne", no `getLiveSettings` — the rescue page never loads the stores)
 
 **Interfaces:**
+
 - Consumes: everything Task 3 produces; `getSupabase()`; `ConfirmDialog` from `@/components/ui/confirm-dialog`.
 - Produces: `OnlineBackupControls({ getLiveSettings }: { getLiveSettings?: () => SettingsEnvelope })`.
 
@@ -315,10 +335,12 @@ git commit -m "feat(backup): online backup section in Settings and /rescue"
 ### Task 5: Automatic schedule
 
 **Files:**
+
 - Create: `src/hooks/useOnlineBackup.ts`
 - Modify: `src/app/chat/page.tsx:125` (call it next to `useAppInitialization()`)
 
 **Interfaces:**
+
 - Consumes: `runOnlineBackup`, `readOnlineBackupState` (Task 3), `getLiveSettingsEnvelope`.
 - Produces: `useOnlineBackup(): void`.
 

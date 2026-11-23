@@ -42,7 +42,7 @@ database version bump).
 12. **README**: rewrite for what the app is (local-first, how to run, where data lives,
     `/rescue` and backups).
 13. Remove the committed `grep.exe.stackdump`.
-15. Replace the three `window.alert` in `page.tsx` with the notification store. The
+14. Replace the three `window.alert` in `page.tsx` with the notification store. The
     `confirm()` in `conversation-transfer.ts` stays (a real yes/no in an async import flow).
 
 ## Non-goals
