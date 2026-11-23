@@ -155,8 +155,11 @@ export async function createGlobalBackupFile(
     const output = new Response(gzip.readable).blob();
     const writer = gzip.writable.getWriter();
     const encoder = new TextEncoder();
-    const write = (lines: unknown[]) =>
-        writer.write(encoder.encode(lines.map((line) => `${JSON.stringify(line)}\n`).join('')));
+    // One line at a time: a page of 25 large avatars joined into one string would hold
+    // several copies of the page in memory at once.
+    const write = async (lines: unknown[]) => {
+        for (const line of lines) await writer.write(encoder.encode(`${JSON.stringify(line)}\n`));
+    };
     try {
         const db = await openExisting();
         try {

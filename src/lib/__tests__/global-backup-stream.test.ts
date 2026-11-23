@@ -104,6 +104,15 @@ describe('streamed global backup (v2)', () => {
             expect(call[1]).toBe(25);
     });
 
+    it('encodes one record line at a time, never a whole page at once', async () => {
+        await seed();
+        const encode = vi.spyOn(TextEncoder.prototype, 'encode');
+        await createGlobalBackupFile(storage(), 'origin');
+        const inputs = encode.mock.calls.map(([text]) => String(text));
+        expect(inputs.length).toBeGreaterThan(60);
+        for (const text of inputs) expect(text.match(/\n/g)).toHaveLength(1);
+    });
+
     it('strips API keys from the settings it rebuilds', async () => {
         await seed(1);
         const local = storage();
