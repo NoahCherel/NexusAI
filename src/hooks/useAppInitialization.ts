@@ -22,6 +22,8 @@ export function useAppInitialization() {
         const init = async () => {
             try {
                 await initDB();
+                // Ask the browser not to evict our data under storage pressure.
+                void navigator.storage?.persist?.().catch(() => {});
                 await markRunningSceneBeatsInterrupted();
                 await loadCharacters();
             } catch (error) {

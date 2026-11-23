@@ -1,4 +1,4 @@
-const CACHE_NAME = 'nexusai-v1';
+const CACHE_NAME = 'nexusai-v2';
 const STATIC_ASSETS = ['/', '/chat', '/manifest.json'];
 
 // Install event - cache static assets
@@ -27,11 +27,14 @@ self.addEventListener('activate', (event) => {
 self.addEventListener('fetch', (event) => {
     const { request } = event;
 
-    // Skip non-GET requests
-    if (request.method !== 'GET') return;
-
-    // Skip API requests (always fetch from network)
-    if (request.url.includes('/api/')) return;
+    // Only this site's pages: caching every GET (build chunks, other sites, the embedding
+    // model) filled the cache forever. A new CACHE_NAME makes `activate` delete the old one.
+    if (
+        request.method !== 'GET' ||
+        request.mode !== 'navigate' ||
+        new URL(request.url).origin !== self.location.origin
+    )
+        return;
 
     event.respondWith(
         fetch(request)
