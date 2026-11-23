@@ -217,6 +217,16 @@ export function migrateSettings(persisted: unknown, version: number): unknown {
             });
         }
     }
+    if (version < 3) {
+        // The "Anthropic" provider was removed: its key was checked against Anthropic but
+        // sent to OpenRouter, so it never worked. Claude stays reachable through OpenRouter.
+        if (state.activeProvider === 'anthropic') state.activeProvider = 'openrouter';
+        if (Array.isArray(state.apiKeys)) {
+            state.apiKeys = state.apiKeys.filter(
+                (key) => (key as { provider?: string } | null)?.provider !== 'anthropic'
+            );
+        }
+    }
     return state;
 }
 

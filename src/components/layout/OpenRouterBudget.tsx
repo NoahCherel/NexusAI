@@ -65,10 +65,7 @@ export function OpenRouterBudgetBadge() {
         null
     );
 
-    const enabled =
-        (activeProvider === 'openrouter' || activeProvider === 'anthropic') &&
-        !!weeklyBudgetUsd &&
-        weeklyBudgetUsd > 0;
+    const enabled = activeProvider === 'openrouter' && !!weeklyBudgetUsd && weeklyBudgetUsd > 0;
 
     useEffect(() => {
         if (!enabled) return;

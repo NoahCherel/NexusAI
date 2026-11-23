@@ -68,7 +68,7 @@ export async function POST(req: NextRequest) {
 
         // Determine effective model ID
         let effectiveModelId = model;
-        if (provider === 'openai' || provider === 'anthropic') {
+        if (provider === 'openai') {
             if (model.includes('/')) {
                 effectiveModelId = model.split('/').pop() || model;
             }
@@ -108,33 +108,10 @@ export async function POST(req: NextRequest) {
                 stop: stoppingStrings,
                 stream_options: { include_usage: true },
             };
-        } else if (provider === 'anthropic') {
-            // Use OpenRouter for Anthropic to maintain consistency
-            client = new OpenAI({
-                baseURL: 'https://openrouter.ai/api/v1',
-                apiKey,
-                defaultHeaders: {
-                    'HTTP-Referer': origin,
-                    'X-Title': 'NexusAI',
-                },
-            });
-            applyClaudeCacheBreakpoints(fullMessages, cachePrefixLength);
-            requestBody = {
-                model: effectiveModelId.startsWith('anthropic/')
-                    ? effectiveModelId
-                    : `anthropic/${effectiveModelId}`,
-                messages: fullMessages,
-                temperature: temperature ?? 0.8,
-                max_tokens: maxTokens ?? 4096,
-                top_p: topP,
-                stop: stoppingStrings,
-                stream_options: { include_usage: true },
-                usage: { include: true },
-            };
         } else if (provider === 'nanogpt') {
             // NanoGPT is OpenAI-compatible. Model IDs are namespaced (e.g. "openai/gpt-5.2") and
             // MUST be passed through intact — the truncation above only runs for
-            // openai/anthropic, so `effectiveModelId` is already the untouched id here.
+            // openai, so `effectiveModelId` is already the untouched id here.
             client = new OpenAI({
                 baseURL: nanogptBaseURL(billingScope),
                 apiKey,

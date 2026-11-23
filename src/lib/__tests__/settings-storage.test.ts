@@ -6,6 +6,7 @@ import {
     LEGACY_SETTINGS_KEY,
     SETTINGS_KEY,
     SETTINGS_HISTORY_KEY,
+    SETTINGS_VERSION,
     readSettingsHistory,
     parseSettings,
     mergeMissingSettings,
@@ -126,7 +127,7 @@ describe('protected settings persistence', () => {
         'null',
         '{"state":[]}',
         '{"state":{"personas":null}}',
-        envelope(authored, 3),
+        envelope(authored, SETTINGS_VERSION + 1),
     ])('preserves unreadable or future data and blocks every subsequent write: %s', (raw) => {
         const disk = memoryStorage();
         disk.setItem(SETTINGS_KEY, raw);

@@ -306,40 +306,36 @@ export function SettingsPanel({ open, onOpenChange, initialSection = 'api' }: Se
                                 <div className="space-y-4">
                                     <label className="text-sm font-medium">Fournisseur</label>
                                     <div className="flex flex-wrap gap-3">
-                                        {(
-                                            [
-                                                'openrouter',
-                                                'openai',
-                                                'anthropic',
-                                                'nanogpt',
-                                            ] as Provider[]
-                                        ).map((provider) => {
-                                            const key = getKeyForProvider(provider);
-                                            return (
-                                                <Button
-                                                    key={provider}
-                                                    variant={
-                                                        selectedProvider === provider
-                                                            ? 'default'
-                                                            : 'outline'
-                                                    }
-                                                    size="sm"
-                                                    onClick={() => setSelectedProvider(provider)}
-                                                    className="flex-1 min-w-[120px] gap-2 h-10"
-                                                >
-                                                    {provider === 'openrouter' && 'OpenRouter'}
-                                                    {provider === 'openai' && 'OpenAI'}
-                                                    {provider === 'anthropic' && 'Anthropic'}
-                                                    {provider === 'nanogpt' && 'NanoGPT'}
-                                                    {key?.isValid === true && (
-                                                        <Check className="h-3 w-3 text-green-500" />
-                                                    )}
-                                                    {key?.isValid === false && (
-                                                        <X className="h-3 w-3 text-red-500" />
-                                                    )}
-                                                </Button>
-                                            );
-                                        })}
+                                        {(['openrouter', 'openai', 'nanogpt'] as Provider[]).map(
+                                            (provider) => {
+                                                const key = getKeyForProvider(provider);
+                                                return (
+                                                    <Button
+                                                        key={provider}
+                                                        variant={
+                                                            selectedProvider === provider
+                                                                ? 'default'
+                                                                : 'outline'
+                                                        }
+                                                        size="sm"
+                                                        onClick={() =>
+                                                            setSelectedProvider(provider)
+                                                        }
+                                                        className="flex-1 min-w-[120px] gap-2 h-10"
+                                                    >
+                                                        {provider === 'openrouter' && 'OpenRouter'}
+                                                        {provider === 'openai' && 'OpenAI'}
+                                                        {provider === 'nanogpt' && 'NanoGPT'}
+                                                        {key?.isValid === true && (
+                                                            <Check className="h-3 w-3 text-green-500" />
+                                                        )}
+                                                        {key?.isValid === false && (
+                                                            <X className="h-3 w-3 text-red-500" />
+                                                        )}
+                                                    </Button>
+                                                );
+                                            }
+                                        )}
                                     </div>
                                 </div>
 

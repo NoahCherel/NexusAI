@@ -31,6 +31,21 @@ describe('settings persistence migrations', () => {
         expect(migrateSettings(structuredClone(v2), 2)).toEqual(v2);
     });
 
+    it('drops the removed Anthropic provider (v2 → v3)', () => {
+        const migrated = migrateSettings(
+            {
+                activeProvider: 'anthropic',
+                apiKeys: [
+                    { provider: 'anthropic', encryptedKey: 'a' },
+                    { provider: 'openrouter', encryptedKey: 'o' },
+                ],
+            },
+            2
+        ) as Record<string, unknown>;
+        expect(migrated.activeProvider).toBe('openrouter');
+        expect(migrated.apiKeys).toEqual([{ provider: 'openrouter', encryptedKey: 'o' }]);
+    });
+
     it('defaults the flex tier to off', () => {
         expect(useSettingsStore.getInitialState().useFlexTier).toBe(false);
     });

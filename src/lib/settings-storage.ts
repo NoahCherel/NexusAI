@@ -5,7 +5,7 @@ import type { StateStorage } from 'zustand/middleware';
 export const SETTINGS_KEY = 'nexusai-settings-protected';
 export const LEGACY_SETTINGS_KEY = 'nexusai-settings';
 export const SETTINGS_HISTORY_KEY = 'nexusai-settings-history';
-export const SETTINGS_VERSION = 2;
+export const SETTINGS_VERSION = 3;
 export const COLLECTIONS = ['presets', 'personas', 'customModels', 'customEngines'] as const;
 
 export interface SettingsEnvelope {
