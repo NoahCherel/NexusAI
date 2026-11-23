@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useSyncExternalStore } from 'react';
 import { Download, Loader2, Share } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
@@ -14,8 +14,27 @@ import {
     type GlobalBackup,
 } from '@/lib/global-backup';
 import { COLLECTIONS, type SettingsEnvelope } from '@/lib/settings-storage';
+import { keepScreenOn } from '@/lib/wake-lock';
 
 const LAST_BACKUP_KEY = 'nexusai-last-global-backup';
+const STAY_AWAKE = 'gardez l’app ouverte et l’écran allumé';
+
+// The last saved backup lives in localStorage: read it as an external store so the server
+// render (no localStorage) and the device render never disagree.
+const lastBackupListeners = new Set<() => void>();
+function subscribeLastBackup(listener: () => void) {
+    lastBackupListeners.add(listener);
+    return () => {
+        lastBackupListeners.delete(listener);
+    };
+}
+function readLastBackupRaw(): string | null {
+    try {
+        return localStorage.getItem(LAST_BACKUP_KEY);
+    } catch {
+        return null;
+    }
+}
 
 type Pending =
     | { kind: 'v1'; backup: GlobalBackup }
@@ -27,9 +46,9 @@ function formatSize(bytes: number): string {
         : `${(bytes / 1024 / 1024).toFixed(1)} Mo`;
 }
 
-function readLastBackup(): { at: string; size: number } | null {
+function parseLastBackup(raw: string | null): { at: string; size: number } | null {
     try {
-        return JSON.parse(localStorage.getItem(LAST_BACKUP_KEY) ?? 'null');
+        return JSON.parse(raw ?? 'null');
     } catch {
         return null;
     }
@@ -46,7 +65,9 @@ export function GlobalBackupControls({
     const [note, setNote] = useState('');
     const [pending, setPending] = useState<Pending | null>(null);
     const [prepared, setPrepared] = useState<{ file: File; url: string } | null>(null);
-    const [last, setLast] = useState(readLastBackup);
+    const last = parseLastBackup(
+        useSyncExternalStore(subscribeLastBackup, readLastBackupRaw, () => null)
+    );
 
     useEffect(() => {
         if (!prepared) return;
@@ -58,13 +79,14 @@ export function GlobalBackupControls({
     async function prepare() {
         setBusy(true);
         setPrepared(null);
-        setNote('Préparation de la sauvegarde…');
+        setNote(`Préparation de la sauvegarde… ${STAY_AWAKE}.`);
+        const release = await keepScreenOn();
         try {
             const blob = await createGlobalBackupFile(
                 localStorage,
                 location.origin,
                 getLiveSettings?.(),
-                (done, total) => setNote(`Lecture… ${done} / ${total} éléments`)
+                (done, total) => setNote(`Lecture… ${done} / ${total} éléments — ${STAY_AWAKE}.`)
             );
             const name = `nexusai-sauvegarde-${new Date().toISOString().replace(/[:.]/g, '-')}.json.gz`;
             const file = new File([blob], name, { type: 'application/gzip' });
@@ -77,18 +99,21 @@ export function GlobalBackupControls({
                 `Sauvegarde impossible : ${error instanceof Error ? error.message : 'erreur inconnue'}`
             );
         } finally {
+            release();
             setBusy(false);
         }
     }
 
     function markSaved(file: File) {
-        const entry = { at: new Date().toISOString(), size: file.size };
         try {
-            localStorage.setItem(LAST_BACKUP_KEY, JSON.stringify(entry));
+            localStorage.setItem(
+                LAST_BACKUP_KEY,
+                JSON.stringify({ at: new Date().toISOString(), size: file.size })
+            );
         } catch {
             /* the backup itself is saved; only the reminder is lost */
         }
-        setLast(entry);
+        lastBackupListeners.forEach((listener) => listener());
     }
 
     // Runs straight from the tap: the share sheet refuses to open after a long await.
@@ -114,17 +139,20 @@ export function GlobalBackupControls({
         document.body.appendChild(link);
         link.click();
         link.remove();
-        markSaved(prepared.file);
-        setNote('Téléchargement lancé. Gardez une copie en dehors du navigateur.');
+        // No proof the download landed, so no "last backup" date here.
+        setNote(
+            'Téléchargement lancé : vérifiez que le fichier est bien arrivé, puis gardez-en une copie en dehors du navigateur.'
+        );
     }
 
     async function choose(file: File) {
         setPending(null);
         setBusy(true);
+        const release = await keepScreenOn();
         try {
             if (await isGzipFile(file)) {
                 const summary = await inspectGlobalBackupFile(file, (checked) =>
-                    setNote(`Vérification… ${checked} éléments`)
+                    setNote(`Vérification… ${checked} éléments — ${STAY_AWAKE}.`)
                 );
                 setPending({ kind: 'v2', file, summary });
             } else {
@@ -134,6 +162,7 @@ export function GlobalBackupControls({
         } catch (error) {
             setNote(error instanceof Error ? error.message : 'Fichier illisible.');
         } finally {
+            release();
             setBusy(false);
         }
     }
@@ -141,11 +170,12 @@ export function GlobalBackupControls({
     async function restore() {
         if (!pending) return;
         setBusy(true);
+        const release = await keepScreenOn();
         try {
             const count =
                 pending.kind === 'v2'
                     ? await restoreGlobalBackupFile(pending.file, localStorage, (done, total) =>
-                          setNote(`Restauration… ${done} / ${total} éléments`)
+                          setNote(`Restauration… ${done} / ${total} éléments — ${STAY_AWAKE}.`)
                       )
                     : await restoreGlobalBackup(pending.backup, localStorage);
             setPending(null);
@@ -157,6 +187,7 @@ export function GlobalBackupControls({
                 `Restauration interrompue : ${error instanceof Error ? error.message : 'erreur inconnue'}`
             );
         } finally {
+            release();
             setBusy(false);
         }
     }
