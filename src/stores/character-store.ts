@@ -4,6 +4,8 @@ import {
     saveCharacter,
     getAllCharacters,
     deleteCharacter as dbDeleteCharacter,
+    deleteConversation,
+    getConversationsByCharacter,
     type CharacterWithMemory,
 } from '@/lib/db';
 
@@ -73,12 +75,18 @@ export const useCharacterStore = create<CharacterState>()((set, get) => ({
     },
 
     removeCharacter: async (id) => {
+        // Every delete button goes through here: conversations (with their messages,
+        // Chronicle, story states and scene beats) leave with their character.
+        for (const conversation of await getConversationsByCharacter(id)) {
+            await deleteConversation(conversation.id);
+        }
         await dbDeleteCharacter(id);
+        const wasActive = get().activeCharacterId === id;
         set((state) => ({
             characters: state.characters.filter((c) => c.id !== id),
-            activeCharacterId: state.activeCharacterId === id ? null : state.activeCharacterId,
+            activeCharacterId: wasActive ? null : state.activeCharacterId,
         }));
-        if (typeof window !== 'undefined' && get().activeCharacterId === id) {
+        if (typeof window !== 'undefined' && wasActive) {
             localStorage.removeItem('nexusai_active_char');
         }
     },

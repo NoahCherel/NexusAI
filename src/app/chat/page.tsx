@@ -725,17 +725,7 @@ export default function ChatPage() {
 
     const confirmDeleteCharacter = async () => {
         if (!character) return;
-        const charConvs = conversations.filter((c) => c.characterId === character.id);
-        // Delete all conversations for this character first
-        for (const conv of charConvs) {
-            try {
-                const { deleteConversation } = await import('@/lib/db');
-                await deleteConversation(conv.id);
-            } catch (err) {
-                console.error('Failed to delete conversation:', err);
-            }
-        }
-        // Then delete the character
+        // Deletes the character's conversations too (see removeCharacter).
         await removeCharacter(character.id);
     };
 
